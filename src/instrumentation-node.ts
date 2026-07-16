@@ -396,6 +396,20 @@ export async function registerNodejs(): Promise<void> {
       console.warn("[STARTUP] Arena ELO sync failed to start (non-fatal):", msg);
     }
 
+    try {
+      // Artificial Analysis benchmark sync: powers the aa-benchmark routing strategy.
+      // No-op unless ARTIFICIAL_ANALYSIS_API_KEY is set; opt out via Dashboard Feature
+      // Flags or AA_BENCHMARK_SYNC_ENABLED=false. Non-blocking, never fatal.
+      const { initArtificialAnalysisSync } = await import("@/lib/artificialAnalysisSync");
+      const started = await initArtificialAnalysisSync();
+      if (started) {
+        console.log("[STARTUP] Artificial Analysis benchmark sync initialized");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("[STARTUP] Artificial Analysis sync failed to start (non-fatal):", msg);
+    }
+
     // Pricing sync: opt-in external pricing data (self-gated by PRICING_SYNC_ENABLED inside
     // initPricingSync). Was only wired into the unused server-init.ts, so it never ran in the
     // standalone runtime even when enabled. Non-blocking, never fatal.
