@@ -17,6 +17,7 @@ export const ROUTING_STRATEGY_VALUES = [
   "context-optimized",
   "fusion",
   "pipeline",
+  "aa-benchmark",
 ] as const;
 
 export type RoutingStrategyValue = (typeof ROUTING_STRATEGY_VALUES)[number];
@@ -210,6 +211,13 @@ export const ROUTING_STRATEGIES: RoutingStrategyOption[] = [
     combosDescKey: "pipelineDesc",
     settingsDescKey: "pipelineDesc",
     icon: "linear_scale",
+  },
+  {
+    value: "aa-benchmark",
+    labelKey: "aaBenchmark",
+    combosDescKey: "aaBenchmarkDesc",
+    settingsDescKey: "aaBenchmarkDesc",
+    icon: "leaderboard",
   },
 ];
 

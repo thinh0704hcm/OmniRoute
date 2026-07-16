@@ -13,6 +13,7 @@ import { useTranslations } from "next-intl";
 
 const STRATEGY_LABEL_FALLBACKS: Record<string, string> = {
   "context-relay": "Context Relay",
+  "aa-benchmark": "AA Benchmark",
 };
 
 const LEGACY_COMBO_RESILIENCE_KEYS = new Set([

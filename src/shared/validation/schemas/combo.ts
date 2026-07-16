@@ -218,6 +218,9 @@ export const comboRuntimeConfigSchema = z
     resetWindowQuotaCacheMaxStaleMs: z.coerce.number().int().min(0).max(3_600_000).optional(),
     shadowRouting: shadowRoutingSchema.optional(),
     evalRouting: evalRoutingSchema.optional(),
+    // aa-benchmark strategy: which Artificial Analysis index ranks the targets
+    // (open-sse/services/combo/targetSorters.ts). Defaults to "intelligence".
+    aaMetric: z.enum(["intelligence", "coding", "math", "speed"]).optional(),
     // Fusion strategy (open-sse/services/fusion.ts): the panel is the combo's
     // targets; `judgeModel` synthesizes the final answer (defaults to the first
     // panel model when unset); `fusionTuning` controls quorum-grace collection.

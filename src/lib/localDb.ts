@@ -694,6 +694,7 @@ export {
   listModelIntelligence,
   bulkUpsertModelIntelligence,
   getResolvedTaskFitness,
+  getAaBenchmarkScore,
   setUserFitnessOverrideEntry,
   deleteUserFitnessOverrideEntry,
 } from "./db/modelIntelligence";

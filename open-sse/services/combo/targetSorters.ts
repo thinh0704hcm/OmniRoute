@@ -105,6 +105,56 @@ export async function sortTargetsByCost(targets: ResolvedComboTarget[]) {
 }
 
 /**
+ * Sort models by Artificial Analysis benchmark score (best first) for the
+ * aa-benchmark strategy. Models without a synced score rank last, keeping
+ * their original relative order (stable sort on -Infinity).
+ * @param {Array<string>} models - Model strings in "provider/model" format
+ * @param {string} metric - AA metric ("intelligence" | "coding" | "math" | "speed")
+ * @returns {Promise<Array<string>>} Sorted model strings
+ */
+export async function sortModelsByAaBenchmark(models: string[], metric: string): Promise<string[]> {
+  try {
+    const { getAaBenchmarkScore } = await import("../../../src/lib/localDb");
+    const withScore = models.map((modelStr) => {
+      const parsed = parseModel(modelStr);
+      const model = parsed.model || modelStr;
+      let score = -Infinity;
+      try {
+        const value = getAaBenchmarkScore(model, metric);
+        if (typeof value === "number" && Number.isFinite(value)) score = value;
+      } catch {
+        // keep -Infinity: unknown models rank last
+      }
+      return { modelStr, score };
+    });
+    withScore.sort((a, b) => b.score - a.score);
+    return withScore.map((e) => e.modelStr);
+  } catch {
+    // If score lookup fails entirely, return original order
+    return models;
+  }
+}
+
+export async function sortTargetsByAaBenchmark(targets: ResolvedComboTarget[], metric: string) {
+  const orderedModels = await sortModelsByAaBenchmark(
+    targets.map((target) => target.modelStr),
+    metric
+  );
+  const byModel = new Map<string, ResolvedComboTarget[]>();
+  for (const target of targets) {
+    const queue = byModel.get(target.modelStr) || [];
+    queue.push(target);
+    byModel.set(target.modelStr, queue);
+  }
+  return orderedModels
+    .map((modelStr) => {
+      const queue = byModel.get(modelStr);
+      return queue?.shift() || null;
+    })
+    .filter((target): target is ResolvedComboTarget => target !== null);
+}
+
+/**
  * Sort models by usage count (least-used first) for least-used strategy
  * @param {Array<string>} models - Model strings
  * @param {string} comboName - Combo name for metrics lookup

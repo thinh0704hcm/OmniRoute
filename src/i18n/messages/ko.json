@@ -2489,6 +2489,11 @@
         "when": "모델 전체에서 컨텍스트 창 사용을 최적화해야 할 때 사용합니다.",
         "avoid": "모델의 컨텍스트 길이가 비슷하거나 작업이 간단한 경우에는 피하세요.",
         "example": "예: 더 큰 컨텍스트 창을 사용하여 모델 전체에 긴 대화를 배포합니다."
+      },
+      "aa-benchmark": {
+        "when": "Use when you want the highest-benchmarked model to serve first, with lower-ranked models as fallback.",
+        "avoid": "Avoid when benchmark data has not synced (requires an Artificial Analysis API key) — order falls back to your target list.",
+        "example": "Example: Rank coding combos by the AA Coding Index and always try the top model first."
       }
     },
     "advancedHelp": {
@@ -2696,6 +2701,13 @@
         "tip2": "동질적인 공급자 풀에서 가장 잘 작동합니다.",
         "tip3": "트래픽 급증 시 진동을 방지하려면 감도를 조정하세요.",
         "title": "두 가지 선택의 힘"
+      },
+      "aa-benchmark": {
+        "title": "Benchmark-ranked routing",
+        "description": "Targets are ordered by Artificial Analysis benchmark scores; failures fall through to the next-ranked model.",
+        "tip1": "Set ARTIFICIAL_ANALYSIS_API_KEY so the daily benchmark sync can run.",
+        "tip2": "Pick the metric that matches the workload: intelligence, coding, math, or speed.",
+        "tip3": "Models without synced scores keep your original order at the end of the chain."
       }
     },
     "templateFreeStack": "Free Stack ($0)",
@@ -2807,7 +2819,16 @@
     "agentFeaturesContextLengthErrorInteger": "컨텍스트 길이는 유효한 정수여야 합니다.",
     "agentFeaturesContextLengthErrorRange": "컨텍스트 길이는 1000에서 2000000 사이여야 합니다.",
     "compressionOverride": "압축 재정의",
-    "modePack": "모드 팩"
+    "modePack": "모드 팩",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Ranks targets by Artificial Analysis benchmark scores — best model first. Data by Artificial Analysis (artificialanalysis.ai).",
+    "aaBenchmarkMetric": "Benchmark metric",
+    "aaBenchmarkMetricHelp": "Which Artificial Analysis index ranks the targets. Defaults to the Intelligence Index.",
+    "aaMetricIntelligence": "Intelligence Index",
+    "aaMetricCoding": "Coding Index",
+    "aaMetricMath": "Math Index",
+    "aaMetricSpeed": "Output Speed (tokens/s)",
+    "aaBenchmarkAttributionNote": "Scores sync daily from Artificial Analysis (artificialanalysis.ai) and require ARTIFICIAL_ANALYSIS_API_KEY on the server."
   },
   "costs": {
     "title": "비용",
@@ -6066,7 +6087,9 @@
     "modelLockoutExponentialBackoff": "__MISSING__:Exponential Backoff",
     "modelLockoutExponentialBackoffDescription": "__MISSING__:When enabled, each consecutive failure increases the cooldown duration exponentially.",
     "modelLockoutMaxBackoffSteps": "__MISSING__:Max Backoff Steps",
-    "modelLockoutMaxBackoffStepsDescription": "__MISSING__:Maximum number of backoff steps before the cooldown stops growing. The Max Cooldown cap is reached first in most configurations, making this a safety ceiling for when Max Cooldown is raised."
+    "modelLockoutMaxBackoffStepsDescription": "__MISSING__:Maximum number of backoff steps before the cooldown stops growing. The Max Cooldown cap is reached first in most configurations, making this a safety ceiling for when Max Cooldown is raised.",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Rank targets by Artificial Analysis benchmark scores"
   },
   "contextRtk": {
     "title": "RTK Engine",
@@ -8939,5 +8962,6 @@
     "colAvgScore": "__MISSING__:Avg Score",
     "colModels": "__MISSING__:Models",
     "colType": "__MISSING__:Type"
-  }
+  },
+  "featureFlagAaBenchmarkSyncEnabledDescription": "Enable periodic Artificial Analysis benchmark sync for the aa-benchmark routing strategy. Requires ARTIFICIAL_ANALYSIS_API_KEY. Data by Artificial Analysis (artificialanalysis.ai)."
 }

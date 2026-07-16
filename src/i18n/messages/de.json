@@ -2388,6 +2388,11 @@
         "when": "Verwenden Sie diese Option, wenn Sie die Kontextfensternutzung modellübergreifend optimieren müssen.",
         "avoid": "Vermeiden Sie es, wenn Modelle ähnliche Kontextlängen haben oder Aufgaben einfach sind.",
         "example": "Beispiel: Verteilen Sie lange Gespräche auf Modelle mit größeren Kontextfenstern."
+      },
+      "aa-benchmark": {
+        "when": "Use when you want the highest-benchmarked model to serve first, with lower-ranked models as fallback.",
+        "avoid": "Avoid when benchmark data has not synced (requires an Artificial Analysis API key) — order falls back to your target list.",
+        "example": "Example: Rank coding combos by the AA Coding Index and always try the top model first."
       }
     },
     "advancedHelp": {
@@ -2595,6 +2600,13 @@
         "tip2": "Funktioniert am besten mit homogenen Anbieterpools.",
         "tip3": "Passen Sie die Empfindlichkeit an, um Schwankungen bei Verkehrsspitzen zu vermeiden.",
         "title": "Macht der zwei Möglichkeiten"
+      },
+      "aa-benchmark": {
+        "title": "Benchmark-ranked routing",
+        "description": "Targets are ordered by Artificial Analysis benchmark scores; failures fall through to the next-ranked model.",
+        "tip1": "Set ARTIFICIAL_ANALYSIS_API_KEY so the daily benchmark sync can run.",
+        "tip2": "Pick the metric that matches the workload: intelligence, coding, math, or speed.",
+        "tip3": "Models without synced scores keep your original order at the end of the chain."
       }
     },
     "templateFreeStack": "Free Stack ($0)",
@@ -2706,7 +2718,16 @@
     "agentFeaturesContextLengthErrorInteger": "Die Kontextlänge muss eine gültige Ganzzahl sein",
     "agentFeaturesContextLengthErrorRange": "Die Kontextlänge muss zwischen 1000 und 2000000 liegen",
     "compressionOverride": "Komprimierungsüberschreibung",
-    "modePack": "Moduspaket"
+    "modePack": "Moduspaket",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Ranks targets by Artificial Analysis benchmark scores — best model first. Data by Artificial Analysis (artificialanalysis.ai).",
+    "aaBenchmarkMetric": "Benchmark metric",
+    "aaBenchmarkMetricHelp": "Which Artificial Analysis index ranks the targets. Defaults to the Intelligence Index.",
+    "aaMetricIntelligence": "Intelligence Index",
+    "aaMetricCoding": "Coding Index",
+    "aaMetricMath": "Math Index",
+    "aaMetricSpeed": "Output Speed (tokens/s)",
+    "aaBenchmarkAttributionNote": "Scores sync daily from Artificial Analysis (artificialanalysis.ai) and require ARTIFICIAL_ANALYSIS_API_KEY on the server."
   },
   "costs": {
     "title": "Kosten",
@@ -5530,7 +5551,9 @@
     "homeQuickStart": "Quick Start",
     "homeQuickStartDesc": "Show the Quick Start panel on the Home page.",
     "homeProviderTopology": "Provider Topology",
-    "homeProviderTopologyDesc": "Show the Provider Topology on the Home page."
+    "homeProviderTopologyDesc": "Show the Provider Topology on the Home page.",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Rank targets by Artificial Analysis benchmark scores"
   },
   "contextRtk": {
     "title": "RTK Engine",
@@ -7632,5 +7655,6 @@
     "enabled": "Enabled",
     "disabled": "Disabled",
     "hooks": "Hooks"
-  }
+  },
+  "featureFlagAaBenchmarkSyncEnabledDescription": "Enable periodic Artificial Analysis benchmark sync for the aa-benchmark routing strategy. Requires ARTIFICIAL_ANALYSIS_API_KEY. Data by Artificial Analysis (artificialanalysis.ai)."
 }

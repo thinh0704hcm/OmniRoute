@@ -10,6 +10,7 @@ import {
 } from "./quotaStrategies.ts";
 import {
   orderTargetsByPowerOfTwoChoices,
+  sortTargetsByAaBenchmark,
   sortTargetsByCost,
   sortTargetsByUsage,
 } from "./targetSorters.ts";
@@ -169,6 +170,13 @@ export async function applyStrategyOrdering(
       }
     }
     log.info("COMBO", `Cost-optimized ordering: cheapest first (${orderedTargets[0]?.modelStr})`);
+  } else if (strategy === "aa-benchmark") {
+    const aaMetric = typeof config.aaMetric === "string" ? config.aaMetric : "intelligence";
+    orderedTargets = await sortTargetsByAaBenchmark(orderedTargets, aaMetric);
+    log.info(
+      "COMBO",
+      `AA-benchmark ordering (${aaMetric}): ${orderedTargets[0]?.modelStr} ranked highest`
+    );
   } else if (strategy === "reset-aware") {
     orderedTargets = await orderTargetsByResetAwareQuota(
       orderedTargets,

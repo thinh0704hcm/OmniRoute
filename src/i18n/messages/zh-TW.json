@@ -2503,6 +2503,11 @@
         "when": "當您需要最佳化模型間的上下文視窗使用時使用。",
         "avoid": "當模型具有相似的上下文長度或任務簡單時避免使用。",
         "example": "示例：在具有大上下文視窗的模型之間分配長對話。"
+      },
+      "aa-benchmark": {
+        "when": "Use when you want the highest-benchmarked model to serve first, with lower-ranked models as fallback.",
+        "avoid": "Avoid when benchmark data has not synced (requires an Artificial Analysis API key) — order falls back to your target list.",
+        "example": "Example: Rank coding combos by the AA Coding Index and always try the top model first."
       }
     },
     "advancedHelp": {
@@ -2711,6 +2716,13 @@
         "tip2": "需要在設定中啟用延遲遙測。",
         "tip3": "是高吞吐量組合中輪詢的絕佳替代方案。",
         "title": "雙選負載均衡"
+      },
+      "aa-benchmark": {
+        "title": "Benchmark-ranked routing",
+        "description": "Targets are ordered by Artificial Analysis benchmark scores; failures fall through to the next-ranked model.",
+        "tip1": "Set ARTIFICIAL_ANALYSIS_API_KEY so the daily benchmark sync can run.",
+        "tip2": "Pick the metric that matches the workload: intelligence, coding, math, or speed.",
+        "tip3": "Models without synced scores keep your original order at the end of the chain."
       }
     },
     "templateFreeStack": "免費棧（$0）",
@@ -2832,7 +2844,16 @@
     "modePack": "模式包",
     "disableSessionStickiness": "__MISSING__:Disable session stickiness",
     "sessionStickinessEnabled": "__MISSING__:Stickiness on",
-    "sessionStickinessDisabled": "__MISSING__:Stickiness off"
+    "sessionStickinessDisabled": "__MISSING__:Stickiness off",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Ranks targets by Artificial Analysis benchmark scores — best model first. Data by Artificial Analysis (artificialanalysis.ai).",
+    "aaBenchmarkMetric": "Benchmark metric",
+    "aaBenchmarkMetricHelp": "Which Artificial Analysis index ranks the targets. Defaults to the Intelligence Index.",
+    "aaMetricIntelligence": "Intelligence Index",
+    "aaMetricCoding": "Coding Index",
+    "aaMetricMath": "Math Index",
+    "aaMetricSpeed": "Output Speed (tokens/s)",
+    "aaBenchmarkAttributionNote": "Scores sync daily from Artificial Analysis (artificialanalysis.ai) and require ARTIFICIAL_ANALYSIS_API_KEY on the server."
   },
   "costs": {
     "title": "成本",
@@ -6158,7 +6179,9 @@
     "modelLockoutMaxBackoffSteps": "__MISSING__:Max Backoff Steps",
     "modelLockoutMaxBackoffStepsDescription": "__MISSING__:Maximum number of backoff steps before the cooldown stops growing. The Max Cooldown cap is reached first in most configurations, making this a safety ceiling for when Max Cooldown is raised.",
     "disableSessionStickiness": "__MISSING__:Disable session stickiness",
-    "disableSessionStickinessDesc": "__MISSING__:Round-robin and random combos rotate to a different connection on every request instead of pinning a whole conversation to one connection by the first-message hash. Leave off to preserve prompt-cache hits for multi-turn chats. Per-combo overrides take precedence."
+    "disableSessionStickinessDesc": "__MISSING__:Round-robin and random combos rotate to a different connection on every request instead of pinning a whole conversation to one connection by the first-message hash. Leave off to preserve prompt-cache hits for multi-turn chats. Per-combo overrides take precedence.",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Rank targets by Artificial Analysis benchmark scores"
   },
   "contextRtk": {
     "title": "RTK 引擎",
@@ -9073,5 +9096,6 @@
     "auth": "__MISSING__:Auth",
     "feasibility": "__MISSING__:Feasibility",
     "models": "__MISSING__:Models"
-  }
+  },
+  "featureFlagAaBenchmarkSyncEnabledDescription": "Enable periodic Artificial Analysis benchmark sync for the aa-benchmark routing strategy. Requires ARTIFICIAL_ANALYSIS_API_KEY. Data by Artificial Analysis (artificialanalysis.ai)."
 }

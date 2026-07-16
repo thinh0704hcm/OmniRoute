@@ -2489,6 +2489,11 @@
         "when": "Gunakan apabila anda perlu mengoptimumkan penggunaan tetingkap konteks merentas model.",
         "avoid": "Elakkan apabila model mempunyai panjang konteks yang sama atau tugasan adalah mudah.",
         "example": "Contoh: Edarkan perbualan panjang merentas model dengan tetingkap konteks yang lebih besar."
+      },
+      "aa-benchmark": {
+        "when": "Use when you want the highest-benchmarked model to serve first, with lower-ranked models as fallback.",
+        "avoid": "Avoid when benchmark data has not synced (requires an Artificial Analysis API key) — order falls back to your target list.",
+        "example": "Example: Rank coding combos by the AA Coding Index and always try the top model first."
       }
     },
     "advancedHelp": {
@@ -2696,6 +2701,13 @@
         "tip2": "Berfungsi paling baik dengan kumpulan penyedia homogen.",
         "tip3": "Laraskan kepekaan untuk mengelakkan ayunan semasa pancang lalu lintas.",
         "title": "Kuasa Dua Pilihan"
+      },
+      "aa-benchmark": {
+        "title": "Benchmark-ranked routing",
+        "description": "Targets are ordered by Artificial Analysis benchmark scores; failures fall through to the next-ranked model.",
+        "tip1": "Set ARTIFICIAL_ANALYSIS_API_KEY so the daily benchmark sync can run.",
+        "tip2": "Pick the metric that matches the workload: intelligence, coding, math, or speed.",
+        "tip3": "Models without synced scores keep your original order at the end of the chain."
       }
     },
     "templateFreeStack": "Free Stack ($0)",
@@ -2807,7 +2819,16 @@
     "agentFeaturesContextLengthErrorInteger": "Panjang konteks mestilah integer yang sah",
     "agentFeaturesContextLengthErrorRange": "Panjang konteks mestilah antara 1000 dan 2000000",
     "compressionOverride": "Override Mampatan",
-    "modePack": "Pek Mod"
+    "modePack": "Pek Mod",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Ranks targets by Artificial Analysis benchmark scores — best model first. Data by Artificial Analysis (artificialanalysis.ai).",
+    "aaBenchmarkMetric": "Benchmark metric",
+    "aaBenchmarkMetricHelp": "Which Artificial Analysis index ranks the targets. Defaults to the Intelligence Index.",
+    "aaMetricIntelligence": "Intelligence Index",
+    "aaMetricCoding": "Coding Index",
+    "aaMetricMath": "Math Index",
+    "aaMetricSpeed": "Output Speed (tokens/s)",
+    "aaBenchmarkAttributionNote": "Scores sync daily from Artificial Analysis (artificialanalysis.ai) and require ARTIFICIAL_ANALYSIS_API_KEY on the server."
   },
   "costs": {
     "title": "Kos",
@@ -6066,7 +6087,9 @@
     "modelLockoutExponentialBackoff": "__MISSING__:Exponential Backoff",
     "modelLockoutExponentialBackoffDescription": "__MISSING__:When enabled, each consecutive failure increases the cooldown duration exponentially.",
     "modelLockoutMaxBackoffSteps": "__MISSING__:Max Backoff Steps",
-    "modelLockoutMaxBackoffStepsDescription": "__MISSING__:Maximum number of backoff steps before the cooldown stops growing. The Max Cooldown cap is reached first in most configurations, making this a safety ceiling for when Max Cooldown is raised."
+    "modelLockoutMaxBackoffStepsDescription": "__MISSING__:Maximum number of backoff steps before the cooldown stops growing. The Max Cooldown cap is reached first in most configurations, making this a safety ceiling for when Max Cooldown is raised.",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Rank targets by Artificial Analysis benchmark scores"
   },
   "contextRtk": {
     "title": "RTK Engine",
@@ -8939,5 +8962,6 @@
     "colAvgScore": "__MISSING__:Avg Score",
     "colModels": "__MISSING__:Models",
     "colType": "__MISSING__:Type"
-  }
+  },
+  "featureFlagAaBenchmarkSyncEnabledDescription": "Enable periodic Artificial Analysis benchmark sync for the aa-benchmark routing strategy. Requires ARTIFICIAL_ANALYSIS_API_KEY. Data by Artificial Analysis (artificialanalysis.ai)."
 }

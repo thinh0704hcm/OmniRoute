@@ -2497,6 +2497,11 @@
         "when": "Da utilizzare quando è necessario ottimizzare l'utilizzo della finestra di contesto tra i modelli.",
         "avoid": "Da evitare quando i modelli hanno lunghezze di contesto simili o le attività sono semplici.",
         "example": "Esempio: distribuire lunghe conversazioni tra modelli con finestre di contesto più ampie."
+      },
+      "aa-benchmark": {
+        "when": "Use when you want the highest-benchmarked model to serve first, with lower-ranked models as fallback.",
+        "avoid": "Avoid when benchmark data has not synced (requires an Artificial Analysis API key) — order falls back to your target list.",
+        "example": "Example: Rank coding combos by the AA Coding Index and always try the top model first."
       }
     },
     "advancedHelp": {
@@ -2704,6 +2709,13 @@
         "tip2": "Funziona meglio con pool di fornitori omogenei.",
         "tip3": "Regola la sensibilità per evitare oscillazioni durante i picchi di traffico.",
         "title": "Il potere di due scelte"
+      },
+      "aa-benchmark": {
+        "title": "Benchmark-ranked routing",
+        "description": "Targets are ordered by Artificial Analysis benchmark scores; failures fall through to the next-ranked model.",
+        "tip1": "Set ARTIFICIAL_ANALYSIS_API_KEY so the daily benchmark sync can run.",
+        "tip2": "Pick the metric that matches the workload: intelligence, coding, math, or speed.",
+        "tip3": "Models without synced scores keep your original order at the end of the chain."
       }
     },
     "templateFreeStack": "Free Stack ($0)",
@@ -2830,7 +2842,16 @@
     "responseValidationJsonPaths": "Controlli JSON-path",
     "responseValidationMinLength": "Lunghezza minima contenuto (caratteri)",
     "responseValidationRequired": "Sottostringhe richieste (una per riga)",
-    "responseValidationTitle": "Validazione risposta"
+    "responseValidationTitle": "Validazione risposta",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Ranks targets by Artificial Analysis benchmark scores — best model first. Data by Artificial Analysis (artificialanalysis.ai).",
+    "aaBenchmarkMetric": "Benchmark metric",
+    "aaBenchmarkMetricHelp": "Which Artificial Analysis index ranks the targets. Defaults to the Intelligence Index.",
+    "aaMetricIntelligence": "Intelligence Index",
+    "aaMetricCoding": "Coding Index",
+    "aaMetricMath": "Math Index",
+    "aaMetricSpeed": "Output Speed (tokens/s)",
+    "aaBenchmarkAttributionNote": "Scores sync daily from Artificial Analysis (artificialanalysis.ai) and require ARTIFICIAL_ANALYSIS_API_KEY on the server."
   },
   "costs": {
     "title": "Costi",
@@ -6155,7 +6176,9 @@
     "searchProviderAria": "Provider di ricerca",
     "searchProviderPlaceholder": "Cerca provider...",
     "selectProviderPlaceholder": "Seleziona provider...",
-    "update": "Aggiorna"
+    "update": "Aggiorna",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Rank targets by Artificial Analysis benchmark scores"
   },
   "contextRtk": {
     "title": "RTK Engine",
@@ -9063,5 +9086,6 @@
     "auth": "Auth",
     "feasibility": "Fattibilità",
     "models": "Modelli"
-  }
+  },
+  "featureFlagAaBenchmarkSyncEnabledDescription": "Enable periodic Artificial Analysis benchmark sync for the aa-benchmark routing strategy. Requires ARTIFICIAL_ANALYSIS_API_KEY. Data by Artificial Analysis (artificialanalysis.ai)."
 }

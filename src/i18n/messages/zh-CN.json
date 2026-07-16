@@ -2468,6 +2468,11 @@
         "when": "当您需要优化模型间的上下文窗口使用时使用。",
         "avoid": "当模型具有相似的上下文长度或任务简单时避免使用。",
         "example": "示例：在具有大上下文窗口的模型之间分配长对话。"
+      },
+      "aa-benchmark": {
+        "when": "Use when you want the highest-benchmarked model to serve first, with lower-ranked models as fallback.",
+        "avoid": "Avoid when benchmark data has not synced (requires an Artificial Analysis API key) — order falls back to your target list.",
+        "example": "Example: Rank coding combos by the AA Coding Index and always try the top model first."
       }
     },
     "advancedHelp": {
@@ -2675,6 +2680,13 @@
         "tip2": "需要在设置中启用延迟遥测。",
         "tip3": "是高吞吐量组合中轮询的绝佳替代方案。",
         "title": "双选负载均衡"
+      },
+      "aa-benchmark": {
+        "title": "Benchmark-ranked routing",
+        "description": "Targets are ordered by Artificial Analysis benchmark scores; failures fall through to the next-ranked model.",
+        "tip1": "Set ARTIFICIAL_ANALYSIS_API_KEY so the daily benchmark sync can run.",
+        "tip2": "Pick the metric that matches the workload: intelligence, coding, math, or speed.",
+        "tip3": "Models without synced scores keep your original order at the end of the chain."
       }
     },
     "templateFreeStack": "免费栈（$0）",
@@ -2786,7 +2798,16 @@
     "agentFeaturesContextLengthErrorInteger": "上下文长度必须是有效整数",
     "agentFeaturesContextLengthErrorRange": "上下文长度必须介于 1000 到 2000000 之间",
     "compressionOverride": "压缩覆盖",
-    "modePack": "模式包"
+    "modePack": "模式包",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Ranks targets by Artificial Analysis benchmark scores — best model first. Data by Artificial Analysis (artificialanalysis.ai).",
+    "aaBenchmarkMetric": "Benchmark metric",
+    "aaBenchmarkMetricHelp": "Which Artificial Analysis index ranks the targets. Defaults to the Intelligence Index.",
+    "aaMetricIntelligence": "Intelligence Index",
+    "aaMetricCoding": "Coding Index",
+    "aaMetricMath": "Math Index",
+    "aaMetricSpeed": "Output Speed (tokens/s)",
+    "aaBenchmarkAttributionNote": "Scores sync daily from Artificial Analysis (artificialanalysis.ai) and require ARTIFICIAL_ANALYSIS_API_KEY on the server."
   },
   "costs": {
     "title": "成本",
@@ -5901,7 +5922,9 @@
     "responsesStateModeStrip": "剥离",
     "responsesStateModePreserve": "保留",
     "responsesStateHint": "自动模式会剥离 previous_response_id，除非连接明确启用 OpenAI 响应存储。对于无状态客户端（如 VS Code 自定义端点），剥离模式最安全；上下文取决于客户端发送完整历史记录。",
-    "responsesStateSaveError": "更新响应状态设置失败"
+    "responsesStateSaveError": "更新响应状态设置失败",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Rank targets by Artificial Analysis benchmark scores"
   },
   "contextRtk": {
     "title": "RTK 引擎",
@@ -8685,5 +8708,6 @@
     "regenerateRunning": "正在重新生成技能…",
     "regenerateSuccess": "技能成功重生。",
     "regenerateError": "无法重新生成技能。"
-  }
+  },
+  "featureFlagAaBenchmarkSyncEnabledDescription": "Enable periodic Artificial Analysis benchmark sync for the aa-benchmark routing strategy. Requires ARTIFICIAL_ANALYSIS_API_KEY. Data by Artificial Analysis (artificialanalysis.ai)."
 }

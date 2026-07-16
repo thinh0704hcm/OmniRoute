@@ -70,6 +70,7 @@ const STRATEGY_OPTIONS = ROUTING_STRATEGIES.map((strategy) => ({
 const STRATEGY_LABEL_FALLBACK = {
   "context-relay": "Context Relay",
   "reset-aware": "Reset-Aware RR",
+  "aa-benchmark": "AA Benchmark",
 };
 
 const STRATEGY_DESC_FALLBACK = {
@@ -77,6 +78,8 @@ const STRATEGY_DESC_FALLBACK = {
     "Priority-style routing with automatic context handoffs when account rotation happens.",
   "reset-aware":
     "Quota remaining and reset windows decide the order; similar scores rotate round-robin.",
+  "aa-benchmark":
+    "Ranks targets by Artificial Analysis benchmark scores — best model first. Data by Artificial Analysis (artificialanalysis.ai).",
 };
 
 const STRATEGY_GUIDANCE_FALLBACK = {
@@ -150,6 +153,13 @@ const STRATEGY_GUIDANCE_FALLBACK = {
     when: "Use when you need to optimize for context window usage across models.",
     avoid: "Avoid when models have similar context lengths or simple tasks.",
     example: "Example: Distribute long conversations across models with large context windows.",
+  },
+  "aa-benchmark": {
+    when: "Use when you want the highest-benchmarked model to serve first, with lower-ranked models as fallback.",
+    avoid:
+      "Avoid when benchmark data has not synced (requires an Artificial Analysis API key) — order falls back to your target list.",
+    example:
+      "Example: Rank coding combos by the AA Coding Index and always try the top model first.",
   },
 };
 
@@ -236,6 +246,16 @@ const STRATEGY_RECOMMENDATIONS_FALLBACK = {
       "Put your most reliable model first.",
       "Keep 1-2 backup models with similar quality.",
       "Use safe retries to absorb transient provider failures.",
+    ],
+  },
+  "aa-benchmark": {
+    title: "Benchmark-ranked routing",
+    description:
+      "Targets are ordered by Artificial Analysis benchmark scores; failures fall through to the next-ranked model.",
+    tips: [
+      "Set ARTIFICIAL_ANALYSIS_API_KEY so the daily benchmark sync can run.",
+      "Pick the metric that matches the workload: intelligence, coding, math, or speed.",
+      "Models without synced scores keep your original order at the end of the chain.",
     ],
   },
   weighted: {
@@ -4215,6 +4235,56 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, combo
                           className="w-full text-xs py-1.5 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent focus:border-primary focus:outline-none"
                         />
                       </div>
+                    </div>
+                  )}
+                  {strategy === "aa-benchmark" && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2 border-t border-black/5 dark:border-white/5">
+                      <div>
+                        <FieldLabelWithHelp
+                          label={getI18nOrFallback(t, "aaBenchmarkMetric", "Benchmark metric")}
+                          help={getI18nOrFallback(
+                            t,
+                            "aaBenchmarkMetricHelp",
+                            "Which Artificial Analysis index ranks the targets. Defaults to the Intelligence Index."
+                          )}
+                          showHelp={!isExpertMode}
+                        />
+                        <select
+                          value={config.aaMetric ?? "intelligence"}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              aaMetric:
+                                e.target.value === "intelligence" ? undefined : e.target.value,
+                            })
+                          }
+                          className="w-full text-xs py-1.5 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent focus:border-primary focus:outline-none"
+                        >
+                          <option value="intelligence">
+                            {getI18nOrFallback(t, "aaMetricIntelligence", "Intelligence Index")}
+                          </option>
+                          <option value="coding">
+                            {getI18nOrFallback(t, "aaMetricCoding", "Coding Index")}
+                          </option>
+                          <option value="math">
+                            {getI18nOrFallback(t, "aaMetricMath", "Math Index")}
+                          </option>
+                          <option value="speed">
+                            {getI18nOrFallback(t, "aaMetricSpeed", "Output Speed (tokens/s)")}
+                          </option>
+                        </select>
+                      </div>
+                      {!isExpertMode && (
+                        <div className="md:col-span-2 rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1.5">
+                          <p className="text-[10px] text-blue-700 dark:text-blue-300">
+                            {getI18nOrFallback(
+                              t,
+                              "aaBenchmarkAttributionNote",
+                              "Scores sync daily from Artificial Analysis (artificialanalysis.ai) and require ARTIFICIAL_ANALYSIS_API_KEY on the server."
+                            )}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                   {!isExpertMode && (

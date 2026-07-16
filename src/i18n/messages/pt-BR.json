@@ -2509,6 +2509,11 @@
         "when": "Use quando precisar otimizar o uso da janela de contexto entre modelos.",
         "avoid": "Evite quando os modelos têm comprimentos de contexto semelhantes ou as tarefas são simples.",
         "example": "Exemplo: Distribua longas conversas entre modelos com janelas de contexto maiores."
+      },
+      "aa-benchmark": {
+        "when": "Use when you want the highest-benchmarked model to serve first, with lower-ranked models as fallback.",
+        "avoid": "Avoid when benchmark data has not synced (requires an Artificial Analysis API key) — order falls back to your target list.",
+        "example": "Example: Rank coding combos by the AA Coding Index and always try the top model first."
       }
     },
     "advancedHelp": {
@@ -2717,6 +2722,13 @@
         "tip2": "Funciona melhor com pools de provedores homogêneos.",
         "tip3": "Ajuste a sensibilidade para evitar oscilações durante picos de tráfego.",
         "title": "Poder de Duas Escolhas"
+      },
+      "aa-benchmark": {
+        "title": "Benchmark-ranked routing",
+        "description": "Targets are ordered by Artificial Analysis benchmark scores; failures fall through to the next-ranked model.",
+        "tip1": "Set ARTIFICIAL_ANALYSIS_API_KEY so the daily benchmark sync can run.",
+        "tip2": "Pick the metric that matches the workload: intelligence, coding, math, or speed.",
+        "tip3": "Models without synced scores keep your original order at the end of the chain."
       }
     },
     "templateFreeStack": "Free Stack ($0)",
@@ -2838,7 +2850,16 @@
     "modePack": "Pacote de modos",
     "disableSessionStickiness": "Desabilitar fixação de sessão",
     "sessionStickinessEnabled": "Fixação ativada",
-    "sessionStickinessDisabled": "Fixação desativada"
+    "sessionStickinessDisabled": "Fixação desativada",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Ranks targets by Artificial Analysis benchmark scores — best model first. Data by Artificial Analysis (artificialanalysis.ai).",
+    "aaBenchmarkMetric": "Benchmark metric",
+    "aaBenchmarkMetricHelp": "Which Artificial Analysis index ranks the targets. Defaults to the Intelligence Index.",
+    "aaMetricIntelligence": "Intelligence Index",
+    "aaMetricCoding": "Coding Index",
+    "aaMetricMath": "Math Index",
+    "aaMetricSpeed": "Output Speed (tokens/s)",
+    "aaBenchmarkAttributionNote": "Scores sync daily from Artificial Analysis (artificialanalysis.ai) and require ARTIFICIAL_ANALYSIS_API_KEY on the server."
   },
   "costs": {
     "title": "Custos",
@@ -6232,7 +6253,9 @@
     "proxyFreePoolSortLatency": "Latência",
     "proxyFreePoolSortRecent": "Mais recentes",
     "proxyFreePoolListTotal": "{count} proxies no total",
-    "proxyFreePoolLoadMore": "Carregar mais"
+    "proxyFreePoolLoadMore": "Carregar mais",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Rank targets by Artificial Analysis benchmark scores"
   },
   "contextRtk": {
     "title": "Motor RTK",
@@ -9218,5 +9241,6 @@
     "testTask": "Escreva um poema curto sobre inteligência artificial",
     "timeout": "Tempo Limite (ms)",
     "timeoutDesc": "Tempo máximo por chamada de modelo (5000-600000ms)"
-  }
+  },
+  "featureFlagAaBenchmarkSyncEnabledDescription": "Enable periodic Artificial Analysis benchmark sync for the aa-benchmark routing strategy. Requires ARTIFICIAL_ANALYSIS_API_KEY. Data by Artificial Analysis (artificialanalysis.ai)."
 }

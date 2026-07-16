@@ -397,6 +397,18 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     requiresRestart: false,
     warningLevel: "info",
   },
+  {
+    key: "AA_BENCHMARK_SYNC_ENABLED",
+    label: "Artificial Analysis Benchmark Sync",
+    description:
+      "Enable periodic Artificial Analysis benchmark sync for the aa-benchmark routing strategy. No-op unless ARTIFICIAL_ANALYSIS_API_KEY is configured. Data by Artificial Analysis (https://artificialanalysis.ai/).",
+    descriptionI18nKey: "featureFlagAaBenchmarkSyncEnabledDescription",
+    category: "runtime",
+    defaultValue: "true",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
 
   // ──────────────── CLI (5) ────────────────
   {

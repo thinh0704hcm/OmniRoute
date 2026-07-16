@@ -151,6 +151,19 @@ async function startServer() {
   } catch (err) {
     startupLog.warn({ error: getErrorMessage(err) }, "Arena ELO sync could not initialize");
   }
+
+  // Artificial Analysis benchmark sync: powers the aa-benchmark routing strategy
+  // (non-blocking, never fatal). No-op unless ARTIFICIAL_ANALYSIS_API_KEY is set;
+  // opt out with Dashboard Feature Flags or AA_BENCHMARK_SYNC_ENABLED=false.
+  try {
+    const { initArtificialAnalysisSync } = await import("./lib/artificialAnalysisSync");
+    await initArtificialAnalysisSync();
+  } catch (err) {
+    startupLog.warn(
+      { error: getErrorMessage(err) },
+      "Artificial Analysis sync could not initialize"
+    );
+  }
 }
 
 // Start the server initialization

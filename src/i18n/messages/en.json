@@ -848,6 +848,7 @@
   "disabled": "Disabled",
   "featureFlagOmnirouteEmergencyFallbackDescription": "Route budget-exhausted requests to the emergency free fallback provider/model.",
   "featureFlagArenaEloSyncEnabledDescription": "Enable periodic Arena AI leaderboard ELO sync for model intelligence rankings.",
+  "featureFlagAaBenchmarkSyncEnabledDescription": "Enable periodic Artificial Analysis benchmark sync for the aa-benchmark routing strategy. Requires ARTIFICIAL_ANALYSIS_API_KEY. Data by Artificial Analysis (artificialanalysis.ai).",
   "sidebar": {
     "home": "Home",
     "dashboard": "Dashboard",
@@ -2509,6 +2510,11 @@
         "when": "Use when you need to optimize context window usage across models.",
         "avoid": "Avoid when models have similar context lengths or tasks are simple.",
         "example": "Example: Distribute long conversations across models with larger context windows."
+      },
+      "aa-benchmark": {
+        "when": "Use when you want the highest-benchmarked model to serve first, with lower-ranked models as fallback.",
+        "avoid": "Avoid when benchmark data has not synced (requires an Artificial Analysis API key) — order falls back to your target list.",
+        "example": "Example: Rank coding combos by the AA Coding Index and always try the top model first."
       }
     },
     "advancedHelp": {
@@ -2717,6 +2723,13 @@
         "tip2": "Works best with homogeneous provider pools.",
         "tip3": "Adjust sensitivity to avoid oscillation during traffic spikes.",
         "title": "Power of Two Choices"
+      },
+      "aa-benchmark": {
+        "title": "Benchmark-ranked routing",
+        "description": "Targets are ordered by Artificial Analysis benchmark scores; failures fall through to the next-ranked model.",
+        "tip1": "Set ARTIFICIAL_ANALYSIS_API_KEY so the daily benchmark sync can run.",
+        "tip2": "Pick the metric that matches the workload: intelligence, coding, math, or speed.",
+        "tip3": "Models without synced scores keep your original order at the end of the chain."
       }
     },
     "templateFreeStack": "Free Stack ($0)",
@@ -2838,7 +2851,16 @@
     "modePack": "Mode Pack",
     "disableSessionStickiness": "Disable session stickiness",
     "sessionStickinessEnabled": "Stickiness on",
-    "sessionStickinessDisabled": "Stickiness off"
+    "sessionStickinessDisabled": "Stickiness off",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Ranks targets by Artificial Analysis benchmark scores — best model first. Data by Artificial Analysis (artificialanalysis.ai).",
+    "aaBenchmarkMetric": "Benchmark metric",
+    "aaBenchmarkMetricHelp": "Which Artificial Analysis index ranks the targets. Defaults to the Intelligence Index.",
+    "aaMetricIntelligence": "Intelligence Index",
+    "aaMetricCoding": "Coding Index",
+    "aaMetricMath": "Math Index",
+    "aaMetricSpeed": "Output Speed (tokens/s)",
+    "aaBenchmarkAttributionNote": "Scores sync daily from Artificial Analysis (artificialanalysis.ai) and require ARTIFICIAL_ANALYSIS_API_KEY on the server."
   },
   "costs": {
     "title": "Costs",
@@ -6232,7 +6254,9 @@
     "modelLockoutMaxBackoffSteps": "Max Backoff Steps",
     "modelLockoutMaxBackoffStepsDescription": "Maximum number of backoff steps before the cooldown stops growing. The Max Cooldown cap is reached first in most configurations, making this a safety ceiling for when Max Cooldown is raised.",
     "disableSessionStickiness": "Disable session stickiness",
-    "disableSessionStickinessDesc": "Round-robin and random combos rotate to a different connection on every request instead of pinning a whole conversation to one connection by the first-message hash. Leave off to preserve prompt-cache hits for multi-turn chats. Per-combo overrides take precedence."
+    "disableSessionStickinessDesc": "Round-robin and random combos rotate to a different connection on every request instead of pinning a whole conversation to one connection by the first-message hash. Leave off to preserve prompt-cache hits for multi-turn chats. Per-combo overrides take precedence.",
+    "aaBenchmark": "AA Benchmark",
+    "aaBenchmarkDesc": "Rank targets by Artificial Analysis benchmark scores"
   },
   "contextRtk": {
     "title": "RTK Engine",
