@@ -164,6 +164,24 @@ export async function interceptToolCalls(
 export function extractToolCalls(response: any, modelId: string): ToolCall[] {
   const provider = detectProvider(modelId);
 
+  function tryAnthropicContent(tc: any): ToolCall {
+    return {
+      id: tc.id,
+      name: tc.name,
+      arguments: tc.input || {},
+    };
+  }
+
+  function tryOpenAIToolCall(tc: any): ToolCall {
+    return {
+      id: tc.call_id || tc.id || `call_${Date.now()}`,
+      name: tc.function?.name || tc.name || "",
+      arguments: parseArguments(tc.function?.arguments || tc.arguments || "{}"),
+    };
+  }
+
+  let extracted: ToolCall[] | null = null;
+
   switch (provider) {
     case "openai": {
       const rootToolCalls = Array.isArray(response?.tool_calls) ? response.tool_calls : [];
@@ -178,39 +196,44 @@ export function extractToolCalls(response: any, modelId: string): ToolCall[] {
             .map((item: unknown) => (item && typeof item === "object" ? (item as any) : null))
             .filter((item: any) => item?.type === "function_call")
         : [];
-      const toolCalls =
+      extracted =
         rootToolCalls.length > 0
-          ? rootToolCalls
+          ? rootToolCalls.map(tryOpenAIToolCall)
           : choiceToolCalls.length > 0
-            ? choiceToolCalls
-            : responsesToolCalls;
-
-      return toolCalls.map((tc: any) => ({
-        id: tc.call_id || tc.id || `call_${Date.now()}`,
-        name: tc.function?.name || tc.name || "",
-        arguments: parseArguments(tc.function?.arguments || tc.arguments || "{}"),
-      }));
+            ? choiceToolCalls.map(tryOpenAIToolCall)
+            : responsesToolCalls.length > 0
+              ? responsesToolCalls.map(tryOpenAIToolCall)
+              : null;
+      break;
     }
-
-    case "anthropic":
-      return (response.content || [])
+    case "anthropic": {
+      const blocks = Array.isArray(response?.content) ? response.content : [];
+      extracted = blocks
         .filter((c: any) => c.type === "tool_use")
-        .map((tc: any) => ({
-          id: tc.id,
-          name: tc.name,
-          arguments: tc.input || {},
-        }));
-
+        .map(tryAnthropicContent);
+      break;
+    }
     case "google":
-      return (response.functionCalls || []).map((fc: any) => ({
+      extracted = (response.functionCalls || []).map((fc: any) => ({
         id: `call_${Date.now()}_${Math.random().toString(36).slice(2)}`,
         name: fc.name,
         arguments: fc.args || {},
       }));
-
-    default:
-      return [];
+      break;
   }
+
+  // Fallback: when the response has already been translated to Anthropic
+  // format (content[{type:"tool_use"}]) but the modelId-based provider
+  // detection points to openai/google, try the Anthropic format directly.
+  if (!extracted || extracted.length === 0) {
+    const blocks = Array.isArray(response?.content) ? response.content : [];
+    const anthropicToolUses = blocks.filter((c: any) => c.type === "tool_use");
+    if (anthropicToolUses.length > 0) {
+      extracted = anthropicToolUses.map(tryAnthropicContent);
+    }
+  }
+
+  return extracted || [];
 }
 
 function parseArguments(args: string | Record<string, unknown>): Record<string, unknown> {

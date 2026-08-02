@@ -2,6 +2,10 @@ import { FORMATS } from "../translator/formats.ts";
 
 export const OMNIROUTE_WEB_SEARCH_FALLBACK_TOOL_NAME = "omniroute_web_search";
 const WEB_SEARCH_TOOL_TYPES = new Set(["web_search", "web_search_preview"]);
+// Anthropic typed server tool patterns: web_search_20250305, web_search_YYYYMMDD.
+// Claude Code sends these as native server tools; OmniRoute must intercept them
+// for upstreams that don't implement Anthropic server-tool dispatch (#4481).
+const ANTHROPIC_SERVER_WEB_SEARCH_PATTERN = /^web_search_\d{8}$/;
 const SEARCH_CONTEXT_DEFAULTS: Record<string, number> = {
   low: 5,
   medium: 8,
@@ -27,13 +31,20 @@ function toRecord(value: unknown): JsonRecord {
 function isBuiltInWebSearchTool(tool: unknown): tool is JsonRecord {
   const toolRecord = toRecord(tool);
   const toolType = typeof toolRecord.type === "string" ? toolRecord.type : "";
-  return WEB_SEARCH_TOOL_TYPES.has(toolType) && !toolRecord.function;
+  if (!toolType) return false;
+  return (
+    WEB_SEARCH_TOOL_TYPES.has(toolType) ||
+    ANTHROPIC_SERVER_WEB_SEARCH_PATTERN.test(toolType)
+  ) && !toolRecord.function;
 }
 
 function isBuiltInWebSearchToolChoice(toolChoice: unknown): boolean {
   const choice = toRecord(toolChoice);
   const toolType = typeof choice.type === "string" ? choice.type : "";
-  return WEB_SEARCH_TOOL_TYPES.has(toolType);
+  return (
+    WEB_SEARCH_TOOL_TYPES.has(toolType) ||
+    ANTHROPIC_SERVER_WEB_SEARCH_PATTERN.test(toolType)
+  );
 }
 
 function buildFallbackDescription(tool: JsonRecord): string {
@@ -139,7 +150,7 @@ function buildFallbackTool(tool: JsonRecord, targetFormat?: string | null): Json
 // (MiniMax returns `invalid params, function name or parameters is empty (2013)`), so the
 // built-in web-search tool has to be converted to the omniroute_web_search function
 // fallback — which these models accept as a normal function tool (#4481).
-const CLAUDE_FORMAT_PROVIDERS_WITHOUT_SERVER_TOOLS = new Set(["minimax"]);
+const CLAUDE_FORMAT_PROVIDERS_WITHOUT_SERVER_TOOLS = new Set(["minimax", "mistral"]);
 
 export function supportsNativeWebSearchFallbackBypass({
   provider,

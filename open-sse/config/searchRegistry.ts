@@ -196,7 +196,7 @@ export const SEARCH_PROVIDERS: Record<string, SearchProviderConfig> = {
   "searxng-search": {
     id: "searxng-search",
     name: "SearXNG Search",
-    baseUrl: "http://localhost:8888/search",
+    baseUrl: "http://searxng:8080/search",
     method: "GET",
     authType: "none",
     authHeader: "none",
