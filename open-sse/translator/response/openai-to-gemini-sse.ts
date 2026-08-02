@@ -41,7 +41,14 @@ interface OpenAIToolCallDelta {
   index?: number;
   id?: string;
   type?: string;
-  function?: { name?: string; arguments?: string };
+  thoughtSignature?: string;
+  thought_signature?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+    thoughtSignature?: string;
+    thought_signature?: string;
+  };
 }
 
 interface OpenAIChoiceDelta {
@@ -84,6 +91,7 @@ interface GeminiFunctionResponse {
 interface GeminiPart {
   text?: string;
   thought?: boolean;
+  thoughtSignature?: string;
   functionCall?: GeminiFunctionCall;
   functionResponse?: GeminiFunctionResponse;
 }
@@ -95,7 +103,10 @@ interface GeminiPart {
  * `functionCall` part once `finish_reason` arrives.
  */
 export interface GeminiToolCallState {
-  toolCallAccum?: Record<number, { id: string; name: string; arguments: string }>;
+  toolCallAccum?: Record<
+    number,
+    { id: string; name: string; arguments: string; thoughtSignature?: string }
+  >;
 }
 
 interface GeminiCandidate {
@@ -154,6 +165,15 @@ export function openAIChunkToGeminiChunk(
       if (tc.id) entry.id = tc.id;
       if (tc.function?.name) entry.name += tc.function.name;
       if (tc.function?.arguments) entry.arguments += tc.function.arguments;
+      // Preserve a genuine Gemini thought signature when the upstream carries it
+      // (top-level `thoughtSignature`/`thought_signature` or nested on `function`),
+      // so the flushed functionCall can be replayed on the next tool turn (#400).
+      const sig =
+        tc.thoughtSignature ??
+        tc.thought_signature ??
+        tc.function?.thoughtSignature ??
+        tc.function?.thought_signature;
+      if (typeof sig === "string" && sig.length > 0) entry.thoughtSignature = sig;
     }
   }
 
@@ -168,7 +188,10 @@ export function openAIChunkToGeminiChunk(
       } catch {
         args = {};
       }
-      parts.push({ functionCall: { name: entry.name, args } });
+      parts.push({
+        ...(entry.thoughtSignature ? { thoughtSignature: entry.thoughtSignature } : {}),
+        functionCall: { name: entry.name, args },
+      });
     }
   }
 
@@ -294,7 +317,14 @@ export function transformOpenAISSEToGeminiSSE(upstreamResponse: Response, model:
 interface OpenAIToolCall {
   id?: string;
   type?: string;
-  function?: { name?: string; arguments?: string };
+  thoughtSignature?: string;
+  thought_signature?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+    thoughtSignature?: string;
+    thought_signature?: string;
+  };
 }
 
 interface OpenAIMessage {
@@ -395,7 +425,15 @@ export async function convertOpenAIResponseToGemini(
     } catch {
       args = {};
     }
-    parts.push({ functionCall: { name: tc.function?.name || "", args } });
+    const sig =
+      tc.thoughtSignature ??
+      tc.thought_signature ??
+      tc.function?.thoughtSignature ??
+      tc.function?.thought_signature;
+    parts.push({
+      ...(typeof sig === "string" && sig.length > 0 ? { thoughtSignature: sig } : {}),
+      functionCall: { name: tc.function?.name || "", args },
+    });
   }
 
   const finishReason = OPENAI_TO_GEMINI_FINISH_REASON[finish_reason ?? "stop"] ?? "STOP";

@@ -226,3 +226,106 @@ test("convertOpenAIResponseToGemini: surfaces upstream error bodies untouched", 
   const body = (await out.json()) as { error: { code: number } };
   assert.equal(body.error.code, 429);
 });
+
+test("transformOpenAISSEToGeminiSSE: preserves genuine thoughtSignature across streamed tool_calls deltas", async () => {
+  const upstream = makeOpenAISSEResponse([
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_sig123","type":"function","thoughtSignature":"sig_stream_123","function":{"name":"get_weather","arguments":"{\\"city\\":"}}]},"finish_reason":null}]}',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"Tokyo\\"}"}}]},"finish_reason":null}]}',
+    'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+  ]);
+
+  const out = transformOpenAISSEToGeminiSSE(upstream, "gemini/gemini-pro");
+  const events = await readGeminiSSE(out);
+  assert.equal(events.length, 1);
+
+  const candidate = events[0].candidates[0];
+  assert.equal(candidate.finishReason, "STOP");
+
+  const fcPart = candidate.content.parts.find((p) => "functionCall" in p) as
+    | { thoughtSignature?: string; functionCall: { name: string; args: Record<string, unknown> } }
+    | undefined;
+
+  assert.ok(fcPart);
+  assert.equal(fcPart.functionCall.name, "get_weather");
+  assert.deepEqual(fcPart.functionCall.args, { city: "Tokyo" });
+  assert.equal(fcPart.thoughtSignature, "sig_stream_123");
+});
+
+test("convertOpenAIResponseToGemini: preserves genuine thoughtSignature in non-stream tool calls", async () => {
+  const upstream = Response.json({
+    choices: [
+      {
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_sig456",
+              type: "function",
+              thoughtSignature: "sig_nonstream_456",
+              function: { name: "search", arguments: '{"q":"gemini"}' },
+            },
+          ],
+        },
+        finish_reason: "tool_calls",
+      },
+    ],
+    model: "gemini-3.5-flash-lite",
+  });
+
+  const out = await convertOpenAIResponseToGemini(upstream, "fallback");
+  const body = (await out.json()) as {
+    candidates: Array<{
+      content: {
+        parts: Array<{
+          thoughtSignature?: string;
+          functionCall?: { name: string; args: Record<string, unknown> };
+        }>;
+      };
+    }>;
+  };
+
+  const fcPart = body.candidates[0].content.parts.find((p) => p.functionCall);
+  assert.ok(fcPart?.functionCall);
+  assert.equal(fcPart.functionCall.name, "search");
+  assert.deepEqual(fcPart.functionCall.args, { q: "gemini" });
+  assert.equal(fcPart.thoughtSignature, "sig_nonstream_456");
+});
+
+test("convertOpenAIResponseToGemini: omits thoughtSignature when none was provided by upstream", async () => {
+  const upstream = Response.json({
+    choices: [
+      {
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_plain",
+              type: "function",
+              function: { name: "ping", arguments: "{}" },
+            },
+          ],
+        },
+        finish_reason: "tool_calls",
+      },
+    ],
+  });
+
+  const out = await convertOpenAIResponseToGemini(upstream, "fallback");
+  const body = (await out.json()) as {
+    candidates: Array<{
+      content: {
+        parts: Array<{
+          thoughtSignature?: string;
+          functionCall?: { name: string; args: Record<string, unknown> };
+        }>;
+      };
+    }>;
+  };
+
+  const fcPart = body.candidates[0].content.parts.find((p) => p.functionCall);
+  assert.ok(fcPart?.functionCall);
+  assert.equal(fcPart.functionCall.name, "ping");
+  assert.equal("thoughtSignature" in fcPart, false);
+});
