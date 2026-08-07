@@ -80,8 +80,15 @@ RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
   npm ci --include=optional --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
   && (cd node_modules/better-sqlite3 \
       && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild) \
-  && node -e "require('better-sqlite3')(':memory:').close()" \
-  && node node_modules/tls-client-node/scripts/postinstall.js \
+  && node -e "require('better-sqlite3')(':memory:').close()"
+
+# VPS build workaround (#7802): the tls-client-node GitHub Releases API fetch is
+# intermittently failing from this host. Seed the platform binary so the
+# postinstall existsSync() early-return skips the download while the build
+# gate still validates a real artifact landed in bin/.
+COPY tls-bin/ node_modules/tls-client-node/bin/
+
+RUN node node_modules/tls-client-node/scripts/postinstall.js \
   && (test -n "$(find node_modules/tls-client-node/bin -mindepth 1 -print -quit 2>/dev/null)" \
       || (echo "tls-client-node native binary missing after postinstall — GitHub API fetch likely rate-limited or failed (#7802)" >&2 && exit 1))
 
