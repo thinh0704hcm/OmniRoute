@@ -537,6 +537,140 @@ test("VB-S03/#8488: combo with NO confirmed-vision target stubs partially-failed
   );
 });
 
+test("VB-S10/tool_result: combo-ref describe replaces image nested in Anthropic tool_result content", async () => {
+  // Regression for the live 400 on `claude-fable-5`: an agent CLI (Claude
+  // Code-style) sends the image inside a tool_result block, which the vision
+  // bridge's top-level-only scan missed. The raw image then tripped the combo
+  // capability filter ("No target in combo … has confirmed vision support")
+  // and failed closed. After the fix the nested image must be described and
+  // replaced so no image part reaches the combo targets.
+  const guardrail = createGuardrail({
+    deps: {
+      checkModelHasComboMapping: async (_model: string) => true,
+      callVisionModel: async () => "A screenshot of the dashboard",
+    },
+  });
+
+  const payload = {
+    model: "claude-fable-5",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Here is the screenshot" },
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_01",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: "image/png", data: "AAAA=" },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = await guardrail.preCall(payload, createContext({ model: "claude-fable-5" }));
+
+  assert.strictEqual(result.block, false);
+  const modified = (result.modifiedPayload ?? payload) as {
+    messages: Array<{ content: Array<{ type: string; text?: string }> }>;
+  };
+  const toolResult = modified.messages[0].content[1] as {
+    type: string;
+    tool_use_id: string;
+    content: Array<{ type: string; text?: string }>;
+  };
+  assert.strictEqual(toolResult.type, "tool_result");
+  assert.strictEqual(toolResult.tool_use_id, "toolu_01");
+  assert.strictEqual(
+    toolResult.content[0].type,
+    "text",
+    "nested image must be replaced with a description before the combo filter runs"
+  );
+  assert.ok(toolResult.content[0].text?.includes("A screenshot of the dashboard"));
+  const allNested = modified.messages.flatMap((m) =>
+    (m.content ?? []).map((p) => (p as { content?: unknown[] }).content ?? [])
+  );
+  assert.strictEqual(
+    allNested.filter((c) => (c as unknown[]).some((p) => (p as { type?: string }).type === "image"))
+      .length,
+    0,
+    "no nested image part may reach a combo whose targets cannot read raw images"
+  );
+});
+
+test("VB-S10/input: Responses API input_image is described and replaced via combo-ref path", async () => {
+  // A /v1/responses request carries images in body.input, not body.messages.
+  // Previously the vision bridge read only messages, so the input_image leaked
+  // straight into the combo capability filter and failed closed.
+  const guardrail = createGuardrail({
+    deps: {
+      checkModelHasComboMapping: async (_model: string) => true,
+      callVisionModel: async () => "A red circle",
+    },
+  });
+
+  const payload = {
+    model: "claude-fable-5",
+    messages: undefined,
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "What is this?" },
+          { type: "input_image", image_url: "data:image/png;base64,AAAA=" },
+        ],
+      },
+    ],
+  };
+
+  const result = await guardrail.preCall(payload, createContext({ model: "claude-fable-5" }));
+
+  assert.strictEqual(result.block, false);
+  const modified = (result.modifiedPayload ?? payload) as {
+    input: Array<{ content: Array<{ type: string; text?: string }> }>;
+  };
+  const content = modified.input[0].content;
+  assert.strictEqual(
+    content.some((p) => p.type === "input_image"),
+    false,
+    "no input_image may reach a combo whose targets cannot read raw images"
+  );
+  assert.ok(
+    content.some((p) => p.type === "input_text" && p.text?.includes("A red circle")),
+    "input_image must become an input_text description for the Responses API surface"
+  );
+});
+
+test("VB-S10/input-passthrough: input-only body with no images does not trigger describe", async () => {
+  const guardrail = createGuardrail({
+    deps: {
+      checkModelHasComboMapping: async (_model: string) => true,
+      callVisionModel: async () => {
+        throw new Error("should not be called");
+      },
+    },
+  });
+
+  const payload = {
+    model: "claude-fable-5",
+    input: [{ role: "user", content: [{ type: "input_text", text: "Just text" }] }],
+  };
+
+  const result = await guardrail.preCall(payload, createContext({ model: "claude-fable-5" }));
+
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(
+    result.modifiedPayload,
+    undefined,
+    "no images means no describe call and no body mutation"
+  );
+});
+
 test("VB-S03/#4012: combo WITH confirmed-vision target preserves failed describe", async () => {
   const guardrail = createGuardrail({
     deps: {

@@ -9,7 +9,7 @@ import { BaseGuardrail, type GuardrailContext, type GuardrailResult } from "./ba
 import { getSettings as defaultGetSettings } from "@/lib/db/settings";
 import { getResolvedModelCapabilities } from "@/lib/modelCapabilities";
 import {
-  extractImageParts,
+  extractImagePartsFromBody,
   callVisionModel as defaultCallVisionModel,
   replaceImageParts,
 } from "./visionBridgeHelpers";
@@ -203,15 +203,24 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     // remains undefined, which makes the reroute check on line ~189 treat it
     // like a non-combo model — exactly what we want: reroute to a vision model.
 
-    // 5. Get body and check for messages
+    // 5. Get body and check for message lists. Images live in `messages` for
+    //    OpenAI chat + Anthropic /v1/messages and in `input` for the Responses
+    //    API. A body with neither list carries no images to describe.
     const body = payload as Record<string, unknown>;
     const messages = body?.messages;
-    if (!Array.isArray(messages) || messages.length === 0) {
+    const input = body?.input;
+    const hasMessages = Array.isArray(messages) && messages.length > 0;
+    const hasInput = Array.isArray(input) && input.length > 0;
+    if (!hasMessages && !hasInput) {
       return { block: false };
     }
 
-    // 6. Check for images using helper (extractImageParts returns empty if no images)
-    const imageParts = extractImageParts(messages as Parameters<typeof extractImageParts>[0]);
+    // 6. Check for images using helper (extractImagePartsFromBody returns empty
+    //    if no images). Scans BOTH `messages` and `input`, recursing into
+    //    container blocks (e.g. Anthropic `tool_result.content`) so an image
+    //    nested inside a tool result is described instead of leaking into the
+    //    combo capability filter and failing closed.
+    const imageParts = extractImagePartsFromBody(body);
     if (imageParts.length === 0) {
       return { block: false };
     }

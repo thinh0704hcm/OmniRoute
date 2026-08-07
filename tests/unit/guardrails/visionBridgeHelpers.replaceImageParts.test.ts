@@ -251,3 +251,151 @@ test("replaceImageParts handles mixed images and text", () => {
   assert.strictEqual(content[2].type, "text");
   assert.strictEqual(content[2].text, "[Image 2]: Second image");
 });
+
+test("replaceImageParts replaces image nested inside tool_result content", () => {
+  const body = {
+    model: "claude-fable-5",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Here is the screenshot" },
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_01",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: "image/png", data: "AAAA=" },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = replaceImageParts(body, ["[Image 1]: A screenshot of the dashboard"]);
+
+  const toolResult = result.messages[0].content[1] as {
+    type: string;
+    tool_use_id: string;
+    content: Array<{ type: string; text?: string }>;
+  };
+  // tool_result envelope and its metadata survive; the image becomes text.
+  assert.strictEqual(toolResult.type, "tool_result");
+  assert.strictEqual(toolResult.tool_use_id, "toolu_01");
+  assert.strictEqual(toolResult.content[0].type, "text");
+  assert.strictEqual(toolResult.content[0].text, "[Image 1]: A screenshot of the dashboard");
+});
+
+test("replaceImageParts preserves nested image when description is null (#4012 semantics)", () => {
+  const body = {
+    model: "claude-fable-5",
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_01",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: "image/png", data: "AAAA=" },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = replaceImageParts(body, [null]);
+
+  const toolResult = result.messages[0].content[0] as {
+    content: Array<{ type: string }>;
+  };
+  assert.strictEqual(toolResult.content[0].type, "image");
+});
+
+test("replaceImageParts handles input-only body (Responses API) replacing input_image with input_text", () => {
+  const body = {
+    model: "openai/gpt-5",
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "What is this?" },
+          { type: "input_image", image_url: "data:image/png;base64,AAAA=" },
+        ],
+      },
+    ],
+  };
+
+  const result = replaceImageParts(body, ["[Image 1]: A red circle"]);
+
+  const content = (result.input as Array<{ content: Array<{ type: string; text?: string }> }>)[0]
+    .content;
+  assert.strictEqual(content[0].type, "input_text");
+  assert.strictEqual(content[0].text, "What is this?");
+  assert.strictEqual(content[1].type, "input_text");
+  assert.strictEqual(content[1].text, "[Image 1]: A red circle");
+});
+
+test("replaceImageParts processes messages and input lists in the same call", () => {
+  const body = {
+    model: "openai/gpt-5",
+    messages: [
+      { role: "user", content: [{ type: "image_url", image_url: { url: "https://e.com/a.png" } }] },
+    ],
+    input: [
+      {
+        role: "user",
+        content: [{ type: "input_image", image_url: "data:image/png;base64,BBBB=" }],
+      },
+    ],
+  };
+
+  const result = replaceImageParts(body, ["[Image 1]: From messages", "[Image 2]: From input"]);
+
+  const msgContent = result.messages[0].content as Array<{ type: string; text?: string }>;
+  assert.strictEqual(msgContent[0].type, "text");
+  assert.strictEqual(msgContent[0].text, "[Image 1]: From messages");
+  const inputContent = (
+    result.input as Array<{ content: Array<{ type: string; text?: string }> }>
+  )[0].content;
+  assert.strictEqual(inputContent[0].type, "input_text");
+  assert.strictEqual(inputContent[0].text, "[Image 2]: From input");
+});
+
+test("replaceImageParts handles input-only body without messages key", () => {
+  const body = {
+    model: "openai/gpt-5",
+    input: [
+      {
+        role: "user",
+        content: [{ type: "input_image", image_url: { url: "https://e.com/b.png" } }],
+      },
+    ],
+  };
+
+  const result = replaceImageParts(body, ["[Image 1]: Description"]);
+
+  const input = result.input as Array<{ content: Array<{ type: string; text?: string }> }>;
+  assert.strictEqual(input[0].content[0].type, "input_text");
+  assert.strictEqual(input[0].content[0].text, "[Image 1]: Description");
+});
+
+test("replaceImageParts replaces a raw data URI string content part with text", () => {
+  const body = {
+    model: "openai/gpt-4o",
+    messages: [{ role: "user", content: ["data:image/png;base64,AAAA="] }],
+  };
+
+  const result = replaceImageParts(body, ["[Image 1]: A screenshot"]);
+
+  const content = result.messages[0].content as Array<{ type: string; text?: string }>;
+  assert.strictEqual(content[0].type, "text");
+  assert.strictEqual(content[0].text, "[Image 1]: A screenshot");
+});

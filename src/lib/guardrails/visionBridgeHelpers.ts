@@ -90,7 +90,18 @@ export interface ImagePart {
   messageIndex: number;
   partIndex: number;
   imageUrl: string;
-  imageType: "image_url" | "image" | "url";
+  imageType: "image_url" | "image" | "url" | "input_image";
+  /**
+   * Which top-level request list this image lives in: `messages` (OpenAI chat
+   * + Anthropic /v1/messages) or `input` (Responses API).
+   */
+  listKey: "messages" | "input";
+  /**
+   * Index path from the message's `content` array down to the image part.
+   * `[2]` = messages[i].content[2]; `[1, 0]` = an image nested inside
+   * messages[i].content[1].content[0] (e.g. an Anthropic `tool_result`).
+   */
+  path: number[];
 }
 
 export interface RequestMessage {
@@ -100,6 +111,7 @@ export interface RequestMessage {
 
 export type RequestContentPart =
   | { type: "text"; text: string }
+  | { type: "input_text"; text: string }
   | { type: "image_url"; image_url: { url: string; detail?: string } }
   | {
       type: "image";
@@ -107,7 +119,89 @@ export type RequestContentPart =
     };
 
 /**
- * Extract image parts from messages array.
+ * Max recursion depth when scanning container blocks for nested images. Mirrors
+ * the bounded recursion used by the combo capability filter's
+ * `valueContainsImagePart` so the vision bridge sees every image the filter
+ * would flag, without unbounded recursion on untrusted payloads.
+ */
+const MAX_IMAGE_NESTING_DEPTH = 8;
+
+/**
+ * Extract the image URL from a content part, covering every shape the combo
+ * capability filter's `valueContainsImagePart` flags:
+ *   - `image_url` / `input_image` keys as either `{ url }` objects or plain
+ *     strings (OpenAI chat + Responses API)
+ *   - Anthropic `source` blocks (`type: "url"` / `type: "base64"`, plus
+ *     `source.media_type` starting with `image/`)
+ *   - a bare `{ type: "image", url }` part
+ * Returns `null` when the part carries no usable image URL.
+ */
+function extractImagePartUrl(part: Record<string, unknown>): string | null {
+  for (const key of ["image_url", "input_image"]) {
+    if (!(key in part)) {
+      continue;
+    }
+    const value = part[key];
+    if (typeof value === "string") {
+      return value.length > 0 ? value : null;
+    }
+    if (value && typeof value === "object") {
+      const url = (value as { url?: unknown }).url;
+      if (typeof url === "string" && url.length > 0) {
+        return url;
+      }
+    }
+  }
+
+  const source = part.source;
+  if (source && typeof source === "object") {
+    const src = source as { type?: unknown; media_type?: unknown; data?: unknown; url?: unknown };
+    if (src.type === "url") {
+      return typeof src.url === "string" && src.url.length > 0 ? src.url : null;
+    }
+    if (src.type === "base64" && typeof src.data === "string" && src.data.length > 0) {
+      const mediaType =
+        typeof src.media_type === "string" && src.media_type ? src.media_type : "image/png";
+      return `data:${mediaType};base64,${src.data}`;
+    }
+    const mediaType = typeof src.media_type === "string" ? src.media_type.toLowerCase() : "";
+    if (mediaType.startsWith("image/")) {
+      if (typeof src.url === "string" && src.url.length > 0) {
+        return src.url;
+      }
+      if (typeof src.data === "string" && src.data.length > 0) {
+        return `data:${src.media_type};base64,${src.data}`;
+      }
+    }
+  }
+
+  if (typeof part.type === "string" && part.type === "image" && typeof part.url === "string") {
+    return part.url.length > 0 ? part.url : null;
+  }
+
+  return null;
+}
+
+function classifyImageType(part: Record<string, unknown>): ImagePart["imageType"] {
+  const type = typeof part.type === "string" ? part.type : "";
+  if (type === "image") {
+    const source = (part.source ?? {}) as { type?: unknown };
+    return source.type === "url" ? "url" : "image";
+  }
+  if (type === "input_image") {
+    return "input_image";
+  }
+  return "image_url";
+}
+
+interface ContentScanState {
+  messageIndex: number;
+  listKey: "messages" | "input";
+  path: number[];
+}
+
+/**
+ * Extract image parts from a messages array.
  * Supports OpenAI image_url format, base64 image format, and Anthropic-style
  * image source blocks with either `source.type: "base64"` or `source.type: "url"`.
  *
@@ -120,51 +214,101 @@ export type RequestContentPart =
  */
 export function extractImageParts(messages: RequestMessage[]): ImagePart[] {
   const results: ImagePart[] = [];
-
   if (!Array.isArray(messages)) {
     return results;
   }
+  scanMessageList(messages, "messages", results);
+  return results;
+}
 
-  for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
-    const message = messages[msgIdx];
-    if (!message || !Array.isArray(message.content)) {
+/**
+ * Extract image parts from a full request body, scanning BOTH top-level lists:
+ * `messages` (OpenAI chat + Anthropic /v1/messages) and `input` (Responses API).
+ * Recurses into container blocks whose `content` is an array (e.g. Anthropic
+ * `tool_result.content`) so images nested inside tool results are detected —
+ * previously they were invisible to the bridge while the combo capability
+ * filter still flagged them, failing the request closed with "No target in
+ * combo … has confirmed vision support".
+ */
+export function extractImagePartsFromBody(body: Record<string, unknown>): ImagePart[] {
+  const results: ImagePart[] = [];
+  if (!body || typeof body !== "object") {
+    return results;
+  }
+  if (Array.isArray(body.messages)) {
+    scanMessageList(body.messages, "messages", results);
+  }
+  if (Array.isArray(body.input)) {
+    scanMessageList(body.input, "input", results);
+  }
+  return results;
+}
+
+function scanMessageList(
+  list: unknown[],
+  listKey: "messages" | "input",
+  results: ImagePart[]
+): void {
+  for (let msgIdx = 0; msgIdx < list.length; msgIdx++) {
+    const item = list[msgIdx];
+    if (!item || typeof item !== "object") {
       continue;
     }
+    const content = (item as Record<string, unknown>).content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+    scanContentArray(content, { messageIndex: msgIdx, listKey, path: [] }, results, 0);
+  }
+}
 
-    for (let partIdx = 0; partIdx < message.content.length; partIdx++) {
-      const part = message.content[partIdx];
-
-      if (part?.type === "image_url" && part.image_url?.url) {
+function scanContentArray(
+  content: unknown[],
+  state: ContentScanState,
+  results: ImagePart[],
+  depth: number
+): void {
+  if (depth > MAX_IMAGE_NESTING_DEPTH) {
+    return;
+  }
+  for (let partIdx = 0; partIdx < content.length; partIdx++) {
+    const part = content[partIdx];
+    if (typeof part === "string") {
+      // Raw data-URI content part — parity with the combo filter's
+      // `typeof value === "string" && value.startsWith("data:image/")`.
+      if (part.startsWith("data:image/")) {
         results.push({
-          messageIndex: msgIdx,
+          messageIndex: state.messageIndex,
           partIndex: partIdx,
-          imageUrl: part.image_url.url,
+          listKey: state.listKey,
+          path: [...state.path, partIdx],
+          imageUrl: part,
           imageType: "image_url",
         });
-      } else if (part?.type === "image" && part.source?.type === "base64") {
-        const { media_type, data } = part.source;
-        const dataUri = `data:${media_type};base64,${data}`;
-        results.push({
-          messageIndex: msgIdx,
-          partIndex: partIdx,
-          imageUrl: dataUri,
-          imageType: "image",
-        });
-      } else if (part?.type === "image" && part.source?.type === "url") {
-        const url = part.source.url;
-        if (url) {
-          results.push({
-            messageIndex: msgIdx,
-            partIndex: partIdx,
-            imageUrl: url,
-            imageType: "url",
-          });
-        }
       }
+      continue;
+    }
+    if (!part || typeof part !== "object") {
+      continue;
+    }
+    const record = part as Record<string, unknown>;
+    const imageUrl = extractImagePartUrl(record);
+    if (imageUrl !== null) {
+      results.push({
+        messageIndex: state.messageIndex,
+        partIndex: partIdx,
+        listKey: state.listKey,
+        path: [...state.path, partIdx],
+        imageUrl,
+        imageType: classifyImageType(record),
+      });
+      continue;
+    }
+    const nested = record.content;
+    if (Array.isArray(nested)) {
+      scanContentArray(nested, { ...state, path: [...state.path, partIdx] }, results, depth + 1);
     }
   }
-
-  return results;
 }
 
 /**
@@ -667,12 +811,18 @@ async function callVisionModelSingle(
 export interface RequestBody {
   model?: string;
   messages?: RequestMessage[];
+  input?: unknown;
   [key: string]: unknown;
 }
 
 /**
  * Replace image content parts with text descriptions.
  * Concatenates descriptions with labels: "[Image 1]: ..."
+ *
+ * Scans both `messages` (OpenAI chat + Anthropic) and `input` (Responses API)
+ * lists, recursing into container blocks (e.g. Anthropic `tool_result.content`)
+ * so nested images are replaced at the same spot they were extracted from.
+ * Replacement order follows the extraction order so descriptions line up.
  */
 export function replaceImageParts(
   body: RequestBody,
@@ -686,40 +836,83 @@ export function replaceImageParts(
 
   const result = structuredClone(body) as RequestBody;
 
-  if (!Array.isArray(result.messages)) {
-    return result;
+  const counter = { index: 0 };
+
+  if (Array.isArray(result.messages)) {
+    replaceListImages(result.messages, "messages", descriptions, counter);
   }
-
-  let descriptionIndex = 0;
-
-  for (let msgIdx = 0; msgIdx < result.messages.length; msgIdx++) {
-    const message = result.messages[msgIdx];
-    if (!message || !Array.isArray(message.content)) {
-      continue;
-    }
-
-    const newContent: RequestContentPart[] = [];
-
-    for (const part of message.content) {
-      if (part?.type === "image_url" || part?.type === "image") {
-        if (descriptionIndex < descriptions.length) {
-          const description = descriptions[descriptionIndex];
-          descriptionIndex++;
-          if (description == null) {
-            // #4012: describe failed for this image — preserve the original
-            // image so a vision-capable upstream can still process it.
-            newContent.push(part as RequestContentPart);
-          } else {
-            newContent.push({ type: "text", text: description });
-          }
-        }
-      } else {
-        newContent.push(part as RequestContentPart);
-      }
-    }
-
-    message.content = newContent;
+  if (Array.isArray(result.input)) {
+    replaceListImages(result.input as unknown[], "input", descriptions, counter);
   }
 
   return result;
+}
+
+function replaceListImages(
+  list: unknown[],
+  listKey: "messages" | "input",
+  descriptions: (string | null)[],
+  counter: { index: number }
+): void {
+  for (const item of list) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const content = (item as Record<string, unknown>).content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+    replaceContentArray(content, listKey, descriptions, counter, 0);
+  }
+}
+
+function replaceContentArray(
+  content: unknown[],
+  listKey: "messages" | "input",
+  descriptions: (string | null)[],
+  counter: { index: number },
+  depth: number
+): void {
+  if (depth > MAX_IMAGE_NESTING_DEPTH) {
+    return;
+  }
+  for (let i = 0; i < content.length; i++) {
+    const part = content[i];
+    if (typeof part === "string") {
+      if (part.startsWith("data:image/")) {
+        const description = descriptions[counter.index];
+        counter.index++;
+        if (description != null) {
+          content[i] = buildTextReplacement(listKey, description);
+        }
+      }
+      continue;
+    }
+    if (!part || typeof part !== "object") {
+      continue;
+    }
+    const record = part as Record<string, unknown>;
+    if (extractImagePartUrl(record) !== null) {
+      const description = descriptions[counter.index];
+      counter.index++;
+      if (description != null) {
+        content[i] = buildTextReplacement(listKey, description);
+      }
+      continue;
+    }
+    const nested = record.content;
+    if (Array.isArray(nested)) {
+      replaceContentArray(nested, listKey, descriptions, counter, depth + 1);
+    }
+  }
+}
+
+function buildTextReplacement(
+  listKey: "messages" | "input",
+  description: string
+): RequestContentPart {
+  if (listKey === "input") {
+    return { type: "input_text", text: description };
+  }
+  return { type: "text", text: description };
 }
