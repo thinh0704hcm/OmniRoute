@@ -437,10 +437,6 @@ async function __wbg_init(module_or_path) {
         }
     }
 
-    if (module_or_path === undefined) {
-        const wasmUrlName = "wasm_signer_bg.wasm";
-        module_or_path = new URL(wasmUrlName, import.meta.url);
-    }
     const imports = __wbg_get_imports();
 
     if (typeof module_or_path === 'string' || (typeof Request === 'function' && module_or_path instanceof Request) || (typeof URL === 'function' && module_or_path instanceof URL)) {
