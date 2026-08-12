@@ -155,6 +155,15 @@ const nextConfig = {
         path: "**/open-sse/services/compression/**",
         description: /Overly broad patterns can lead to build performance issues/,
       },
+      {
+        // bin/cli/commands/backup.mjs walks DATA_DIR paths (storage.sqlite,
+        // settings.json, ...) through a dynamic join(dataDir, name) — the same
+        // dynamic-path fs pattern the entries above cover, but this file grew
+        // into the app-route graph via instrumentation and now crosses
+        // Turbopack's "matches N files in [project]" fatal threshold.
+        path: "**/bin/cli/commands/backup.mjs",
+        description: /file pattern.*matches.*files in \[project\]/,
+      },
     ],
   },
   output: "standalone",
