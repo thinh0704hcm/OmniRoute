@@ -438,7 +438,8 @@ async function __wbg_init(module_or_path) {
     }
 
     if (module_or_path === undefined) {
-        module_or_path = new URL('wasm_signer_bg.wasm', import.meta.url);
+        const wasmUrlName = "wasm_signer_bg.wasm";
+        module_or_path = new URL(wasmUrlName, import.meta.url);
     }
     const imports = __wbg_get_imports();
 
