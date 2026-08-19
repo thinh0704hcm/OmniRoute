@@ -85,6 +85,13 @@ test("live catalog entries use exact Horde names and the aihorde prefix", async 
   await aiHordeImageCatalog.refresh();
   const ids = getCachedAiHordeImageCatalogEntries().map((model) => model.id);
   assert.deepEqual(ids, ["aihorde/AlbedoBase XL (SDXL)", "aihorde/FLUX.1-schnell"]);
+  // imageModels.ts loads the catalog service lazily via dynamic import(); wait
+  // for that to resolve before asserting the registry reflects the live
+  // catalog. This mirrors the server-side behavior: the getter fires the
+  // load, and after it settles the catalog entries are served synchronously.
+  const { whenServerModelsReady } =
+    await import("../../open-sse/config/providers/registry/aihorde/imageModels.ts");
+  await whenServerModelsReady();
   const listed = getAllImageModels().map((model) => model.id);
   assert.ok(listed.includes("aihorde/FLUX.1-schnell"));
   assert.equal(listed.includes("aihorde/DeadModel"), false);
