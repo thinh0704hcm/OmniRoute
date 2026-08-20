@@ -17,7 +17,8 @@ test("handleNoCredentials includes candidate aliases hint when supplied", async 
     /* model */ "claude-opus-5",
     /* lastError */ null,
     /* lastStatus */ null,
-    /* candidateAliases */ ["anthropic", "claude", "agentrouter"]
+    /* candidateAliases */ ["anthropic", "claude", "agentrouter"],
+    /* isCombo */ true
   );
 
   assert.equal(res.status, 404);
@@ -42,8 +43,10 @@ test("handleNoCredentials omits hint when no candidates supplied", async () => {
     "kiro",
     "claude-opus-5",
     null,
-    null
+    null,
     /* no candidateAliases */
+    undefined,
+    /* isCombo */ true
   );
 
   assert.equal(res.status, 404);
@@ -58,13 +61,16 @@ test("handleNoCredentials omits hint when no candidates supplied", async () => {
 });
 
 test("handleNoCredentials trims candidate list to top 3", async () => {
-  const res = handleNoCredentials({}, null, "kiro", "claude-opus-5", null, null, [
-    "anthropic",
-    "claude",
-    "agentrouter",
-    "github",
-    "vertex-partner",
-  ]);
+  const res = handleNoCredentials(
+    {},
+    null,
+    "kiro",
+    "claude-opus-5",
+    null,
+    null,
+    ["anthropic", "claude", "agentrouter", "github", "vertex-partner"],
+    /* isCombo */ true
+  );
 
   const body = (await res.json()) as { error?: { message?: string } };
   const message = body?.error?.message ?? "";

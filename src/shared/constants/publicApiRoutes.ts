@@ -30,6 +30,12 @@ const PUBLIC_API_ROUTE_PREFIXES = [
   // auth (503 when TELEGRAM_BOT_TOKEN is unset; 401 on invalid initData
   // HMAC). See src/app/api/telegram/update/route.ts. Do not widen.
   "/api/telegram/",
+  // Cursor CLI passthrough (CURSOR_API_ENDPOINT -> OmniRoute -> api2.cursor.sh).
+  // The handler enforces its own auth: /auth/exchange_user_api_key requires an
+  // OmniRoute API key (validateApiKey); every other path requires the
+  // OmniRoute-minted session JWT that exchange returns. See
+  // open-sse/handlers/cursorCliProxy.ts. Do not widen.
+  "/api/cursor-cli/",
 ];
 
 const PUBLIC_READONLY_API_ROUTE_PREFIXES = [
@@ -37,6 +43,14 @@ const PUBLIC_READONLY_API_ROUTE_PREFIXES = [
   "/api/monitoring/health",
   "/api/settings/require-login",
 ];
+
+// Read-only routes public by EXACT path, never by prefix.
+//
+// `/api/health` has to be reachable without a key — a probe has none, and a 401 there is
+// indistinguishable from a wrong key or a missing route. It cannot go in the prefix list
+// above: `startsWith("/api/health")` would also expose `/api/health/degradation`, which is
+// authenticated today.
+const PUBLIC_READONLY_API_ROUTES_EXACT = new Set(["/api/health"]);
 
 const PUBLIC_READONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -70,7 +84,18 @@ export function isPublicApiRoute(pathname: string, method = "GET"): boolean {
     return false;
   }
 
+  for (const route of PUBLIC_READONLY_API_ROUTES_EXACT) {
+    if (pathMatchesExactRoute(pathname, route)) {
+      return true;
+    }
+  }
+
   return PUBLIC_READONLY_API_ROUTE_PREFIXES.some((route) => pathname.startsWith(route));
 }
 
-export { PUBLIC_API_ROUTE_PREFIXES, PUBLIC_READONLY_API_ROUTE_PREFIXES, PUBLIC_READONLY_METHODS };
+export {
+  PUBLIC_API_ROUTE_PREFIXES,
+  PUBLIC_READONLY_API_ROUTE_PREFIXES,
+  PUBLIC_READONLY_API_ROUTES_EXACT,
+  PUBLIC_READONLY_METHODS,
+};

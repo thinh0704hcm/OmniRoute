@@ -41,7 +41,11 @@ import {
   isStripReasoningRequested,
 } from "./chatCore/headers.ts";
 import { markCodexScopeRateLimited } from "./chatCore/codexFailover.ts";
-import { isCodexOriginatedHeaders } from "../config/codexIdentity.ts";
+import { getCodexClientSessionId, isCodexOriginatedHeaders } from "../config/codexIdentity.ts";
+import {
+  noteCodexTurnStateProvenance,
+  readCodexTurnStateHeader,
+} from "../config/codexTurnState.ts";
 import { trackDevice, extractIpFromHeaders } from "../services/deviceTracker.ts";
 import { getCombosCached } from "./chatCore/comboContextCache.ts";
 export { clearCombosCache, clearUpstreamProxyConfigCache } from "./chatCore/comboContextCache.ts";
@@ -330,12 +334,11 @@ import {
 import { cacheReasoningFromAssistantMessage } from "../services/reasoningCache.ts";
 import { sanitizeOpenAITool } from "../services/toolSchemaSanitizer.ts";
 import { isCompactResponsesEndpoint } from "../executors/codex.ts";
-import { buildCodexQuotaPersistence } from "./chatCore/codexQuota.ts";
+import { persistCodexChildQuotaResponse } from "../services/codexAccount/index.ts";
 import { invalidateCodexQuotaCache } from "../services/codexQuotaFetcher.ts";
 import { translateNonStreamingResponse } from "./responseTranslator.ts";
 import { unwrapClineNonStreamingEnvelope } from "./chatCore/clineResponseEnvelope.ts";
 import { extractUsageFromResponse } from "./usageExtractor.ts";
-import { normalizeOpenAIBodyToolCallArgs } from "../utils/toolCallXmlNormalizer.ts";
 import {
   sanitizeOpenAIResponse,
   sanitizeResponsesApiResponse,
@@ -394,6 +397,7 @@ import {
 } from "../utils/aiSdkCompat.ts";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { isLocalStreamLifecycleError } from "@/shared/utils/circuitBreaker";
+import { shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
 import { extractFacts } from "@/lib/memory/extraction";
 import { handleToolCallExecution } from "@/lib/skills/interception";
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
@@ -653,40 +657,6 @@ export async function handleChatCore({
     creds: Record<string, unknown> | null | undefined,
     transport?: string
   ): void => recordKeyHealthStatusFor(status, creds, log, transport);
-  const persistCodexQuotaState = async (headers: Record<string, string> | null, status = 0) => {
-    const currentConnectionId = getCurrentConnectionId();
-    if (provider !== "codex" || !currentConnectionId || !headers) return;
-    try {
-      const existingProviderData =
-        credentials?.providerSpecificData && typeof credentials.providerSpecificData === "object"
-          ? (credentials.providerSpecificData as Record<string, unknown>)
-          : {};
-      // Pure payload build extracted to chatCore/codexQuota.ts (#3501). Returns null when the
-      // response carries no quota headers (nothing to persist).
-      const built = buildCodexQuotaPersistence({
-        headers,
-        existingProviderData,
-        modelForScope: model || requestedModel || "",
-        status,
-      });
-      if (!built) return;
-      if (built.exhaustionLog) {
-        log?.debug?.("CODEX", built.exhaustionLog);
-      }
-      // Invalidate the preflight cache for this connection so the next
-      // isModelAvailable check fetches fresh quota data.
-      if (status === 429) {
-        invalidateCodexQuotaCache(currentConnectionId);
-      }
-      await updateProviderConnection(currentConnectionId, {
-        providerSpecificData: built.nextProviderData,
-      });
-      credentials.providerSpecificData = built.nextProviderData;
-    } catch (err) {
-      const errMessage = err instanceof Error ? err.message : String(err);
-      log?.debug?.("CODEX", `Failed to persist codex quota state: ${errMessage}`);
-    }
-  };
   // ── Phase 9.2: Idempotency check ──
   // Resolve the idempotency key once here and reuse it at the Phase 9.2 save site below,
   // rather than re-deriving it. (#3821-review LEDGER-6)
@@ -723,7 +693,7 @@ export async function handleChatCore({
     copilotCompatibleReasoning,
     clientResponseFormat,
   } = resolveChatCoreRequestFormat({ clientRawRequest, body, provider, userAgent });
-const nativeOpenAICompatibleResponsesPassthrough =
+  const nativeOpenAICompatibleResponsesPassthrough =
     shouldUseNativeOpenAICompatibleResponsesPassthrough({
       provider,
       sourceFormat,
@@ -3053,6 +3023,33 @@ const nativeOpenAICompatibleResponsesPassthrough =
               const res = normalizeExecutorResult(rawExecutorResult);
               trace("post_executor", { status: res?.response?.status });
 
+              if (
+                provider === "codex" &&
+                attemptConnectionId &&
+                !(await shouldIsolateProbeFailures())
+              ) {
+                try {
+                  const persistedQuota = await persistCodexChildQuotaResponse({
+                    connectionId: String(attemptConnectionId),
+                    model: modelToCall || model || requestedModel || "",
+                    headers: normalizeHeaders(res.response.headers),
+                    status: res.response.status,
+                  });
+                  if (persistedQuota) {
+                    execCreds.providerSpecificData = persistedQuota.providerSpecificData;
+                    if (persistedQuota.exhaustionLog) {
+                      log?.debug?.("CODEX", persistedQuota.exhaustionLog);
+                    }
+                  }
+                  if (res.response.status === 429) {
+                    invalidateCodexQuotaCache(String(attemptConnectionId));
+                  }
+                } catch (err) {
+                  const errMessage = err instanceof Error ? err.message : String(err);
+                  log?.debug?.("CODEX", `Failed to persist codex quota state: ${errMessage}`);
+                }
+              }
+
               // Track Gemini RPM + RPD request counts for 429 classification
               if (provider === "gemini") {
                 incrementRequestCount(modelToCall);
@@ -3062,7 +3059,11 @@ const nativeOpenAICompatibleResponsesPassthrough =
                 stage: "provider_response_started",
               });
 
-              if (res.response.status === 401 && executionConnectionId) {
+              if (
+                res.response.status === 401 &&
+                executionConnectionId &&
+                !(await shouldIsolateProbeFailures())
+              ) {
                 recordKeyHealthStatus(401, execCreds);
               }
 
@@ -3092,7 +3093,10 @@ const nativeOpenAICompatibleResponsesPassthrough =
                 !managedLease &&
                 comboStrategy !== "context-relay" &&
                 res.response.status === 429 &&
-                attempts < maxAttempts - 1
+                attempts < maxAttempts - 1 &&
+                // Probe-origin (test-all) 429 must not rotate accounts or persist
+                // cooldowns — routing state untouched (#9817).
+                !(await shouldIsolateProbeFailures())
               ) {
                 const failedConnectionId =
                   executionConnectionId || credentials?.connectionId || connectionId;
@@ -3107,29 +3111,15 @@ const nativeOpenAICompatibleResponsesPassthrough =
                   `429 on connection ${String(failedConnectionId).slice(0, 8)} (attempt ${attempts + 1}/${maxAttempts}), rotating account`
                 );
 
-                // Mark only the current Codex model scope as rate-limited.
+                // Mark only the current Codex model scope as rate-limited. A connection-wide
+                // cooldown here would let a Spark limit suppress independent Sol/Terra traffic.
                 if (failedConnectionId) {
                   await markCodexScopeRateLimited({
                     failedConnectionId: String(failedConnectionId),
                     model: modelToCall || model || requestedModel || null,
                     rateLimitedUntil: new Date(Date.now() + (retryAfterMs || 60_000)).toISOString(),
-                    credentials,
+                    credentials: execCreds || credentials,
                   });
-                  // Fix B: also persist the cooldown to
-                  // `provider_connections.rate_limited_until`. Without this,
-                  // the Codex 429 cascade survives the current request (via
-                  // `markCodexScopeRateLimited`'s in-memory Map) but is lost
-                  // on process restart — the same exhausted Codex key is
-                  // re-picked on the very next request. Mirrors
-                  // `open-sse/executors/antigravity.ts:343`.
-                  // Best-effort: never crash the chat path on DB write failure.
-                  try {
-                    const { setConnectionRateLimitUntil } = await import("@/lib/db/providers");
-                    const untilMs = Date.now() + (retryAfterMs || 60_000);
-                    setConnectionRateLimitUntil(String(failedConnectionId), untilMs);
-                  } catch {
-                    // ignore — best effort
-                  }
                   if (!codexExcludedIds.includes(String(failedConnectionId))) {
                     codexExcludedIds.push(String(failedConnectionId));
                   }
@@ -3389,6 +3379,15 @@ const nativeOpenAICompatibleResponsesPassthrough =
         const responseHeaders = new Headers(headersObj);
         stripStaleForwardingHeaders(responseHeaders);
         stripNextMiddlewareControlHeaders(responseHeaders);
+        // The upstream headers (turn-state included) are about to be committed
+        // to the client — record which connection minted the blob so a later
+        // cross-account echo can be stripped (Codex failover guard).
+        if (provider === "codex" && readCodexTurnStateHeader(responseHeaders)) {
+          noteCodexTurnStateProvenance(
+            getCodexClientSessionId(clientRawRequest?.headers),
+            rawResult._executionCredentials?.connectionId ?? credentials?.connectionId
+          );
+        }
         const contentType = (responseHeaders.get("content-type") || "").toLowerCase();
         const payload = await readNonStreamingResponseBody(
           rawResult.response,
@@ -3702,10 +3701,15 @@ const nativeOpenAICompatibleResponsesPassthrough =
   }
 
   // Handle 401/403 - try token refresh using executor
+  // T-PROBE: probe-origin failures never attempt the refresh — a probe must
+  // not consume a rotating refresh token nor persist an "expired"
+  // deactivation on refresh failure (#9817). The 401/403 then flows into
+  // the normal providerFailure classification (record-only in probe mode).
   if (
     (providerResponse.status === HTTP_STATUS.UNAUTHORIZED ||
       providerResponse.status === HTTP_STATUS.FORBIDDEN) &&
-    !hadStreamOptions // Skip refresh if failure may be from stream_options removal, not auth
+    !hadStreamOptions && // Skip refresh if failure may be from stream_options removal, not auth
+    !(await shouldIsolateProbeFailures())
   ) {
     // Fix A: wrap refreshCredentials in runWithOnPersist so the persist callback
     // executes INSIDE the per-connection mutex held by getAccessToken. This makes
@@ -3857,8 +3861,6 @@ const nativeOpenAICompatibleResponsesPassthrough =
     }
   }
 
-  await persistCodexQuotaState(normalizeHeaders(providerResponse.headers), providerResponse.status);
-
   // Check provider response - return error info for fallback handling
   providerFailure: if (!providerResponse.ok) {
     trackPendingRequest(model, provider, connectionId, false);
@@ -3987,17 +3989,34 @@ const nativeOpenAICompatibleResponsesPassthrough =
     if (errorConnectionId && errorType) {
       try {
         if (errorType === PROVIDER_ERROR_TYPES.FORBIDDEN) {
-          await updateProviderConnection(errorConnectionId, {
-            isActive: false,
-            testStatus: "banned",
-            lastErrorType: errorType,
-            lastError: message,
-            errorCode: statusCode,
-          });
-          console.warn(
-            `[provider] Node ${errorConnectionId} banned (${statusCode}) — disabling permanently`
-          );
+          // T-PROBE: a probe-origin failure (model test-all) must never
+          // remove the connection from the pool — record but stay active.
+          if (await shouldIsolateProbeFailures()) {
+            await updateProviderConnection(errorConnectionId, {
+              lastErrorType: errorType,
+              lastError: message,
+              errorCode: statusCode,
+              lastErrorAt: new Date().toISOString(),
+            });
+            console.warn(
+              `[provider] Node ${errorConnectionId} probe ${errorType} (${statusCode}) — connection stays active`
+            );
+          } else {
+            await updateProviderConnection(errorConnectionId, {
+              isActive: false,
+              testStatus: "banned",
+              lastErrorType: errorType,
+              lastError: message,
+              errorCode: statusCode,
+            });
+            console.warn(
+              `[provider] Node ${errorConnectionId} banned (${statusCode}) — disabling permanently`
+            );
+          }
         } else if (errorType === PROVIDER_ERROR_TYPES.ACCOUNT_DEACTIVATED) {
+          // T-PROBE: probe-origin failures (test-all) never deactivate —
+          // record but stay active; Plan A (extra keys) stays first so the
+          // real path keeps its existing priority (#9817).
           // Plan A: if connection has extra API keys, don't disable — only the failing key is affected.
           // Single-key connections still get disabled as before.
           if (
@@ -4015,6 +4034,16 @@ const nativeOpenAICompatibleResponsesPassthrough =
             console.warn(
               `[provider] Node ${errorConnectionId} account deactivated (${statusCode}) — has extra keys, keeping connection active`
             );
+          } else if (await shouldIsolateProbeFailures()) {
+            await updateProviderConnection(errorConnectionId, {
+              lastErrorType: errorType,
+              lastError: message,
+              errorCode: statusCode,
+              lastErrorAt: new Date().toISOString(),
+            });
+            console.warn(
+              `[provider] Node ${errorConnectionId} probe ${errorType} (${statusCode}) — connection stays active`
+            );
           } else {
             await updateProviderConnection(errorConnectionId, {
               isActive: false,
@@ -4028,73 +4057,90 @@ const nativeOpenAICompatibleResponsesPassthrough =
             );
           }
         } else if (errorType === PROVIDER_ERROR_TYPES.QUOTA_EXHAUSTED) {
-          // Kimi's 403 says "billing cycle" for both an exhausted subscription and a
-          // temporary request window. Read its official usage endpoint before making
-          // the connection terminal: a non-zero Weekly quota plus an empty Ratelimit
-          // window must recover automatically at the reported reset time.
-          let kimiRateLimitResetAt: string | null = null;
-          if (provider === "kimi-coding") {
-            try {
-              const { fetchAndPersistProviderLimits } = await import("@/lib/usage/providerLimits");
-              const { usage } = await fetchAndPersistProviderLimits(errorConnectionId, "manual");
-              kimiRateLimitResetAt = getKimiTemporaryRateLimitResetAt(usage);
-            } catch {
-              // Preserve the existing quota handling when Kimi's usage endpoint is unavailable.
-            }
-          }
-
-          // Providers with per-model quotas — lock the model only, not the connection
-          const quotaCooldownMs = kimiRateLimitResetAt
-            ? Math.max(new Date(kimiRateLimitResetAt).getTime() - Date.now(), 0)
-            : retryAfterMs || COOLDOWN_MS.rateLimit;
-          const accountSemaphoreKey = resolveAccountSemaphoreKey({
-            provider,
-            model: currentModel,
-            connectionId: errorConnectionId,
-            credentials,
-          });
-          if (accountSemaphoreKey) {
-            markAccountSemaphoreBlocked(accountSemaphoreKey, quotaCooldownMs);
-          }
-          if (kimiRateLimitResetAt) {
+          // T-PROBE: probe-origin failures never write quota state —
+          // `testStatus: "credits_exhausted"` is terminal and removes the
+          // connection from the pool; semaphore locks and per-model quota
+          // lockouts are routing mutations too. Record only (#9817).
+          if (await shouldIsolateProbeFailures()) {
             await updateProviderConnection(errorConnectionId, {
-              testStatus: "unavailable",
-              rateLimitedUntil: kimiRateLimitResetAt,
-              backoffLevel: 0,
-              lastErrorType: PROVIDER_ERROR_TYPES.RATE_LIMITED,
-              lastError: message,
-              errorCode: statusCode,
-            });
-            console.warn(
-              `[provider] Node ${errorConnectionId} Kimi request window exhausted (${statusCode}) — retrying after ${kimiRateLimitResetAt}`
-            );
-          } else if (isModelScope() && errorConnectionId) {
-            const lockFn = provider === "antigravity" ? lockExactModel : lockModel;
-            lockFn(provider, errorConnectionId, model, "quota_exhausted", quotaCooldownMs);
-            console.warn(
-              `[provider] Node ${errorConnectionId} ModelScope model quota exhausted (${statusCode}) for ${model} - ${Math.ceil(quotaCooldownMs / 1000)}s (connection stays active)`
-            );
-          } else if (
-            lockModelIfPerModelQuota(
-              provider,
-              errorConnectionId,
-              model,
-              "quota_exhausted",
-              quotaCooldownMs
-            )
-          ) {
-            const quotaScope = getQuotaScopeLabelForProvider(provider, model);
-            console.warn(
-              `[provider] Node ${errorConnectionId} ${quotaScope}-only quota exhausted (${statusCode}) for ${model} - ${Math.ceil(quotaCooldownMs / 1000)}s (cooldown_scope=${quotaScope}, ttl_source=${retryAfterMs ? "upstream" : "inferred"}, connection stays active)`
-            );
-          } else {
-            await updateProviderConnection(errorConnectionId, {
-              testStatus: "credits_exhausted",
               lastErrorType: errorType,
               lastError: message,
               errorCode: statusCode,
+              lastErrorAt: new Date().toISOString(),
             });
-            console.warn(`[provider] Node ${errorConnectionId} exhausted quota (${statusCode})`);
+            console.warn(
+              `[provider] Node ${errorConnectionId} probe ${errorType} (${statusCode}) — connection stays active`
+            );
+          } else {
+            // Kimi's 403 says "billing cycle" for both an exhausted subscription and a
+            // temporary request window. Read its official usage endpoint before making
+            // the connection terminal: a non-zero Weekly quota plus an empty Ratelimit
+            // window must recover automatically at the reported reset time.
+            let kimiRateLimitResetAt: string | null = null;
+            if (provider === "kimi-coding") {
+              try {
+                const { fetchAndPersistProviderLimits } =
+                  await import("@/lib/usage/providerLimits");
+                const { usage } = await fetchAndPersistProviderLimits(errorConnectionId, "manual");
+                kimiRateLimitResetAt = getKimiTemporaryRateLimitResetAt(usage);
+              } catch {
+                // Preserve the existing quota handling when Kimi's usage endpoint is unavailable.
+              }
+            }
+
+            // Providers with per-model quotas — lock the model only, not the connection
+            const quotaCooldownMs = kimiRateLimitResetAt
+              ? Math.max(new Date(kimiRateLimitResetAt).getTime() - Date.now(), 0)
+              : retryAfterMs || COOLDOWN_MS.rateLimit;
+            const accountSemaphoreKey = resolveAccountSemaphoreKey({
+              provider,
+              model: currentModel,
+              connectionId: errorConnectionId,
+              credentials,
+            });
+            if (accountSemaphoreKey) {
+              markAccountSemaphoreBlocked(accountSemaphoreKey, quotaCooldownMs);
+            }
+            if (kimiRateLimitResetAt) {
+              await updateProviderConnection(errorConnectionId, {
+                testStatus: "unavailable",
+                rateLimitedUntil: kimiRateLimitResetAt,
+                backoffLevel: 0,
+                lastErrorType: PROVIDER_ERROR_TYPES.RATE_LIMITED,
+                lastError: message,
+                errorCode: statusCode,
+              });
+              console.warn(
+                `[provider] Node ${errorConnectionId} Kimi request window exhausted (${statusCode}) — retrying after ${kimiRateLimitResetAt}`
+              );
+            } else if (isModelScope() && errorConnectionId) {
+              const lockFn = provider === "antigravity" ? lockExactModel : lockModel;
+              lockFn(provider, errorConnectionId, model, "quota_exhausted", quotaCooldownMs);
+              console.warn(
+                `[provider] Node ${errorConnectionId} ModelScope model quota exhausted (${statusCode}) for ${model} - ${Math.ceil(quotaCooldownMs / 1000)}s (connection stays active)`
+              );
+            } else if (
+              lockModelIfPerModelQuota(
+                provider,
+                errorConnectionId,
+                model,
+                "quota_exhausted",
+                quotaCooldownMs
+              )
+            ) {
+              const quotaScope = getQuotaScopeLabelForProvider(provider, model);
+              console.warn(
+                `[provider] Node ${errorConnectionId} ${quotaScope}-only quota exhausted (${statusCode}) for ${model} - ${Math.ceil(quotaCooldownMs / 1000)}s (cooldown_scope=${quotaScope}, ttl_source=${retryAfterMs ? "upstream" : "inferred"}, connection stays active)`
+              );
+            } else {
+              await updateProviderConnection(errorConnectionId, {
+                testStatus: "credits_exhausted",
+                lastErrorType: errorType,
+                lastError: message,
+                errorCode: statusCode,
+              });
+              console.warn(`[provider] Node ${errorConnectionId} exhausted quota (${statusCode})`);
+            }
           }
         } else if (errorType === PROVIDER_ERROR_TYPES.UNAUTHORIZED) {
           // Normal 401 (token/session auth issue): keep account active for refresh/re-auth.
@@ -4136,11 +4182,15 @@ const nativeOpenAICompatibleResponsesPassthrough =
             lastError: message,
             errorCode: statusCode,
           });
-          try {
-            const { setConnectionRateLimitUntil } = await import("@/lib/db/providers");
-            setConnectionRateLimitUntil(errorConnectionId, Date.now() + geoCooldownMs);
-          } catch {
-            // DB write failure must never break the fallback loop
+          // T-PROBE: the 24h exclusion is a routing mutation — a probe must
+          // not push a connection into a day-long cooldown (#9817).
+          if (!(await shouldIsolateProbeFailures())) {
+            try {
+              const { setConnectionRateLimitUntil } = await import("@/lib/db/providers");
+              setConnectionRateLimitUntil(errorConnectionId, Date.now() + geoCooldownMs);
+            } catch {
+              // DB write failure must never break the fallback loop
+            }
           }
           console.warn(
             `[provider] Node ${errorConnectionId} geo-blocked (${statusCode}) — excluded for ${Math.ceil(geoCooldownMs / 1000)}s, trying other accounts`
@@ -4151,16 +4201,20 @@ const nativeOpenAICompatibleResponsesPassthrough =
           // otherwise degenerate into a 429 rate-limit storm). Connection stays
           // active since only the specific model is unavailable. (#6827)
           const notFoundCooldownMs = COOLDOWN_MS.notFound;
-          lockModel(
-            provider,
-            errorConnectionId,
-            currentModel,
-            "model_not_found",
-            notFoundCooldownMs
-          );
-          console.warn(
-            `[provider] Node ${errorConnectionId} model not found (${statusCode}) for ${currentModel} - locking model for ${Math.ceil(notFoundCooldownMs / 1000)}s (connection stays active)`
-          );
+          // T-PROBE: the model lockout is a routing mutation — a probe must
+          // not lock a model for the cooldown window (#9817).
+          if (!(await shouldIsolateProbeFailures())) {
+            lockModel(
+              provider,
+              errorConnectionId,
+              currentModel,
+              "model_not_found",
+              notFoundCooldownMs
+            );
+            console.warn(
+              `[provider] Node ${errorConnectionId} model not found (${statusCode}) for ${currentModel} - locking model for ${Math.ceil(notFoundCooldownMs / 1000)}s (connection stays active)`
+            );
+          }
         }
       } catch {
         // Best-effort state update; request flow should continue with fallback handling.
@@ -4757,11 +4811,6 @@ const nativeOpenAICompatibleResponsesPassthrough =
         stripReasoning,
         parseTextualReasoningTags: shouldParseTextualReasoningTags(provider, model),
       });
-      // #tencent-hy3: some OpenAI-format upstreams emit XML-encoded
-      // tool-call arguments (e.g. nous-research → Tencent hy3 with forced
-      // tool_choice) which breaks clients that JSON.parse `function.arguments`.
-      // Normalize the wrapper to a JSON object string (no-op for other bodies).
-      normalizeOpenAIBodyToolCallArgs(translatedResponse);
     }
 
     // #8331: keep the client-visible metering fields real everywhere except Claude-Code-compatible
@@ -5112,6 +5161,17 @@ const nativeOpenAICompatibleResponsesPassthrough =
     compressionResponseMeta,
     comboStrategy,
   });
+
+  // The streaming headers (turn-state included, when present) are committed to
+  // the client from here on — record which connection minted the blob so a
+  // later cross-account echo can be stripped (Codex failover guard). The
+  // in-place failover update means `credentials` is the winning account.
+  if (provider === "codex" && readCodexTurnStateHeader(providerResponse.headers)) {
+    noteCodexTurnStateProvenance(
+      getCodexClientSessionId(clientRawRequest?.headers),
+      credentials?.connectionId
+    );
+  }
 
   // Create transform stream with logger for streaming response
   let transformStream;

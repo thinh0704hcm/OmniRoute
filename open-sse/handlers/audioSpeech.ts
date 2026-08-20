@@ -230,6 +230,16 @@ async function handleDeepgramSpeech(providerConfig, body, modelId, token) {
 }
 
 /**
+ * Voice-note clients send response_format=ogg. OpenAI TTS documents opus, not ogg.
+ * OmniRoute already returns Ogg/Opus bytes for opus — alias ogg → opus (#10587).
+ */
+export function normalizeSpeechResponseFormat(fmt) {
+  if (typeof fmt !== "string" || !fmt) return "mp3";
+  const lower = fmt.toLowerCase();
+  return lower === "ogg" ? "opus" : lower;
+}
+
+/**
  * Handle Soniox TTS (OpenAI speech shape → Soniox /tts, returns raw audio bytes)
  */
 async function handleSonioxSpeech(providerConfig, body, modelId, token) {
@@ -963,7 +973,7 @@ export async function handleAudioSpeech({
         model: modelId,
         input: body.input,
         voice: body.voice || "alloy",
-        response_format: body.response_format || "mp3",
+        response_format: normalizeSpeechResponseFormat(body.response_format),
         speed: body.speed || 1.0,
       }),
     });

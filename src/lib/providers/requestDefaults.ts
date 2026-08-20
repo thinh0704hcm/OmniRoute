@@ -302,6 +302,10 @@ export function sanitizeProviderSpecificDataForResponse(value: unknown): JsonRec
   if (Object.keys(record).length === 0) return undefined;
 
   const sanitized: JsonRecord = { ...record };
+  delete sanitized.accessToken;
+  delete sanitized.refreshToken;
+  delete sanitized.idToken;
+  delete sanitized.apiKey;
   delete sanitized.consoleApiKey;
   delete sanitized.secretAccessKey;
   delete sanitized.awsSecretAccessKey;
@@ -316,6 +320,15 @@ export function sanitizeProviderSpecificDataForResponse(value: unknown): JsonRec
   delete sanitized.usageCookie;
   delete sanitized.runtimeKey;
   delete sanitized.validationId;
+  // System-managed Codex fingerprint seed: never exposed through the API
+  // (mirrors sub2api stripping `codex_fingerprint_seed`); the server-side
+  // partial-update merge keeps it alive without the client round-tripping it.
+  delete sanitized.codexFingerprintSeed;
+  // Runtime-only Codex identity carriers (in-memory per request, never
+  // persisted) — strip defensively if they ever leak into a response payload.
+  delete sanitized.codexClientIdentity;
+  delete sanitized.codexOriginalIdentityHeaders;
+  delete sanitized.codexTurnStateEcho;
   if (sanitized.browserCdpEndpoint) sanitized.browserCdpEndpoint = "configured";
   return sanitized;
 }

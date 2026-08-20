@@ -45,21 +45,19 @@ export interface AutoComboSpec {
   family?: ModelFamily;
 }
 
-/** Rate-limit empty-pool AUTO warns (same label can be resolved many times/min). */
-const emptyPoolWarnAt = new Map<string, number>();
-export const EMPTY_POOL_WARN_INTERVAL_MS = 60_000;
+/** Once-per-process empty-pool AUTO warns (steady empty is not a metronome). */
+const emptyPoolWarned = new Set<string>();
 
-export function warnEmptyAutoPoolOnce(label: string, message: string, now = Date.now()): boolean {
-  const last = emptyPoolWarnAt.get(label) ?? 0;
-  if (now - last < EMPTY_POOL_WARN_INTERVAL_MS) return false;
-  emptyPoolWarnAt.set(label, now);
+export function warnEmptyAutoPoolOnce(label: string, message: string, _now = Date.now()): boolean {
+  if (emptyPoolWarned.has(label)) return false;
+  emptyPoolWarned.add(label);
   log.warn("AUTO", message);
   return true;
 }
 
-/** Test-only: reset the debounce map. */
+/** Test-only: reset the once-per-label set (also models emptiness reappearing). */
 export function resetEmptyAutoPoolWarnStateForTests(): void {
-  emptyPoolWarnAt.clear();
+  emptyPoolWarned.clear();
 }
 
 /** Minimal connection shape needed for virtual auto-combo factory */

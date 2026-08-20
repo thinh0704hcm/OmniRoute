@@ -31,6 +31,7 @@ import { getSpecialtyModelsResponse } from "@/app/api/v1/_shared/specialtyCatalo
 import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import { runWithCallLogApiKeyContext } from "@/lib/usage/callLogApiKeyContext";
 import { executeImageWithCredentialFallback } from "@/sse/services/imageCredentialRetry";
+import { AUTHZ_HEADER_PEER_LOCALITY } from "@/server/authz/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -290,6 +291,12 @@ async function postHandler(request, context) {
               ...(isCustomModel && { resolvedProvider: provider }),
               signal: request.signal,
               clientHeaders: publicBaseUrlHeaders(request.headers),
+              // Trusted "loopback"|"lan"|"remote" verdict stamped by the authz
+              // pipeline from the real TCP peer (never the spoofable Host
+              // header). Only the spawn-capable cursor-agent-image provider
+              // consumes this (Hard Rules #15 + #17) — every other image
+              // provider ignores it.
+              peerLocality: request.headers.get(AUTHZ_HEADER_PEER_LOCALITY),
             })
         );
 

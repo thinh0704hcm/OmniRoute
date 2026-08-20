@@ -61,6 +61,10 @@ const IGNORE_FROM_CODE = new Set([
   "APPDATA",
   "LOCALAPPDATA",
   "XDG_CONFIG_HOME",
+  // systemd-injected notify socket path (sd_notify protocol, see
+  // scripts/dev/systemd-notify.mjs) — set by systemd only when running under
+  // a unit, never user config.
+  "NOTIFY_SOCKET",
   // XDG Base Directory cache root — read (never defined by OmniRoute) so the
   // Android/Termux serve path can honor an operator-set cache location (#8519).
   "XDG_CACHE_HOME",
@@ -122,6 +126,10 @@ const IGNORE_FROM_CODE = new Set([
   // ("http://192.168.0.15:20128" / null), never OmniRoute runtime config (#5151).
   "COMBO_LIVE_BASE_URL",
   "COMBO_LIVE_API_KEY",
+  // Ad-hoc mesh/coverage scripts under scripts/ad-hoc/*.mjs (mesh-send, mesh-run,
+  // verify-coverage). Operator-supplied script secrets, not OmniRoute runtime config.
+  "BOT_TOKEN",
+  "BOT_URL",
   // Homologation E2E suite (npm run homolog) vars — configured via the dedicated
   // .env.homolog file (template: .env.homolog.example), never in the runtime .env.
   // Test/ops-only signals against the homologation VPS, same class as COMBO_LIVE_*.

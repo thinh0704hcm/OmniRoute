@@ -224,9 +224,7 @@
     "tests/unit/translator-resp-gemini-to-openai.test.ts": 1604,
     "tests/unit/usage-service-hardening.test.ts": 1928,
     "tests/unit/vscode-token-routes.test.ts": 1633,
-    "tests/unit/executor-antigravity.test.ts": 1427,
-    "tests/unit/guardrails/visionBridge.test.ts": 1206,
-    "tests/unit/tls-proxy-context.test.ts": 1037
+    "tests/unit/executor-antigravity.test.ts": 1427
   },
   "_rebaseline_2026_06_09": "Re-baseline consciente pre-release v3.8.19: 9 arquivos cresceram durante o ciclo (features mergeadas: RequestLoggerV2 +281 request-logger rework, stream +101, combo +73, chatCore +45, catalog +32 fable-5/catalog-flag, callLogs +4, accountFallback +2, usageHistory novo 840) + core.ts +7 (fix resetAllDbModuleState, PR 3536). A catraca segue valendo destes valores — proximo crescimento falha. Decisao: encolher (esp. RequestLoggerV2/chatCore) e a issue #3501 ficam para o ciclo seguinte.",
   "_rebaseline_2026_06_11_phase1f": "Phase 1f (#3501): ProviderDetailPageClient.tsx 4948→4062 (-886 LOC); 3 novos hooks extraídos. useProviderConnections.ts=954 acima do cap=800 — justificado: extração direta do god-component (zero lógica nova), própria redução do cliente supera o custo. useProviderSettings.ts=263 e useProviderModels.ts=154 já abaixo do cap.",
@@ -441,18 +439,17 @@
       "src/shared/components/ModelSelectModal.tsx": 1138,
       "src/shared/constants/providers/apikey/gateways.ts": 1250
     },
-    "src/app/(dashboard)/dashboard/providers/[id]/components/modals/AddApiKeyModal.tsx": 1067,
+    "src/app/(dashboard)/dashboard/providers/[id]/components/modals/AddApiKeyModal.tsx": 1062,
     "src/app/(dashboard)/dashboard/providers/[id]/hooks/useProviderConnections.ts": 1051,
     "src/shared/components/ModelSelectModal.tsx": 1138,
-    "src/shared/constants/providers/apikey/gateways.ts": 1271,
+    "src/shared/constants/providers/apikey/gateways.ts": 1268,
     "open-sse/vendor/codex-chatgpt-web/bridge.ts": 1387,
     "_rebaseline_2026_08_11_v3850_merge_storm_provider_registry": "DRIFT do merge-storm 2026-08-11 (99 PRs mergeados no release/v3.8.50). AddApiKeyModal.tsx (PR #8949 ChatGPT Web provider) e useProviderConnections.ts/ModelSelectModal.tsx (PRs #9011 combo test-all, #9499 image combos) = UI nova legitima acima do cap; gateways.ts = god-file de catalogo de providers que cresceu com PRs #9009/#9421/#9468/#9594 (qualquer split arriscaria corromper o merge de novo — o proprio PR #9421 quebrou o arquivo); bridge.ts (PR #8949) = ponte Chromium vendored; proxyFetch.ts 1207->1220 = drift herdado de merges. Owner autorizou rebaseline com anotacao (2026-08-11).",
     "src/lib/modelCapabilities.ts": 1006,
     "src/app/(dashboard)/dashboard/providers/[id]/providerPageHelpers.ts": 1014,
-    "open-sse/config/imageRegistry.ts": 1029,
+    "open-sse/config/imageRegistry.ts": 1034,
     "src/sse/handlers/chatHelpers.ts": 1017,
-    "src/shared/middleware/chatBodyAdmission.ts": 1005,
-    "src/lib/guardrails/visionBridgeHelpers.ts": 1158
+    "src/shared/middleware/chatBodyAdmission.ts": 1005
   },
   "_rebaseline_base_2026_08_10_proxyfetch": "Base-red fix (green-prs sweep, issue #9985): open-sse/utils/proxyFetch.ts 1207 > cap 1000 — new proxied-TLS fetch helper introduced by the Fal reference-image work. Owner-authorized quick rebaseline to green; structural slim tracked for v3.9.0.",
   "_rebaseline_2026_07_27_v3849_train2": "Merge-train 2 (7 PRs) — owner-approved 2026-07-27. Single entry: chatCore.ts 4955->5006 (#8595, Responses multi-turn image compaction before the context hard-reject). Genuine irreducible growth at the existing compaction chokepoint in handleChatCore — the PR adds a last-resort retry against the concrete budget plus the estimateFinalInputTokens helper, both wired at the pre-existing call site rather than a new branch. Covered by tests/unit/8560-responses-image-compaction.test.ts (4 tests).",
@@ -619,5 +616,6 @@
   "_rebaseline_2026_08_14_imagetotext_servicekinds": "Image-to-Text category (#10275/#10291): gateways.ts grew 1250→1255 by data lines only — the serviceKinds: [\"llm\", \"imageToText\"] declarations on the openrouter and chutes catalog entries, plus the 3-line comment recording why chutes needs no static dots.ocr entry (passthroughModels discovery). No new logic or branching; the file is a provider catalog of declarative metadata. Splitting a catalog for five lines would be worse than the growth (semantic-families rule).",
   "_rebaseline_2026_08_18_imageregistry_merge_train": "merge-train 2026-08-18 (owner-authorized, /merge-prs batch of 84): open-sse/config/imageRegistry.ts crossed the 1000-line new-file cap for the first time purely from combining three independent, already-legitimate provider registrations boarded in the same local merge-train — #10542 (aihorde optional-key image catalog), #10494 (gemini-web image generation), #10594 (freepik/magnific provider rename + validation). 996 on release tip -> 1019 on the train tip. Each PR individually adds a small, additive IMAGE_PROVIDERS registry entry at the existing chokepoint; none crosses the cap alone. Not modularized as part of this train's gate fix (out of scope for a merge reconciliation, not a feature change). Covered by each PR's own focused tests (aihorde-image-catalog/generation, gemini-web image tests, freepik/magnific provider tests).",
   "_rebaseline_2026_08_20_v3850_merge_train_batch1": "Merge-train batch1 (2026-08-19/20, 30 PRs boarded onto release/v3.8.50): gateways.ts 1255->1268 = PR #10722 (Token Kiosk OpenAI-compatible provider gateway catalog entry, +13 declarative lines, same god-file no-split rationale as prior gateways.ts rebaselines); chatHelpers.ts (uncapped, not previously frozen) new 1017 = PR #10797 (relay/bifrost error normalization, +23/-2, own-PR growth, existing file already near cap from accumulated chokepoint wiring per its own rebaseline history above); chatBodyAdmission.ts (uncapped) new 1005 = pre-existing base-red on the pure release tip (1004>1000 before this train boarded anything, no PR in this batch touches this file) — frozen here at its current size, not authorizing further growth. Owner-authorized rebaseline (2026-08-19 merge-prs session).",
-  "_rebaseline_2026_08_20_upstream_merge_3850": "Upstream merge (release/v3.8.50 41ffb08e4) into fork update/v3.8.50 — fork files that exceeded the inherited upstream frozen values because the fork branch carries fork-only provider registrations never gated by upstream CI: AddApiKeyModal.tsx 1062->1067 (fork ChatGPT Web provider row), gateways.ts 1268->1271 (fork freebuff/cursor gateway entries), imageRegistry.ts 1019->1029 (fork image providers), visionBridgeHelpers.ts 1158 (fork self-loop/abort coverage, uncapped->frozen here); testFrozen additions for fork-pre-existing oversized test files visionBridge.test.ts 1206 + tls-proxy-context.test.ts 1037 (never frozen upstream, unchanged by merge). Owner-authorized fork rebaseline during 2026-08-20 upstream sync."
+  "_rebaseline_2026_08_20_8338_cursor_image_provider": "PR (reimplementation of #8338, @valvesss): imageRegistry.ts 1019->1033 = new cursor IMAGE_PROVIDERS entry (Cursor plan image generation via Agent CLI), +14 lines of declarative provider metadata. Same god-registry no-split rationale as prior imageRegistry/gateways rebaselines.",
+  "_rebaseline_2026_08_20_imageregistry_1034": "imageRegistry.ts 1033->1034: +1 line drift between #10842 (cursor image provider, froze at 1033) and its actual merged state on release (measured 1034) — trivial rebaseline, not a new feature."
 }

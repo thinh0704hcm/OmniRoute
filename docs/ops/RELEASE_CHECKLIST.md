@@ -66,6 +66,15 @@ as the default reflex (minutes, reversible); `npm unpublish` only inside the 72h
 window and never as the first move. Docker: never rewrite a version tag — rollback is
 repointing `latest` to the last good digest.
 
+**Docker Hub `latest` (required on every stable SemVer publish):** the
+`docker-publish` workflow must tag **both** `X.Y.Z` and, when
+`should-promote-latest.sh` agrees this is the highest stable SemVer, `:latest`
+with the **same digest**. After the job: Hub `latest` digest equals the new
+SemVer digest and `last_updated` moved. Do not leave `:latest` on an older
+build while release notes talk about fixes that only exist on git. Compose
+quickstarts use `:latest`; GitOps should keep pinning `X.Y.Z`. See
+[Docker release channels](../guides/DOCKER_GUIDE.md#release-channels) and #10317.
+
 ## Hotfix Fast-Lane (label `hotfix`)
 
 A PR labeled `hotfix` skips the heavy CI matrix (9-shard E2E, coverage ratchet,

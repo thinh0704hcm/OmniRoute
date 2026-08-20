@@ -105,10 +105,10 @@ Per-combo:
 
 OmniRoute exposes **two** HTTP health surfaces. They are not interchangeable for orchestrators.
 
-| Path                         | Purpose                                                       | Weight                            | Use for                                                          |
-| ---------------------------- | ------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------- |
-| `GET /healthz`               | Lifecycle liveness/readiness (`ok` / `starting` / `stopping`) | Trivial (phase flag only)         | Kubernetes **readiness**; soft **liveness** if you must use HTTP |
-| `GET /api/monitoring/health` | Deep system + provider summary (DB, heap, catalog counts, …)  | Heavy (sync DB / monitoring work) | Dashboards, blackbox deep checks, Docker’s built-in healthcheck  |
+| Path | Purpose | Weight | Use for |
+| --- | --- | --- | --- |
+| `GET /healthz` | Lifecycle liveness/readiness (`ok` / `starting` / `stopping`) | Trivial (phase flag only) | Kubernetes **readiness**; soft **liveness** if you must use HTTP |
+| `GET /api/monitoring/health` | Deep system + provider summary (DB, heap, catalog counts, …) | Heavy (sync DB / monitoring work) | Dashboards, blackbox deep checks, Docker’s built-in healthcheck |
 
 > **Note:** Provider health matrices, autopilot issues, quota monitors, token health, and latency detail beyond `/api/monitoring/health` are available via the **MCP tool** `observability_snapshot` or the **dashboard** pages — there are no dedicated REST routes for those.
 
@@ -157,14 +157,14 @@ Response:
 
 ### Kubernetes probe recommendations
 
-OmniRoute is a **single Node process** (one event loop). Stock Docker `HEALTHCHECK` targets `/api/monitoring/health` — that is **too heavy** for kubelet liveness intervals.
+OmniRoute is a **single Node process** (one event loop). Stock Docker `HEALTHCHECK` targets lightweight `/healthz`. `/api/monitoring/health` is **too heavy** for kubelet liveness intervals.
 
-| Probe           | Recommended target                                                                                      | Notes                                                                            |
-| --------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| **Startup**     | HTTP `GET /healthz` with a long `failureThreshold` (or large `startPeriod`)                             | Cold start + SQLite migration can exceed a few seconds                           |
-| **Readiness**   | HTTP `GET /healthz`                                                                                     | Remove endpoints while starting/stopping; still flaps if the loop is CPU-blocked |
-| **Liveness**    | **TCP** on the main service port (`PORT`, default `20128`), **or** HTTP `/healthz` with soft thresholds | Do **not** kill the pod on short event-loop stalls; busy ≠ dead                  |
-| **Deep health** | `GET /api/monitoring/health` from an external checker                                                   | Not for kubelet `livenessProbe` / tight `readinessProbe`                         |
+| Probe | Recommended target | Notes |
+| --- | --- | --- |
+| **Startup** | HTTP `GET /healthz` with a long `failureThreshold` (or large `startPeriod`) | Cold start + SQLite migration can exceed a few seconds |
+| **Readiness** | HTTP `GET /healthz` | Lifecycle `ok` / `starting` / `stopping` (200 vs 503). Still flaps if the loop is CPU-blocked. A **200 in multiple seconds is not healthy** (#10303) — it means the event loop was starved before the 3-byte handler ran |
+| **Liveness** | HTTP `GET /livez`, **or TCP** on the main service port (`PORT`, default `20128`) | `/livez` is process-alive only (always 200 if the handler runs). It still shares the event loop — busy ≠ dead, and it does not detect event-loop starvation (#10303) any better than TCP does. Prefer **TCP** if HTTP probes time out under catalog/compression load; do **not** kill the pod on short event-loop stalls either way |
+| **Deep health** | `GET /api/monitoring/health` from an external checker | Not for kubelet `livenessProbe` / tight `readinessProbe` |
 
 Example shape (adjust thresholds to your cold-start and compression load):
 
@@ -186,16 +186,26 @@ readinessProbe:
   timeoutSeconds: 2
   failureThreshold: 6
 livenessProbe:
-  tcpSocket:
+  httpGet:
+    path: /livez
     port: http
   periodSeconds: 10
   timeoutSeconds: 3
   failureThreshold: 6
+  # Under event-loop stall HTTP /livez can still time out. TCP is the
+  # conservative alternative:
+  # tcpSocket:
+  #   port: http
 ```
 
 **Do not** point kubelet **liveness** at `/api/monitoring/health`. That path does real DB/monitoring work and will false-positive under load.
 
 Related: [#10052](https://github.com/diegosouzapw/OmniRoute/issues/10052) (probes while the event loop is busy), [#9685](https://github.com/diegosouzapw/OmniRoute/issues/9685) / [#10055](https://github.com/diegosouzapw/OmniRoute/pull/10055) (catalog pricing hog), [#10117](https://github.com/diegosouzapw/OmniRoute/issues/10117) (compression token-count hog).
+
+
+### Optional request-path work (memory, skills, token refresh)
+
+Memory extraction, skills injection, and OAuth token refresh share the **main Node event loop** with `/healthz`. They are dashboard-toggle features (`memoryEnabled`, `skillsEnabled`), not a worker pool. See [Environment — event-loop cost](../reference/ENVIRONMENT.md#event-loop-cost-of-memory-skills-and-token-refresh-10349).
 
 ### Provider Health
 
@@ -334,7 +344,9 @@ The MCP tool `observability_snapshot` returns a **complete system snapshot** for
       "ageMs": 109
     }
   ],
-  "quotaMonitors": {/* see above */},
+  "quotaMonitors": {
+    /* see above */
+  },
   "uptime": 12345,
   "version": "3.8.16"
 }

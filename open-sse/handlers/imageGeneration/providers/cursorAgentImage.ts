@@ -57,12 +57,24 @@ export function resolveCursorImageModel(candidate: unknown): string {
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
 
+/**
+ * Localities allowed to trigger the `agent` binary spawn below (Hard Rules
+ * #15 + #17). `/v1/images/generations` is a normal remote-reachable inference
+ * route shared by ~40 image providers that only proxy HTTP — the ONLY branch
+ * here that spawns a child process is this one, so the whole route cannot be
+ * classified in `LOCAL_ONLY_API_PREFIXES` (routeGuard.ts) without blocking
+ * every other, non-spawning image provider for remote callers. Instead this
+ * handler enforces its OWN loopback/LAN gate using the trusted locality
+ * verdict the authz pipeline already stamps on every request
+ * (`AUTHZ_HEADER_PEER_LOCALITY`, src/server/authz/headers.ts, computed from
+ * the real TCP peer IP — never the spoofable Host header). Mirrors the
+ * loopback-or-private-LAN policy `managementPolicy` applies to every other
+ * LOCAL_ONLY route (src/server/authz/policies/management.ts).
+ */
+const SPAWN_ALLOWED_LOCALITIES = new Set(["loopback", "lan"]);
+
 /** Locked instruction — ingress callers can only trigger image gen, never a shell. */
-export function buildCursorAgentImagePrompt(
-  userPrompt: string,
-  outPath: string,
-  size?: unknown
-): string {
+export function buildCursorAgentImagePrompt(userPrompt: string, outPath: string, size?: unknown): string {
   const sizeHint =
     typeof size === "string" && size.trim() ? ` Target size/aspect: ${size.trim()}.` : "";
   return [
@@ -78,9 +90,7 @@ export function buildCursorAgentImagePrompt(
 export function normalizeCursorSeatToken(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return trimmed;
-  return trimmed.includes("::")
-    ? trimmed.split("::").slice(1).join("::").trim() || trimmed
-    : trimmed;
+  return trimmed.includes("::") ? trimmed.split("::").slice(1).join("::").trim() || trimmed : trimmed;
 }
 
 /**
@@ -337,6 +347,7 @@ export async function handleCursorAgentImageGeneration({
   credentials,
   log,
   spawnImpl,
+  peerLocality,
 }: {
   model: string;
   provider: string;
@@ -351,8 +362,32 @@ export async function handleCursorAgentImageGeneration({
   log?: { info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void };
   /** Test seam — defaults to node:child_process.spawn */
   spawnImpl?: typeof spawn;
+  /**
+   * Trusted locality verdict ("loopback" | "lan" | "remote") forwarded by the
+   * route layer from `AUTHZ_HEADER_PEER_LOCALITY` (stamped by the authz
+   * pipeline from the real TCP peer, never the spoofable Host header). Absent
+   * or unrecognized → fail closed (treated as "remote").
+   */
+  peerLocality?: string | null;
 }) {
   const startTime = Date.now();
+
+  // Hard Rules #15 + #17: reject before doing ANY other work — credential
+  // lookup, prompt validation, and the `agent` binary spawn itself must never
+  // run for a non-loopback/non-LAN caller. A leaked API key tunneled from the
+  // public internet must not be able to trigger a child-process spawn on the
+  // OmniRoute host.
+  if (!peerLocality || !SPAWN_ALLOWED_LOCALITIES.has(peerLocality)) {
+    return saveImageErrorResult({
+      provider,
+      model,
+      status: 403,
+      startTime,
+      error:
+        "Cursor Agent image generation spawns a local process and is only available from localhost or the private LAN OmniRoute runs on.",
+    });
+  }
+
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) {
     return saveImageErrorResult({
@@ -436,10 +471,7 @@ export async function handleCursorAgentImageGeneration({
     }
     // ENOENT from spawn → treat as missing CLI
     const status =
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as { code?: string }).code === "ENOENT"
+      err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "ENOENT"
         ? 501
         : 502;
     return saveImageErrorResult({

@@ -599,7 +599,14 @@ export async function withRateLimit(provider, connectionId, model, fn, signal = 
       }
 
       try {
-        return await Promise.race([limiter.schedule(scheduleOpts, fn), abortPromise]);
+        // Race the work against the abort signal. When abort wins, fn is still
+        // running inside Bottleneck's limiter — its eventual rejection must not
+        // surface as an unhandledRejection. The .catch(noop) silences only the
+        // orphaned branch; the real rejection comes from abortPromise.
+        const scheduled = limiter.schedule(scheduleOpts, fn);
+        scheduled.catch(() => {}); // prevent unhandledRejection when abort wins
+        abortPromise.catch(() => {}); // prevent unhandledRejection when scheduled wins
+        return await Promise.race([scheduled, abortPromise]);
       } finally {
         if (abortListener) {
           signal.removeEventListener("abort", abortListener);

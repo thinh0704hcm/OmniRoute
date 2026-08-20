@@ -105,6 +105,8 @@ const executors = {
   "glm-cn": new GlmExecutor("glm-cn"),
   glmt: new GlmExecutor("glmt"),
   cu: new CursorExecutor(), // Alias for cursor
+  "cursor-api": new CursorExecutor("cursor-api"),
+  cua: new CursorExecutor("cursor-api"),
   "azure-openai": new AzureOpenAIExecutor(),
   "azure-ai": new AzureAiExecutor(),
   "command-code": new CommandCodeExecutor(),

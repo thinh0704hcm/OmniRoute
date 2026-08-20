@@ -9,10 +9,8 @@
  * collide via delimiter composition.
  */
 import { listModelCapabilityOverrides } from "@/lib/db/modelCapabilityOverrides";
-import {
-  listModelContextOverrides,
-  type ModelContextOverride,
-} from "@/lib/db/modelContextOverrides";
+import type { ReasoningEffortOverrideValue } from "@/shared/reasoning/reasoningEffortsOverride";
+import { listModelContextOverrides } from "@/lib/db/modelContextOverrides";
 import {
   listCustomModelVisionOverrides,
   type CustomModelVisionOverrideMap,
@@ -23,31 +21,31 @@ import {
   type CapabilitiesByProvider,
 } from "@/lib/modelsDevSync";
 
-/** Nested provider → model → override map (collision-free). */
-export type NestedOverrideMap<T = number> = ReadonlyMap<string, ReadonlyMap<string, T>>;
+/** Nested provider → model → numeric override map (collision-free). */
+export type NestedOverrideMap = ReadonlyMap<string, ReadonlyMap<string, number>>;
+export type NestedReasoningEffortsOverrideMap = ReadonlyMap<
+  string,
+  ReadonlyMap<string, readonly ReasoningEffortOverrideValue[]>
+>;
 
 export interface ModelCapabilityResolutionSnapshot {
   readonly synced: CapabilitiesByProvider;
-  readonly maxTokenOverrides?: NestedOverrideMap;
-  /** Historical output-override field retained for snapshot compatibility. */
-  readonly maxOutputTokenOverrides?: NestedOverrideMap;
-  readonly maxInputTokenOverrides?: NestedOverrideMap;
+  readonly maxTokenOverrides: NestedOverrideMap;
+  readonly maxInputTokenOverrides: NestedOverrideMap;
+  readonly reasoningEffortsOverrides: NestedReasoningEffortsOverrideMap;
   readonly contextOverrides: NestedOverrideMap;
-  /** Added after the initial snapshot shape; legacy snapshots may omit it. */
-  readonly contextOverrideRecords?: NestedOverrideMap<ModelContextOverride>;
-  /** Added after the initial snapshot shape; legacy snapshots may omit it. */
-  readonly customVisionOverrides?: CustomModelVisionOverrideMap;
+  readonly customVisionOverrides: CustomModelVisionOverrideMap;
 }
 
 export interface ModelCapabilityResolutionSnapshotOptions {
   customModelVision?: CustomModelVisionOverrideReadOptions;
 }
 
-function setNestedOverride<T>(
-  map: Map<string, Map<string, T>>,
+function setNestedOverride(
+  map: Map<string, Map<string, number>>,
   provider: string,
   modelId: string,
-  value: T
+  value: number
 ): void {
   let byModel = map.get(provider);
   if (!byModel) {
@@ -69,27 +67,36 @@ export function createModelCapabilityResolutionSnapshot(
 
   const maxTokenOverrides = new Map<string, Map<string, number>>();
   const maxInputTokenOverrides = new Map<string, Map<string, number>>();
+  const reasoningEffortsOverrides = new Map<
+    string,
+    Map<string, readonly ReasoningEffortOverrideValue[]>
+  >();
   for (const entry of listModelCapabilityOverrides()) {
     if (entry.key === "max_output_tokens") {
       setNestedOverride(maxTokenOverrides, entry.provider, entry.modelId, entry.value);
     } else if (entry.key === "max_input_tokens") {
       setNestedOverride(maxInputTokenOverrides, entry.provider, entry.modelId, entry.value);
+    } else if (entry.key === "reasoning_efforts") {
+      let byModel = reasoningEffortsOverrides.get(entry.provider);
+      if (!byModel) {
+        byModel = new Map();
+        reasoningEffortsOverrides.set(entry.provider, byModel);
+      }
+      byModel.set(entry.modelId, entry.value);
     }
   }
 
   const contextOverrides = new Map<string, Map<string, number>>();
-  const contextOverrideRecords = new Map<string, Map<string, ModelContextOverride>>();
   for (const entry of listModelContextOverrides()) {
     setNestedOverride(contextOverrides, entry.provider, entry.modelId, entry.realContext);
-    setNestedOverride(contextOverrideRecords, entry.provider, entry.modelId, entry);
   }
 
   return {
     synced,
     maxTokenOverrides,
     maxInputTokenOverrides,
+    reasoningEffortsOverrides,
     contextOverrides,
-    contextOverrideRecords,
     customVisionOverrides: listCustomModelVisionOverrides(options.customModelVision),
   };
 }

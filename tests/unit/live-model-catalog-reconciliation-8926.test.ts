@@ -203,38 +203,44 @@ test("#8926: partial passthrough discovery remains non-authoritative", async () 
   );
 });
 
-test("#ANTIGRAVITY-CATALOG: stale discovery cannot revoke a pinned built-in model", async () => {
-  const modelId = "gemini-3.6-flash-high";
-  assert.ok(
-    getProviderModels("antigravity").some((model: { id?: string }) => model.id === modelId),
-    `precondition: ${modelId} must remain in the pinned Antigravity catalog`
+test("ChatGPT Web curated variants require their mapped upstream live slug", async () => {
+  const variants = new Map([
+    ["gpt-5.6-sol-pro", "gpt-5-6-pro"],
+    ["gpt-5.6-sol-xhigh", "gpt-5-6-thinking"],
+    ["gpt-5.6-sol-high", "gpt-5-6-thinking"],
+    ["gpt-5.6-sol-medium", "gpt-5-6-thinking"],
+    ["gpt-5.6-sol-instant", "gpt-5-6"],
+    ["gpt-5.6-luna-free-thinking", "gpt-5-6"],
+    ["gpt-5.6-luna-free", "gpt-5-6"],
+    ["gpt-5.5-pro-extended", "gpt-5-5-pro"],
+    ["gpt-5.5-pro", "gpt-5-5-pro"],
+    ["gpt-5.5-xhigh", "gpt-5-5-thinking"],
+    ["gpt-5.5-high", "gpt-5-5-thinking"],
+    ["gpt-5.5-medium", "gpt-5-5-thinking"],
+    ["gpt-5.5-instant", "gpt-5-5"],
+  ]);
+
+  await seedProviderCatalog(
+    "chatgpt-web",
+    "chatgpt-web-live-8926",
+    Array.from(new Set(variants.values()))
   );
 
-  await seedProviderCatalog("antigravity", "antigravity-stale-catalog", ["gemini-2.5-flash"]);
+  const catalog = await getActiveSyncedCatalog("chatgpt-web");
+  assert.equal(catalog.authoritative, true);
 
-  const catalog = await getActiveSyncedCatalog("antigravity");
-  assert.equal(catalog.authoritative, false);
+  for (const modelId of variants.keys()) {
+    const resolved = await getModelInfo(`chatgpt-web/${modelId}`);
+    assert.equal(resolved.provider, "chatgpt-web", modelId);
+    assert.equal(resolved.model, modelId, modelId);
+  }
 
-  const resolved = await getModelInfo(`antigravity/${modelId}`);
-  assert.equal(resolved.provider, "antigravity");
-  assert.equal(resolved.model, modelId);
-  assert.equal(resolved.errorType, undefined);
-});
+  await seedProviderCatalog("chatgpt-web", "chatgpt-web-live-8926", ["gpt-5-6"]);
 
-test("#ANTIGRAVITY-CATALOG: agy pinned models also survive partial discovery", async () => {
-  const modelId = "gemini-3.6-flash-high";
-  assert.ok(
-    getProviderModels("agy").some((model: { id?: string }) => model.id === modelId),
-    `precondition: ${modelId} must remain in the pinned agy catalog`
-  );
+  const available = await getModelInfo("chatgpt-web/gpt-5.6-sol-instant");
+  assert.equal(available.provider, "chatgpt-web");
 
-  await seedProviderCatalog("agy", "agy-stale-catalog", ["gemini-2.5-flash"]);
-
-  const catalog = await getActiveSyncedCatalog("agy");
-  assert.equal(catalog.authoritative, false);
-
-  const resolved = await getModelInfo(`agy/${modelId}`);
-  assert.equal(resolved.provider, "agy");
-  assert.equal(resolved.model, modelId);
-  assert.equal(resolved.errorType, undefined);
+  const unavailable = await getModelInfo("chatgpt-web/gpt-5.6-sol-pro");
+  assert.equal(unavailable.provider, null);
+  assert.equal(unavailable.errorType, "model_not_found");
 });

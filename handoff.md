@@ -1,93 +1,132 @@
-# Handoff: Cloudflare Workers AI Adapter Fixes for Probe Script
+# Handoff: 503 on Vision Models (antigravity/claude-sonnet-4-6, antigravity-sonnet-vision)
 
 ## Summary
+- **Deployment**: Successfully deployed `omniroute:cf-null-fix-20260820-prod-v1` via canary pipeline (§16)
+- **Rollback**: Completed — prod now on `omniroute:rollback-canary` (sha `f66f258dfaff`)
+- **Issue**: Vision models return 503 (unavailable) in replay gate; text models pass
+- **Models affected**: `antigravity/claude-sonnet-4-6`, `antigravity-sonnet-vision`
+- **Root cause**: Provider capability/config mismatch — vision models not enabled on antigravity connections
 
-Fixed three Cloudflare Workers AI adapter bugs discovered during production probing on oracle-vps. The `/ai/v1/chat/completions` endpoint requires `message.content` to be a plain string — Cloudflare rejects `null`, arrays, or objects. The fixes enable 4-gate probe to pass for `@cf/` models.
+---
 
-## Changes Made
+## Current Prod State
 
-### 1. `open-sse/executors/cloudflare-ai.ts` — null content handling
+| Component | Status |
+|-----------|--------|
+| `omniroute-parallel` | Running on `omniroute:rollback-canary` (sha `f66f258dfaff`) |
+| `omniroute-parallel-redis` | Healthy |
+| Health endpoint | 200 |
+| Streaming chat (`antigravity/gemini-2.5-flash-lite`) | 200 |
+| Replay gate text cases | PASS (200) |
+| Replay gate vision cases | FAIL (503) |
 
-**Lines 84-106:** Extended `flattenContent()` to convert `null`/`undefined` → `""` for all message roles. Changed message mapping condition from `Array.isArray(msg.content)` to `"content" in msg` so null content is processed.
+---
 
-```typescript
-// Before: only handled array content
-msg && Array.isArray(msg.content) ? { ...msg, content: flattenContent(msg.content) } : msg;
+## Provider Connections (from DB)
 
-// After: handles null/undefined/string/array uniformly
-msg && "content" in msg ? { ...msg, content: flattenContent(msg.content) } : msg;
+Active antigravity connections:
+| ID | Name | test_status | is_active |
+|----|------|-------------|-----------|
+| baa987de-... | xuanthinh2207@gmail.com | active | 1 |
+| e82c9028-... | tranxuanthinh1357@gmail.com | active | 1 |
+| 57effec2-... | thinh0704hcm@gmail.com | active | 1 |
+| 0a5f9e32-... | thinh0704hcm@protonmail.com | active | 1 |
+
+No `provider_models` or `model_capabilities` tables exist (checked via better-sqlite3). Model routing appears to be handled by provider-specific logic (e.g., `antigravity` provider maps internal model IDs to upstream).
+
+---
+
+## Replay Gate Configuration
+
+```bash
+TEXT_RAW_MODEL="antigravity/gemini-2.5-flash-lite"      # PASS (200)
+IMAGE_RAW_MODEL="antigravity/claude-sonnet-4-6"         # FAIL (503)
+TEXT_COMBO_MODEL="pool-sonnet"                          # PASS (200)
+IMAGE_COMBO_MODEL="antigravity-sonnet-vision"           # FAIL (503)
 ```
 
-**Test added:** `tests/unit/executor-cloudflare-ai.test.ts` — verifies null content on assistant and tool messages becomes `""`.
+The 503 occurs at the provider level — the `antigravity` provider doesn't have vision models configured/available for these connections.
 
-### 2. `scripts/ad-hoc/probe-routes.mjs` — gate 4 message normalization
+---
 
-**Lines 332-351:** Normalized the echoed assistant message from gate 3 (which has `content: null` in OpenAI tool-call convention) to `content: ""` before including in gate 4 request. Also fixed `rejectUnauthorized: false` → `true` for TLS security.
+## What to Investigate
 
-### 3. Probe route list updated
+1. **Antigravity provider model mapping** — Check `open-sse/executors/antigravity.ts` or similar for which models are supported per connection
 
-**DEFAULT_ROUTES** now contains 33 curated routes from production DB:
+2. **Model capability overrides** — Check `model_capability_overrides` table (exists) for vision model flags
 
-- :free/-free models from active providers (command-code, nous-research, openrouter, etc.)
-- Combo-referenced models from active providers (antigravity, codex, longcat, nvidia)
+3. **Provider config** — Each antigravity connection may need specific model enablement (e.g., `models` array in `provider_specific_data`)
 
-## Probe Results (Latest Run)
+4. **Combo routing** — The `pool-sonnet` text combo works; vision may need a different provider (e.g., `anthropic` direct)
 
-| Route                                               | Gate 1 | Gate 2 | Gate 3 | Gate 4 | Classification            |
-| --------------------------------------------------- | ------ | ------ | ------ | ------ | ------------------------- |
-| `cloudflare-ai/@cf/zai-org/glm-4.7-flash`           | ✅     | ✅     | ✅     | ✅     | **STRONG**                |
-| `cloudflare-ai/@cf/google/gemma-4-26b-a4b-it`       | ✅     | ✅     | ✅     | ✅     | **STRONG**                |
-| `cloudflare-ai/@cf/openai/gpt-oss-20b`              | ✅     | ✅     | ❌ 400 | —      | TOOL_CONTINUATION_FAILURE |
-| `cloudflare-ai/@cf/ibm-granite/granite-4.0-h-micro` | ✅     | ✅     | ❌ 400 | —      | TOOL_CONTINUATION_FAILURE |
-| `cloudflare-ai/@cf/nvidia/nemotron-3-120b-a12b`     | ❌ 502 | —      | —      | —      | UNRESOLVED                |
+---
 
-## Remaining Issues (Need Production Deploy)
+## Quick Fix Options
 
-**GPT-OSS 20B & Granite Micro fail at Gate 3 with 400:**
+### Option A: Update replay gate to use available models
+Change `IMAGE_RAW_MODEL` / `IMAGE_COMBO_MODEL` to models that exist on active connections (e.g., `antigravity/gemini-2.5-flash` if it supports vision, or use `anthropic/claude-3.5-sonnet` if an Anthropic connection exists).
 
+### Option B: Enable vision on antigravity connections
+If the antigravity provider supports vision but needs per-connection opt-in, update `provider_specific_data` for the active connections to include vision models.
+
+### Option C: Add Anthropic provider connection
+Add a direct Anthropic connection with vision models enabled — more reliable for vision workloads.
+
+---
+
+## Commands for Debugging
+
+```bash
+# Check provider_specific_data for antigravity connections
+docker run --rm -v /home/ubuntu/.omniroute:/data -w /data node:22-slim node -e "
+const Database = require('better-sqlite3');
+const db = new Database('storage.sqlite', { readonly: true });
+const conns = db.prepare('SELECT id, provider, name, provider_specific_data FROM provider_connections WHERE provider=\"antigravity\"').all();
+conns.forEach(c => console.log(c.id, c.name, c.provider_specific_data));
+"
+
+# Check model_capabilities table schema
+docker run --rm -v /home/ubuntu/.omniroute:/data -w /data node:22-slim node -e "
+const Database = require('better-sqlite3');
+const db = new Database('storage.sqlite', { readonly: true });
+const cols = db.prepare('PRAGMA table_info(model_capabilities)').all();
+console.log(JSON.stringify(cols, null, 2));
+"
+
+# Check what models are in model_capability_overrides
+docker run --rm -v /home/ubuntu/.omniroute:/data -w /data node:22-slim node -e "
+const Database = require('better-sqlite3');
+const db = new Database('storage.sqlite', { readonly: true });
+const caps = db.prepare('SELECT * FROM model_capability_overrides LIMIT 20').all();
+console.log(JSON.stringify(caps, null, 2));
+"
 ```
-Type mismatch of '/messages/0/content', 'array' not in 'string'
-Type mismatch of '/messages/1/content', 'string' not in 'null'
-```
 
-The Cloudflare executor fix (null content → "") is **not yet deployed to production**. Production runs Docker image `omniroute:canary-e13905c67-20260819` on oracle-vps. The container must be rebuilt with the new `cloudflare-ai.ts` code.
+---
 
-### Deploy Path
+## Files to Check in Repo
 
-- **CI/CD:** `.github/workflows/deploy-vps.yml` triggers on `docker-publish.yml` completion
-- **Manual:** `npm install -g omniroute@latest` then `pm2 restart` on VPS
-- **VPS access:** Via `omniroute` MCP server (user has API key) or `deploy-vps-local` skill
+| File | Purpose |
+|------|---------|
+| `open-sse/executors/antigravity.ts` | Antigravity provider executor — model mapping |
+| `open-sse/services/accountFallback.ts` | Model lockout logic |
+| `open-sse/translator/` | Model name translation |
+| `src/lib/db/providerConnections.ts` | Provider connection DB ops |
+| `src/lib/db/modelCapabilities.ts` | Model capability DB ops |
+
+---
 
 ## Next Steps
 
-1. **Deploy Cloudflare fix to production** — rebuild Docker image and deploy to oracle-vps
-2. **Re-run probe on 6 @cf/ routes** — should see GPT-OSS 20B and Granite pass Gate 3
-3. **Verify Nemotron 3 120b** — 502 may be transient or model-specific
-4. **Run full 33-route probe** — after Cloudflare fixes verify
+1. Run the debug commands above to understand current model mappings
+2. Decide on fix strategy (A/B/C)
+3. Apply fix to DB or provider config
+4. Re-run replay gate to verify
+5. Re-promote candidate if fix works
 
-## Files Modified
+---
 
-- `open-sse/executors/cloudflare-ai.ts` (+6 lines)
-- `scripts/ad-hoc/probe-routes.mjs` (null normalization + TLS fix)
-- `tests/unit/executor-cloudflare-ai.test.ts` (+16 lines test)
-- `scripts/ad-hoc/routes-6-targeted.json` (6 @cf/ routes for targeted testing)
-
-## Test Commands
-
-```bash
-# Unit tests for Cloudflare executor
-node --import tsx/esm --test tests/unit/executor-cloudflare-ai.test.ts
-node --import tsx/esm --test tests/unit/cloudflare-ai-image-parts-6390.test.ts
-
-# Probe 6 targeted @cf/ routes
-node scripts/ad-hoc/probe-routes.mjs --routes scripts/ad-hoc/routes-6-targeted.json
-
-# Full 33-route probe
-node scripts/ad-hoc/probe-routes.mjs
-```
-
-## Branch/Worktree
-
-- Branch: `feat/probe-routes-script`
-- Worktree: `.claude/worktrees/probe-routes/`
-- Remote: `thinh0704hcm/OmniRoute` (fork — push to fork, PR to upstream)
+## Related
+- KB §16: Canary deployment pipeline
+- Replay gate: `scripts/ops/replay-gate.sh` (renamed from `bluegreen-replay-gate.sh`)
+- PR #10811: Blue-green removal + KB sync

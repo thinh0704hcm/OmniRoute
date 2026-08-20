@@ -32,6 +32,7 @@ import {
   DEFAULT_QUOTA_THRESHOLD_PERCENT,
   getQuotaCache,
   getQuotaWindowStatus,
+  hydrateCodexQuotaCacheForRequest,
   isQuotaExhaustedForRequest,
 } from "@/domain/quotaCache";
 import { getQuotaScopeLabelForProvider } from "@omniroute/open-sse/services/antigravityQuotaFamily.ts";
@@ -61,6 +62,10 @@ import {
 } from "@omniroute/open-sse/services/quotaPreflight.ts";
 import { resolveResilienceSettings } from "@/lib/resilience/settings";
 import { resolveModelLockoutSettings } from "@/lib/resilience/modelLockoutSettings";
+import {
+  buildMixedAvailabilityError,
+  isTransportCooldownErrorCode,
+} from "../services/sameAccountTransportRetry";
 import { syncHealthFromDB, type KeyHealth } from "@omniroute/open-sse/services/apiKeyRotator.ts";
 import {
   classifyProviderError,
@@ -82,6 +87,11 @@ import {
   toCodexBaseQuotaWindowName,
   toCodexScopedQuotaWindowName,
 } from "@omniroute/open-sse/config/codexQuotaScopes.ts";
+import {
+  getCodexChildCooldown,
+  isCodexChildUnavailable,
+  persistCodexChildCooldown,
+} from "@omniroute/open-sse/services/codexAccount/index.ts";
 import {
   getProviderById,
   getProviderAlias,
@@ -116,6 +126,7 @@ import {
   getNextFromDeckSync,
   planNextFromDeckSync,
 } from "@/shared/utils/shuffleDeck";
+import { shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
 import {
   applyExclusiveConnectionLeasePolicy,
   invalidateManagedConnectionLease,
@@ -328,44 +339,6 @@ function applyCodexWindowPolicy(rawWindows: string[], providerSpecificData: Json
   if (codexPolicy.useWeekly) windows.push("weekly");
 
   return uniqueWindows(windows);
-}
-function getCodexScopeRateLimitedUntil(
-  providerSpecificData: JsonRecord,
-  model: string | null
-): string | null {
-  if (!model) return null;
-  const scope = getCodexModelScope(model);
-  const scopeMap = asRecord(providerSpecificData.codexScopeRateLimitedUntil);
-  const value = scopeMap[scope];
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-function isCodexScopeUnavailable(
-  connection: ProviderConnectionView,
-  model: string | null
-): boolean {
-  const until = getCodexScopeRateLimitedUntil(connection.providerSpecificData, model);
-  if (!until) return false;
-  return new Date(until).getTime() > Date.now();
-}
-function getEarliestCodexScopeRateLimitedUntil(
-  connections: ProviderConnectionView[],
-  model: string | null
-): string | null {
-  let earliest: string | null = null;
-  let earliestMs = Infinity;
-
-  for (const conn of connections) {
-    const until = getCodexScopeRateLimitedUntil(conn.providerSpecificData, model);
-    if (!until) continue;
-    const ms = new Date(until).getTime();
-    if (!Number.isFinite(ms) || ms <= Date.now()) continue;
-    if (ms < earliestMs) {
-      earliest = until;
-      earliestMs = ms;
-    }
-  }
-
-  return earliest;
 }
 function normalizeStatus(value: string | null): string {
   return (value || "").trim().toLowerCase();
@@ -936,6 +909,15 @@ async function markQuotaPreflightAccountUnavailable(
   requestedModel: string | null
 ): Promise<string> {
   const unavailableUntil = quotaPreflightUnavailableUntil(preflight.resetAt ?? null);
+  if (provider === "codex" && requestedModel?.trim()) {
+    await persistCodexChildCooldown({
+      connectionId,
+      model: requestedModel,
+      rateLimitedUntil: unavailableUntil,
+    });
+    return unavailableUntil;
+  }
+
   const percentLabel = Number.isFinite(preflight.quotaPercent)
     ? `${Math.round((preflight.quotaPercent as number) * 100)}%`
     : "exhausted";
@@ -1049,7 +1031,9 @@ async function getProviderSearchPool(provider: string): Promise<string[]> {
       if (!nodeId) continue;
       if (
         nodePrefix &&
-        (nodePrefix === provider || nodePrefix === canonicalProvider || nodePrefix === canonicalAlias)
+        (nodePrefix === provider ||
+          nodePrefix === canonicalProvider ||
+          nodePrefix === canonicalAlias)
       ) {
         searchPool.add(nodeId);
       }
@@ -1273,6 +1257,11 @@ export async function getProviderCredentials(
         return { leaseConnectionMismatch: true };
       }
     }
+
+    const isCodexScopeUnavailable = (
+      connection: ProviderConnectionView,
+      model: string | null
+    ): boolean => provider === "codex" && isCodexChildUnavailable(connection, model);
 
     // #5903: an active session-affinity pin outranks a per-request reset-aware
     // forcedConnectionId (see sessionAffinityPin leaf for the full rationale).
@@ -1541,7 +1530,7 @@ export async function getProviderCredentials(
             : `  → ${c.id?.slice(0, 8)} | skipped terminal status=${c.testStatus}`
         );
       } else if (codexScopeLimited) {
-        const scopeUntil = getCodexScopeRateLimitedUntil(c.providerSpecificData, requestedModel);
+        const scopeUntil = getCodexChildCooldown(c, requestedModel);
         log.debug(
           "AUTH",
           allowSuppressedConnections
@@ -1564,9 +1553,7 @@ export async function getProviderCredentials(
         const connectionCooldownMs = parseFutureDateMs(connection.rateLimitedUntil);
         const codexScopeCooldownMs =
           provider === "codex"
-            ? parseFutureDateMs(
-                getCodexScopeRateLimitedUntil(connection.providerSpecificData, requestedModel)
-              )
+            ? parseFutureDateMs(getCodexChildCooldown(connection, requestedModel))
             : null;
         const modelLockout = requestedModel
           ? getModelLockoutInfo(provider, connection.id, requestedModel)
@@ -1578,12 +1565,7 @@ export async function getProviderCredentials(
             ? Date.now() + modelLockout.remainingMs
             : null;
 
-        return {
-          connection,
-          connectionCooldownMs,
-          codexScopeCooldownMs,
-          retryableModelCooldownMs,
-        };
+        return { connection, connectionCooldownMs, codexScopeCooldownMs, retryableModelCooldownMs };
       });
 
       const cooldownCandidates = cooldownStates
@@ -1659,6 +1641,12 @@ export async function getProviderCredentials(
     }> = [];
     const quotaResults = new Map<string, { blocked: boolean; exhausted: boolean }>();
 
+    if (provider === "codex") {
+      for (const connection of availableConnections) {
+        hydrateCodexQuotaCacheForRequest(connection, requestedModel);
+      }
+    }
+
     if (!bypassQuotaPolicy) {
       policyEligibleConnections = availableConnections.filter((connection) => {
         const evaluation = evaluateQuotaLimitPolicy(provider, connection, requestedModel);
@@ -1686,6 +1674,32 @@ export async function getProviderCredentials(
     }
 
     if (policyEligibleConnections.length === 0 && availableConnections.length > 0) {
+      const transportUnavailable = connections.filter(
+        (connection) =>
+          connectionFilterStatus.get(connection.id) === "rateLimited" &&
+          isTransportCooldownErrorCode(connection.errorCode)
+      );
+      if (transportUnavailable.length > 0) {
+        const mixed = buildMixedAvailabilityError({
+          provider,
+          quotaFilteredCount: blockedByPolicy.length,
+          transportUnavailableCount: transportUnavailable.length,
+          transportStatus: Number(transportUnavailable[0]?.errorCode) || 503,
+        });
+        const retryAfter =
+          getEarliestFutureDate(
+            transportUnavailable.map((connection) => connection.rateLimitedUntil || null)
+          ) || new Date(Date.now() + 3000).toISOString();
+        invalidateManagedLease(options, "HEALTH_OR_COOLDOWN");
+        return {
+          allRateLimited: true,
+          retryAfter,
+          retryAfterHuman: formatRetryAfter(retryAfter),
+          lastError: mixed.lastError,
+          lastErrorCode: mixed.lastErrorCode,
+        };
+      }
+
       const earliestResetAt = getEarliestFutureDate(blockedByPolicy.map((entry) => entry.resetAt));
       const earliestResetMs = parseFutureDateMs(earliestResetAt);
 
@@ -2382,11 +2396,8 @@ export async function markAccountUnavailable(
     }
 
     // T09: Codex scope-aware lockout guard (codex vs spark independent pools).
-    if (provider === "codex" && model) {
-      const scopeRateLimitedUntil = getCodexScopeRateLimitedUntil(
-        conn?.providerSpecificData || {},
-        model
-      );
+    if (provider === "codex" && typeof model === "string" && model.trim().length > 0) {
+      const scopeRateLimitedUntil = conn ? getCodexChildCooldown(conn, model) : null;
       if (scopeRateLimitedUntil && new Date(scopeRateLimitedUntil).getTime() > Date.now()) {
         log.info(
           "AUTH",
@@ -2435,6 +2446,33 @@ export async function markAccountUnavailable(
       null,
       effectiveProviderProfile
     );
+
+    // T-PROBE: probe-origin failures (model test-all) must never remove the
+    // connection from the pool. Record the failure for visibility but leave
+    // ALL routing state untouched — cooldowns, terminal status, per-model
+    // lockouts (T09 codex-scope, per-model quota, agentrouter #10334) and
+    // auto-disable. Only a real request-path failure deactivates (#9817);
+    // the opt-in setting probeCanDisable restores the historical behavior.
+    if (await shouldIsolateProbeFailures()) {
+      await updateProviderConnection(connectionId, {
+        // lastError kept RAW (full text) — maximal probe visibility; the
+        // divergence vs the normal path's slice(0,100) is intentional.
+        // backoffLevel is deliberately NOT written: a positive backoff
+        // triggers the selection-time auto-decay (resetConnectionBackoff,
+        // auth.ts getProviderCredentials) which wipes lastError back to
+        // NULL on the next attempt — silently destroying the probe record.
+        // The backoff is also routing state a probe must not touch (#9817).
+        lastError: errorText,
+        lastErrorType: fallbackResult.reason || null,
+        errorCode: status,
+        lastErrorAt: new Date().toISOString(),
+      });
+      log.warn(
+        "AUTH",
+        `[T-PROBE] ${connectionId.slice(0, 8)} ${provider ?? ""} failure ${status} recorded — connection stays in the pool`
+      );
+      return { shouldFallback: true, cooldownMs: 0 };
+    }
 
     // Read passthroughModels from connection config (user-configured per-model quota)
     const connProviderSpecificData = (conn?.providerSpecificData as Record<string, unknown>) || {};
@@ -2759,26 +2797,22 @@ export async function markAccountUnavailable(
     const errorMsg = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
 
     // T09: Codex per-scope lockout (do not block the whole account globally).
-    if (provider === "codex" && status === 429 && model && conn) {
+    if (
+      provider === "codex" &&
+      status === 429 &&
+      typeof model === "string" &&
+      model.trim().length > 0 &&
+      conn
+    ) {
       const scope = getCodexModelScope(model);
-      const existingScopeMap = asRecord(conn.providerSpecificData.codexScopeRateLimitedUntil);
-      const persistedScopeUntil = getCodexScopeRateLimitedUntil(conn.providerSpecificData, model);
-      const scopeRateLimitedUntil = persistedScopeUntil || getUnavailableUntil(cooldownMs);
+      const scopeRateLimitedUntil =
+        getCodexChildCooldown(conn, model) || getUnavailableUntil(cooldownMs);
       const scopeCooldownMs = Math.max(new Date(scopeRateLimitedUntil).getTime() - Date.now(), 0);
 
-      await updateProviderConnection(connectionId, {
-        testStatus: "unavailable",
-        lastError: errorMsg,
-        errorCode: status,
-        lastErrorAt: new Date().toISOString(),
-        backoffLevel: newBackoffLevel ?? backoffLevel,
-        providerSpecificData: {
-          ...conn.providerSpecificData,
-          codexScopeRateLimitedUntil: {
-            ...existingScopeMap,
-            [scope]: scopeRateLimitedUntil,
-          },
-        },
+      await persistCodexChildCooldown({
+        connectionId,
+        model,
+        rateLimitedUntil: scopeRateLimitedUntil,
       });
 
       if (scopeCooldownMs > 0) {
@@ -2790,6 +2824,12 @@ export async function markAccountUnavailable(
       }
 
       return { shouldFallback: true, cooldownMs: scopeCooldownMs };
+    }
+
+    // A Codex quota response without a model cannot be assigned to either virtual child.
+    // Preserve failover without inventing a third parent-level quota/cooldown state.
+    if (provider === "codex" && status === 429) {
+      return { shouldFallback: true, cooldownMs };
     }
 
     const baseUpdate = {

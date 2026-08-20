@@ -1,11 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import {
-  IMAGE_PROVIDERS,
-  parseImageModel,
-  getImageProvider,
-} from "../../open-sse/config/imageRegistry.ts";
+import { IMAGE_PROVIDERS, parseImageModel, getImageProvider } from "../../open-sse/config/imageRegistry.ts";
 import {
   buildCursorAgentAuthEnv,
   buildCursorAgentImagePrompt,
@@ -75,6 +71,7 @@ test("handleCursorAgentImageGeneration rejects empty prompt and missing credenti
     providerConfig: { baseUrl: "agent://cursor-agent" },
     body: { prompt: "   " },
     credentials: { accessToken: "crsr_x" },
+    peerLocality: "loopback",
   });
   assert.equal(noPrompt.success, false);
   assert.equal(noPrompt.status, 400);
@@ -85,6 +82,7 @@ test("handleCursorAgentImageGeneration rejects empty prompt and missing credenti
     providerConfig: { baseUrl: "agent://cursor-agent" },
     body: { prompt: "hi" },
     credentials: {},
+    peerLocality: "loopback",
   });
   assert.equal(noCreds.success, false);
   assert.equal(noCreds.status, 401);
@@ -101,10 +99,53 @@ test("handleCursorAgentImageGeneration returns 501 when agentBin path is missing
       accessToken: "crsr_test",
       providerSpecificData: { agentBin: "/nonexistent/cursor-agent-bin" },
     },
+    peerLocality: "loopback",
   });
   assert.equal(result.success, false);
   assert.equal(result.status, 501);
   assert.match(String(result.error), /CURSOR_AGENT_BIN|agentBin/i);
+});
+
+// ─── Hard Rules #15 + #17: spawn-capable providers must loopback/LAN-gate ───
+
+test("handleCursorAgentImageGeneration rejects a non-loopback/non-LAN caller BEFORE spawning", async () => {
+  __resetCursorAgentImageConcurrencyForTests();
+  let spawnCalled = false;
+  const spyingSpawn = (() => {
+    spawnCalled = true;
+    throw new Error("spawn must never be invoked for a remote caller");
+  }) as unknown as typeof import("node:child_process").spawn;
+
+  const result = await handleCursorAgentImageGeneration({
+    model: "auto",
+    provider: "cursor",
+    providerConfig: { baseUrl: "agent://cursor-agent" },
+    body: { prompt: "a lantern in fog" },
+    credentials: {
+      accessToken: "crsr_test",
+      providerSpecificData: { agentBin: process.execPath },
+    },
+    spawnImpl: spyingSpawn,
+    peerLocality: "remote",
+  });
+
+  assert.equal(spawnCalled, false, "spawn must not run for a rejected non-local caller");
+  assert.equal(result.success, false);
+  assert.equal(result.status, 403);
+  assert.match(String(result.error), /localhost|LAN/i);
+});
+
+test("handleCursorAgentImageGeneration rejects when peerLocality is missing (fail closed)", async () => {
+  __resetCursorAgentImageConcurrencyForTests();
+  const result = await handleCursorAgentImageGeneration({
+    model: "auto",
+    provider: "cursor",
+    providerConfig: { baseUrl: "agent://cursor-agent" },
+    body: { prompt: "a lantern in fog" },
+    credentials: { accessToken: "crsr_test" },
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.status, 403);
 });
 
 /**
@@ -157,6 +198,7 @@ test("handleCursorAgentImageGeneration returns b64_json via injectable spawn", a
       providerSpecificData: { agentBin: process.execPath },
     },
     spawnImpl: fakeSpawn,
+    peerLocality: "loopback",
   });
 
   assert.equal(result.success, true);
@@ -226,6 +268,7 @@ test("handleCursorAgentImageGeneration never forwards a flag-shaped model into C
       providerSpecificData: { agentBin: process.execPath },
     },
     spawnImpl: fakeSpawn,
+    peerLocality: "loopback",
   });
 
   assert.equal(result.success, true);

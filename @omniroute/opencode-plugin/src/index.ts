@@ -1294,10 +1294,15 @@ export function mapRawModelToModelV2(
     // `(providerID, modelID)`. If the raw id is already provider-prefixed
     // (e.g. `cc/claude-opus-4-7` from the `cc` Claude Code alias, or
     // `nvidia/llama-3-70b` from a provider that ships prefixed ids), leave
-    // it as-is — double-prefixing breaks OC's lookup. Otherwise prefix with
-    // the resolved `providerId` so a bare key like `claude-opus-4` parses as
-    // `(omniroute, claude-opus-4)` and the credentials resolve correctly.
-    id: raw.id.includes("/") ? raw.id : `${ctx.providerId}/${raw.id}`,
+    // it as-is — double-prefixing breaks OC's lookup. Bare **combo** ids
+    // (`owned_by: "combo"`, e.g. `gpt-5.6-sol`) must also stay unprefixed:
+    // OpenCode looks up `-m <plugin>/<combo>` as model id `<combo>` under
+    // the plugin provider (#10345). Other bare ids still prefix with
+    // `providerId` so credentials resolve as `(omniroute, model)`.
+    id:
+      raw.id.includes("/") || raw.owned_by === "combo"
+        ? raw.id
+        : `${ctx.providerId}/${raw.id}`,
     /**
      * Display name. Falls back to raw.id when no enrichment is available;
      * the caller (`createOmniRouteProviderHook`) overlays

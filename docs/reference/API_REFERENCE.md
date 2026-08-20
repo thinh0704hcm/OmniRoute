@@ -703,6 +703,10 @@ X-OmniRoute-No-Cache: true
 
 ## Dashboard & Management
 
+Management routes (`/api/*` except public auth/login) are **not** authorized by
+ordinary inference API keys. Credential families, scopes, and curl examples:
+[Management Authentication](../guides/MANAGEMENT-AUTH.md).
+
 ### Authentication
 
 | Endpoint                      | Method  | Description           |
@@ -1668,9 +1672,14 @@ See [Security > Guardrails](../security/GUARDRAILS.md) for full details.
 
 ## Authentication
 
+See [Management Authentication](../guides/MANAGEMENT-AUTH.md) for the four
+credential families (dashboard session, local CLI token, `oma_live_…` Access
+Token, manage-scoped API key) and how they differ from inference keys.
+
 - Dashboard routes (`/dashboard/*`) use `auth_token` cookie
 - Login uses saved password hash; fallback to `INITIAL_PASSWORD`
 - `requireLogin` toggleable via `/api/settings/require-login`
 - `/v1/*` routes optionally require Bearer API key when `REQUIRE_API_KEY=true`
+- "management token" / "management-scoped API key" in this reference means one of the families in that guide — not an undefined extra secret type
 
 > **Breaking change (v3.8.0)** — `/api/v1/agents/tasks/*` and the cooldown management endpoints now require **management auth** (dashboard `auth_token` cookie or a management-scoped API key). Clients that previously called these routes unauthenticated will receive `401 Unauthorized`. See commit `588a0333` (`fix(auth): require management auth for agent and cooldown APIs`).

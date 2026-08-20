@@ -44,11 +44,6 @@
       "count": 3
     }
   },
-  "open-sse/handlers/chatCore/codexFailover.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "open-sse/handlers/chatCore/comboContextCache.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -1003,11 +998,6 @@
       "count": 1
     }
   },
-  "src/lib/api/modelTestRunner.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/api/proxyRegistryRouteHandlers.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -1055,11 +1045,6 @@
   },
   "src/lib/db/tokenLimits.ts": {
     "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/lib/embeddings/service.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -2897,11 +2882,6 @@
   "tests/unit/response-sanitizer.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 83
-    }
-  },
-  "tests/unit/responses-parse-once-4041.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
     }
   },
   "tests/unit/responses-translation-fixes.test.ts": {

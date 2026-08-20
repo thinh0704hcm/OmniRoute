@@ -40,7 +40,11 @@ import {
   prepareBuiltinAutoComboInputs,
   isPaidTierAutoId,
 } from "@omniroute/open-sse/services/autoCombo/builtinCatalog";
-import type { SyncedAvailableModel } from "@/lib/db/models";
+import {
+  getSyncedAvailableModelsByConnection,
+  SYNCED_AVAILABLE_MODELS_MALFORMED,
+  type SyncedAvailableModel,
+} from "@/lib/db/models";
 import { getAllActiveSyncedModels } from "@/lib/db/models/activeSyncedCatalog";
 import { getModelCatalogCacheVersion } from "@/lib/db/readCache";
 import { getCompatibleFallbackModels } from "@/lib/providers/managedAvailableModels";
@@ -58,9 +62,11 @@ import {
   getCatalogDiagnosticsHeaders,
   type CatalogEnrichmentSnapshot,
 } from "@/lib/modelMetadataRegistry";
+import { createModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityResolutionSnapshot";
 import { getModelsDevPricing, getSyncedCapability } from "@/lib/modelsDevSync";
 import { getModelSpec } from "@/shared/constants/modelSpecs";
 import { getModelsCatalogPrefixMode } from "@/shared/utils/featureFlags";
+import { buildReservedPrefixes, selectCompatibleNodeForPrefix } from "@/lib/providerNodePrefixes";
 import { applyCatalogPostFilters, finalizeCatalogResponse } from "./catalogResponse";
 import {
   isNoAuthProviderBlocked,
@@ -68,7 +74,7 @@ import {
   isNoAuthRawProviderPrefix,
   normalizeBlockedProviderSet,
 } from "@/shared/utils/noAuthProviders";
-import { getTokenLimit } from "@omniroute/open-sse/services/contextManager";
+import { getSourcedTokenLimit, getTokenLimit } from "@omniroute/open-sse/services/contextManager";
 import { extractApiKey } from "@/sse/services/auth";
 import type { ComboModelStep } from "@/lib/combos/steps";
 import {
@@ -82,6 +88,8 @@ import {
   maybeOmitCatalogModelName,
   getThinkingCapabilityFields,
   mergeComboCapabilities,
+  getConnectionScopedEffortTiers,
+  type ConnectionScopedReasoningCatalog,
 } from "./catalogHelpers";
 import {
   qualifyOpenRouterModelId,
@@ -271,6 +279,7 @@ async function buildUnifiedModelsResponseCore(
     // #9147: yield after auth check before DB initialization prologue
     await yieldCatalogBuildTurn();
 
+    const capabilityResolutionSnapshot = createModelCapabilityResolutionSnapshot();
     const { aliasToProviderId, providerIdToAlias } = buildAliasMaps();
     const _qp = new URL(request.url).searchParams.get("prefix");
     const prefixMode =
@@ -323,6 +332,7 @@ async function buildUnifiedModelsResponseCore(
 
     // Build map of provider node ID to prefix and type for compatible providers
     const providerIdToPrefix: Record<string, string> = {};
+    const providerNodeIdByPrefix: Record<string, string> = {};
     const nodeIdToProviderType: Record<string, string> = {};
     for (const node of providerNodes) {
       const resolvedPrefix =
@@ -339,6 +349,12 @@ async function buildUnifiedModelsResponseCore(
       if (node.type) {
         nodeIdToProviderType[node.id] = node.type;
       }
+    }
+    const reservedProviderPrefixes = buildReservedPrefixes();
+    for (const prefix of new Set(Object.values(providerIdToPrefix))) {
+      if (reservedProviderPrefixes.has(prefix)) continue;
+      const winner = selectCompatibleNodeForPrefix(providerNodes, prefix);
+      if (winner?.id) providerNodeIdByPrefix[prefix] = winner.id;
     }
 
     // #8327: `resolveCanonicalProviderId`/`canonicalProviderId` only know the static
@@ -396,7 +412,10 @@ async function buildUnifiedModelsResponseCore(
     // single-stretch event-loop budget this file's own yield mechanism is meant to protect.
     const connectionsForProviderCache = new Map<string, typeof connections>();
     const getConnectionsForProvider = (...keys: Array<string | null | undefined>) => {
-      const cacheKey = keys.filter((k): k is string => Boolean(k)).sort().join(" ");
+      const cacheKey = keys
+        .filter((k): k is string => Boolean(k))
+        .sort()
+        .join(" ");
       const cached = connectionsForProviderCache.get(cacheKey);
       if (cached) return cached;
       const seen = new Set<string>();
@@ -450,8 +469,41 @@ async function buildUnifiedModelsResponseCore(
     const getProviderPrefixes = (providerId: string, rawProvider: string) =>
       getProviderPrefixesFromMaps(aliasMaps, providerId, rawProvider);
 
-    const getComboTargetModelId = (target: ComboCatalogTarget) =>
-      getComboTargetModelIdFromMaps(aliasMaps, target);
+    const getComboTargetModelId = (target: ComboCatalogTarget) => {
+      const resolved = getComboTargetModelIdFromMaps(aliasMaps, target);
+      if (!resolved) return null;
+      const nodeId = providerNodeIdByPrefix[resolved.providerId];
+      return nodeId ? { ...resolved, providerId: nodeId } : resolved;
+    };
+
+    const resolvedComboTargets = combos.flatMap(
+      (combo) =>
+        resolveNestedComboTargets(
+          combo as Parameters<typeof resolveNestedComboTargets>[0],
+          combos as Parameters<typeof resolveNestedComboTargets>[1]
+        ) as ComboCatalogTarget[]
+    );
+    const comboProviderIds = new Set(
+      resolvedComboTargets.flatMap((target) => {
+        const resolved = getComboTargetModelId(target);
+        return resolved ? [resolved.providerId] : [];
+      })
+    );
+    const comboSyncedModelsByProvider = new Map<string, ConnectionScopedReasoningCatalog | null>();
+    await Promise.all(
+      [...comboProviderIds].map(async (providerId) => {
+        try {
+          const byConnection = await getSyncedAvailableModelsByConnection(providerId);
+          comboSyncedModelsByProvider.set(
+            providerId,
+            byConnection[SYNCED_AVAILABLE_MODELS_MALFORMED] ? null : byConnection
+          );
+        } catch {
+          // Unknown connection-scoped capability evidence must never broaden a combo.
+          comboSyncedModelsByProvider.set(providerId, null);
+        }
+      })
+    );
 
     const getComboTargetCatalogMetadata = (
       target: ComboCatalogTarget
@@ -459,26 +511,72 @@ async function buildUnifiedModelsResponseCore(
       const targetModel = getComboTargetModelId(target);
       if (!targetModel) return null;
 
-      const canonical = getCanonicalModelMetadata({
-        provider: targetModel.providerId,
-        model: targetModel.modelId,
-      });
+      const canonical = getCanonicalModelMetadata(
+        {
+          provider: targetModel.providerId,
+          model: targetModel.modelId,
+        },
+        capabilityResolutionSnapshot
+      );
       if (!canonical) return null;
-
-      const source = canonical.metadata.source;
-      if (!source.providerRegistry && !source.staticSpec && !source.syncedCapability) return null;
 
       const providerId = canonical.provider || targetModel.providerId;
       const modelId = canonical.model || targetModel.modelId;
+      const providerAlias = providerIdToAlias[providerId] || PROVIDER_ID_TO_ALIAS[providerId];
+      const allProviderConnections = getConnectionsForProvider(
+        providerId,
+        providerAlias,
+        targetModel.providerId
+      );
+      const providerConnections = allProviderConnections.filter((connection) =>
+        hasEligibleConnectionForModel([connection], modelId)
+      );
+      const hasExplicitConnectionScope =
+        Boolean(target.connectionId) || Boolean(target.allowedConnectionIds?.length);
+      const eligibleConnectionIds =
+        allProviderConnections.length > 0 || hasExplicitConnectionScope
+          ? providerConnections.map((connection) => connection.id)
+          : undefined;
+      const source = canonical.metadata.source;
+      const connectionCatalog = comboSyncedModelsByProvider.get(providerId);
+      // A `reasoning_efforts` model-capability override is operator-declared,
+      // provider-scoped authoritative evidence — it must win over (and never be
+      // silently dropped by) the per-connection synced-catalog fail-closed scan
+      // below, or the override would apply in the direct catalog but vanish from
+      // combo `effort_tiers`.
+      const connectionEfforts = source.reasoningEffortsOverride
+        ? canonical.capabilities.supportedThinkingEfforts
+          ? [...canonical.capabilities.supportedThinkingEfforts]
+          : []
+        : connectionCatalog === null
+          ? []
+          : getConnectionScopedEffortTiers(
+              modelId,
+              target,
+              eligibleConnectionIds,
+              connectionCatalog || {}
+            );
+      if (
+        connectionEfforts === undefined &&
+        !source.providerRegistry &&
+        !source.staticSpec &&
+        !source.syncedCapability &&
+        !source.reasoningEffortsOverride
+      ) {
+        return null;
+      }
+
       const synced = getSyncedCapability(providerId, modelId);
       const spec = getModelSpec(modelId);
       const registryModel = getRegistryModel(providerId, modelId);
       const syncedInputModalities = parseJsonStringArray(synced?.modalities_input);
       const syncedOutputModalities = parseJsonStringArray(synced?.modalities_output);
 
-      const contextLength = isPositiveFiniteNumber(canonical.limits.contextWindow)
-        ? canonical.limits.contextWindow
-        : getTokenLimit(providerId, modelId) || undefined;
+      const contextLength = getSourcedTokenLimit(
+        providerId,
+        modelId,
+        canonical.limits.contextWindow
+      );
       const maxInputTokens = isPositiveFiniteNumber(canonical.limits.maxInputTokens)
         ? canonical.limits.maxInputTokens
         : contextLength;
@@ -535,12 +633,21 @@ async function buildUnifiedModelsResponseCore(
       }
       Object.assign(
         capabilities,
-        getThinkingCapabilityFields(
-          providerId,
-          modelId,
-          canonical.capabilities.supportsThinking,
-          registryModel?.supportedThinkingEfforts
-        )
+        connectionEfforts === undefined
+          ? getThinkingCapabilityFields(
+              providerId,
+              modelId,
+              canonical.capabilities.supportsThinking,
+              registryModel?.supportedThinkingEfforts,
+              true
+            )
+          : getThinkingCapabilityFields(
+              providerId,
+              modelId,
+              connectionEfforts.length > 0 ? true : canonical.capabilities.supportsThinking,
+              connectionEfforts,
+              true
+            )
       );
 
       return {
@@ -593,6 +700,9 @@ async function buildUnifiedModelsResponseCore(
         : [];
 
       const capabilities = mergeComboCapabilities(knownMetadata);
+      if (targetMetadata.some((metadata) => metadata === null)) {
+        delete capabilities.effort_tiers;
+      }
 
       return {
         ...baseMetadata,
@@ -1740,9 +1850,8 @@ async function buildUnifiedModelsResponseCore(
       }
       enrichmentSnapshot = {
         modelsDevPricing,
-        providerNodeIdsByPrefix: Object.fromEntries(
-          Object.entries(providerIdToPrefix).map(([providerId, prefix]) => [prefix, providerId])
-        ),
+        capabilityResolution: capabilityResolutionSnapshot,
+        providerNodeIdsByPrefix: providerNodeIdByPrefix,
       };
       // The production profile identified pricing snapshot construction as the last
       // dominant synchronous stage. Let already-queued health checks run before the

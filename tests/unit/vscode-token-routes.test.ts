@@ -1154,11 +1154,11 @@ test("vscode tokenized /chat/completions route applies the path token and codex 
   );
   const body = (await response.json()) as any;
 
-  // Upstream port decolua/9router#336: zero-active-credentials now surfaces as
-  // 404 (combo-fallbackable) instead of 400 (combo hard-stop). The 404 OpenAI
-  // error code mapping is "model_not_found" (open-sse/config/errorConfig.ts:29).
-  assert.equal(response.status, 404);
-  assert.equal(body.error?.code, "model_not_found");
+  // #10797: zero-active-credentials for a single-model (non-combo) request now
+  // remaps to 401 instead of leaking the combo-fallback 404 to a direct client.
+  // The 401 OpenAI error code mapping is "invalid_api_key" (errorConfig.ts:26).
+  assert.equal(response.status, 401);
+  assert.equal(body.error?.code, "invalid_api_key");
   assert.equal(body.error?.message, "No active credentials for provider: codex.");
 });
 
@@ -1187,9 +1187,9 @@ test("vscode tokenized /responses route applies the path token and codex tier re
   );
   const body = (await response.json()) as any;
 
-  // Upstream port decolua/9router#336: see chat/completions sibling test above.
-  assert.equal(response.status, 404);
-  assert.equal(body.error?.code, "model_not_found");
+  // #10797: see chat/completions sibling test above.
+  assert.equal(response.status, 401);
+  assert.equal(body.error?.code, "invalid_api_key");
   assert.equal(body.error?.message, "No active credentials for provider: codex.");
 });
 
