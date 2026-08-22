@@ -326,7 +326,6 @@ print(hashlib.sha256(serialized).hexdigest())
       find "$canary_dir" -depth -delete
       fail "failed to prepare the canary database copy"
     fi
-    chown -R 1000:1000 "$canary_dir"
     printf '%s\n' "$canary_dir"
     ;;
 
@@ -342,6 +341,8 @@ print(hashlib.sha256(serialized).hexdigest())
     OMNIROUTE_IMAGE="$image_ref" \
       OMNIROUTE_BUILD_SHA="$build_sha" \
       OMNIROUTE_CANARY_DATA_DIR="$canary_dir" \
+      OMNIROUTE_RUNTIME_UID="$(id -u)" \
+      OMNIROUTE_RUNTIME_GID="$(id -g)" \
       compose_canary up -d --wait --wait-timeout 180 --pull never
     ;;
 
@@ -412,6 +413,7 @@ PY
     fi
     test -f "$target_data_dir/storage.sqlite" || fail "target database does not exist"
     docker run --rm \
+      --user "$(id -u):$(id -g)" \
       --network none \
       --read-only \
       --tmpfs /tmp:size=64m,mode=1777 \
@@ -421,6 +423,7 @@ PY
       node scripts/ops/reconcile-canonical-combos.mjs \
         --db /app/data/storage.sqlite --apply --adopt --json
     docker run --rm \
+      --user "$(id -u):$(id -g)" \
       --network none \
       --read-only \
       --tmpfs /tmp:size=64m,mode=1777 \

@@ -6,6 +6,7 @@ services:
 
   omniroute:
     container_name: omniroute-canary
+    user: "${OMNIROUTE_RUNTIME_UID:-1000}:${OMNIROUTE_RUNTIME_GID:-1000}"
     environment:
       PORT: "20130"
       DASHBOARD_PORT: "20130"

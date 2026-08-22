@@ -135,6 +135,9 @@ test("Oracle remote helper serializes canaries and allocates a unique data copy"
   assert.match(HELPER_SOURCE, /unlock-canary\)/);
   assert.match(HELPER_SOURCE, /mktemp -d/);
   assert.doesNotMatch(HELPER_SOURCE, /canary_dir="\$CANARY_ROOT\/\$build_sha"/);
+  assert.doesNotMatch(HELPER_SOURCE, /chown -R 1000:1000/);
+  assert.match(HELPER_SOURCE, /OMNIROUTE_RUNTIME_UID="\$\(id -u\)"/);
+  assert.match(HELPER_SOURCE, /--user "\$\(id -u\):\$\(id -g\)"/);
 });
 
 test("Oracle rollback restore pins the dedicated rollback tag before recreation", () => {
