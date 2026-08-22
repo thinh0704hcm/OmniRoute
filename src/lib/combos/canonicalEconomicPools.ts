@@ -207,6 +207,10 @@ function aliasCombo(name: string, target: string): CanonicalComboSpec {
 const CANONICAL_COMBOS: CanonicalComboSpec[] = [
   leafCombo("pool-haiku-free", "reset-aware", HAIKU_FREE_MODELS),
   leafCombo("pool-haiku-antigravity", "reset-aware", ["antigravity/gemini-2.5-flash"]),
+  leafCombo("pool-luna-free", "reset-aware", HAIKU_FREE_MODELS),
+  leafCombo("pool-luna-antigravity", "reset-aware", ["antigravity/gemini-2.5-flash"]),
+  leafCombo("pool-luna-credits", "reset-aware", ["command-code/poolside/laguna-s-2.1-free"]),
+  leafCombo("pool-luna-codex", "priority", ["codex/gpt-5.6-luna"]),
   leafCombo("pool-sonnet-free", "reset-aware", [
     "nvidia/z-ai/glm-5.2",
     "nous-research/tencent/hy3:free",
@@ -234,6 +238,8 @@ const CANONICAL_COMBOS: CanonicalComboSpec[] = [
   ]),
   leafCombo("pool-fable-codex", "priority", ["codex/gpt-5.6-terra"]),
   leafCombo("pool-fable-premium", "priority", ["codex/gpt-5.6-sol"]),
+  leafCombo("pool-sol-codex", "priority", ["codex/gpt-5.6-sol"]),
+  leafCombo("pool-terra-codex", "priority", ["codex/gpt-5.6-terra"]),
   parentCombo("pool-haiku", [
     { name: "free", comboName: "pool-haiku-free" },
     { name: "antigravity", comboName: "pool-haiku-antigravity" },
@@ -242,6 +248,18 @@ const CANONICAL_COMBOS: CanonicalComboSpec[] = [
     { name: "free", comboName: "pool-sonnet-free" },
     { name: "antigravity", comboName: "pool-sonnet-antigravity" },
     { name: "credits", comboName: "pool-sonnet-credits" },
+  ]),
+  parentCombo("pool-luna", [
+    { name: "free", comboName: "pool-luna-free" },
+    { name: "antigravity", comboName: "pool-luna-antigravity" },
+    { name: "credits", comboName: "pool-luna-credits" },
+    { name: "codex", comboName: "pool-luna-codex" },
+  ]),
+  parentCombo("pool-terra", [
+    { name: "free", comboName: "pool-sonnet-free" },
+    { name: "antigravity", comboName: "pool-sonnet-antigravity" },
+    { name: "credits", comboName: "pool-sonnet-credits" },
+    { name: "codex", comboName: "pool-terra-codex" },
   ]),
   parentCombo("pool-opus", [
     { name: "antigravity", comboName: "pool-opus-antigravity" },
@@ -254,9 +272,9 @@ const CANONICAL_COMBOS: CanonicalComboSpec[] = [
     { name: "codex", comboName: "pool-fable-codex" },
   ]),
   aliasCombo("gpt-5.4-mini", "pool-haiku"),
-  aliasCombo("gpt-5.6-luna", "pool-opus"),
-  aliasCombo("gpt-5.6-terra", "pool-fable"),
-  aliasCombo("gpt-5.6-sol", "pool-fable-premium"),
+  aliasCombo("gpt-5.6-luna", "pool-luna"),
+  aliasCombo("gpt-5.6-terra", "pool-terra"),
+  aliasCombo("gpt-5.6-sol", "pool-sol-codex"),
   aliasCombo("claude-haiku-4-5-20251001", "pool-haiku"),
   aliasCombo("claude-sonnet-5", "pool-sonnet"),
   aliasCombo("claude-opus-5", "pool-opus"),

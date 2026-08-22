@@ -289,3 +289,17 @@ Never broadly delete /home/ubuntu/.omniroute.
 - Never remove live or rollback images before the drill.
 - Never push origin or bypass gates.
 - Never recursively delete a data, repository, home, or archive root.
+
+## Decisions recorded after recovery
+
+- Canonical branch: `update/v3.8.50`; Oracle has one checkout and the legacy workdir is archived.
+- Effective builder: `omniroute-safe-12g-4`; BuildKit limits are 18 GiB memory / 20 GiB memory+swap.
+- GPT-5.6 pools are now tiered by documented capability and economics: Luna → `pool-luna`,
+  Terra → `pool-terra`, Sol → frontier-only `pool-sol-codex`.
+- Source URLs and deterministic scoring are recorded in `src/lib/combos/tierEvidence.ts`;
+  replay with `node scripts/ops/replay-tier-evidence.mjs snapshot.json`.
+- Focused regression coverage is in `tests/unit/tier-evidence-replay.test.ts`.
+- Oracle aggregate availability at decision time: 46 active of 49 connections; Codex 3,
+  Antigravity 4, Gemini 7, Command Code 3 active of 5, AgentRouter 1. Quota snapshots
+  are not treated as current until reduced by latest window.
+- Broad unit tests were deliberately not run; lint and focused tests are the required gate.

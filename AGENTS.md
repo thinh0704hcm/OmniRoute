@@ -430,6 +430,11 @@ Keep one canonical checkout and branch after a verified rollout. Preserve the li
 immediate rollback image, recent verified database backups, and private archive/data paths until
 the rollback drill and observation window pass. Audit old workdirs before removing them.
 
+Managed GPT-5.6 aliases must remain performance/economics-specific (`gpt-5.6-luna` →
+`pool-luna`, `gpt-5.6-terra` → `pool-terra`, `gpt-5.6-sol` → `pool-sol-codex`). Update
+`src/lib/combos/tierEvidence.ts` and its replay test whenever pricing, benchmark, or provider
+availability evidence changes; do not hand-edit only the persisted combo rows.
+
 ## Reference Documentation
 
 For any non-trivial change, read the matching deep-dive first:

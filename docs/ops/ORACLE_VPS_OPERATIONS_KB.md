@@ -324,3 +324,43 @@ Never broadly delete /home/ubuntu/.omniroute.
 - Never remove live or rollback images before the drill.
 - Never push origin or bypass gates.
 - Never recursively delete a data, repository, home, or archive root.
+
+## Tier evidence and replay decision (2026-08-23)
+
+The managed GPT-5.6 aliases now use performance-specific pools: `gpt-5.6-luna`
+uses `pool-luna` (free → Antigravity → credits → Codex), `gpt-5.6-terra` uses
+`pool-terra` (Sonnet-class free/Antigravity/credits → Codex), and `gpt-5.6-sol`
+uses the frontier `pool-sol-codex`. Claude aliases retain their existing semantic
+pools. This preserves cheap fallbacks for Luna, balanced fallbacks for Terra, and
+frontier-only behavior for Sol.
+
+The evidence ledger is `src/lib/combos/tierEvidence.ts`; it is deliberately pure
+and records source URL, price, performance score, and availability weight. Sources
+reviewed on 2026-08-23:
+
+- OpenAI GPT-5.6 overview: https://openai.com/index/gpt-5-6/
+- OpenAI price/performance update: https://openai.com/index/advancing-the-price-performance-frontier-with-gpt-5-6/
+- OpenAI Terra model card and rate limits: https://developers.openai.com/api/docs/models/gpt-5.6-terra
+- Google Gemini 3.7 Flash model card benchmark table: https://deepmind.google/models/model-cards/gemini-3-7-flash/
+- Anthropic Sonnet 5 research/pricing: https://www.anthropic.com/research/claude-sonnet-5
+- Anthropic Opus pricing: https://www.anthropic.com/claude/opus
+
+Oracle availability snapshot (safe aggregate only): 49 provider connections were
+present, 46 active; Codex had 3 active connections, Antigravity 4, Gemini 7,
+Command Code 3 active of 5, and AgentRouter 1. Quota snapshots are historical and
+must be reduced to the latest window before changing weights; raw credentials and
+quota payloads are never copied into the ledger.
+
+Replay command (sanitized snapshot, no DB writes):
+
+    node scripts/ops/replay-tier-evidence.mjs snapshot.json
+
+The regression suite is `tests/unit/tier-evidence-replay.test.ts`. Any future tier
+change must update the evidence ledger, replay fixture, and focused test together,
+then run lint plus the focused unit tests. The broad unit runner remains intentionally
+unrun for this incident per operator scope.
+
+Operational build decision: the effective Oracle BuildKit builder remains
+`omniroute-safe-12g-4`, but its BuildKit container was raised to 18 GiB memory and
+20 GiB memory+swap to finish the production image reliably; the historical builder
+name was retained for compatibility. Cache was pruned to recover disk space.
