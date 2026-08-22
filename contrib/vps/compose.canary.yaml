@@ -1,0 +1,32 @@
+# Isolated Oracle canary overlay. Apply to compose.yaml only (not compose.oracle.yaml)
+# with project name "omniroute-canary" and a WAL-consistent copied data directory.
+services:
+  redis:
+    container_name: omniroute-canary-redis
+
+  omniroute:
+    container_name: omniroute-canary
+    environment:
+      PORT: "20130"
+      DASHBOARD_PORT: "20130"
+      API_PORT: "20131"
+      LIVE_WS_PORT: "20133"
+      OMNIROUTE_MEMORY_MB: "4096"
+      NODE_OPTIONS: --max-old-space-size=4096
+      OMNIROUTE_BASE_URL: http://omniroute-canary:20130
+      REDIS_URL: redis://redis:6379
+      OMNIROUTE_BUILD_SHA: ${OMNIROUTE_BUILD_SHA:?required}
+    ports: !override
+      - "127.0.0.1:30130:20130"
+      - "127.0.0.1:30131:20131"
+      - "127.0.0.1:30133:20133"
+    volumes: !override
+      - "${OMNIROUTE_CANARY_DATA_DIR:?required}:/app/data"
+    mem_limit: 6g
+    memswap_limit: 6g
+    pids_limit: 512
+    healthcheck:
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 45s

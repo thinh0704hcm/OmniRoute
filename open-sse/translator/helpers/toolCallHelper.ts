@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { resolveToolNameAlias } from "./toolNameAliases.ts";
+
 // Tool call helper functions for translator
 
 const ALPHANUM9 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -110,21 +112,7 @@ export function caseInsensitiveToolNameLookup(
   name: string,
   map: Map<string, string> | null | undefined
 ): string | undefined {
-  if (!map || !name) return undefined;
-
-  // Fast path: exact match (PascalCase-preserving providers)
-  const exact = map.get(name);
-  if (exact !== undefined) return exact;
-
-  // Fallback: case-insensitive scan
-  const lowerName = name.toLowerCase();
-  for (const [key, value] of map) {
-    if (key.toLowerCase() === lowerName) {
-      return value;
-    }
-  }
-
-  return undefined;
+  return resolveToolNameAlias(name, map);
 }
 
 /** Restore normalized function names in OpenAI Chat Completions responses. */
@@ -153,6 +141,39 @@ export function restoreOpenAIToolNames(body: unknown, aliases: unknown): boolean
     restoreCalls(toRecord(record.message)?.tool_calls);
   }
 
+  return changed;
+}
+
+/** Restore function/custom-tool names in Responses API events and response snapshots. */
+export function restoreOpenAIResponsesToolNames(body: unknown, aliases: unknown): boolean {
+  if (!(aliases instanceof Map) || aliases.size === 0) return false;
+  const root = toRecord(body);
+  if (!root) return false;
+  let changed = false;
+
+  const restoreItem = (value: unknown): void => {
+    const item = toRecord(value);
+    if (
+      !item ||
+      (item.type !== "function_call" && item.type !== "custom_tool_call") ||
+      typeof item.name !== "string"
+    ) {
+      return;
+    }
+    const original = caseInsensitiveToolNameLookup(item.name, aliases);
+    if (typeof original === "string" && original !== item.name) {
+      item.name = original;
+      changed = true;
+    }
+  };
+
+  restoreItem(root.item);
+  restoreItem(root);
+  const response = toRecord(root.response);
+  const outputs = [root.output, response?.output];
+  for (const output of outputs) {
+    if (Array.isArray(output)) output.forEach(restoreItem);
+  }
   return changed;
 }
 

@@ -62,6 +62,13 @@ otherwise put in `/tmp` — to `/home/diegosouzapw/dev/proxys/OmniRoute/_artifac
   plans/specs/research/hand-offs) — `_artifacts/` is for disposable working files only, nothing
   here needs to survive or be versioned.
 
+## Oracle production work
+
+For Oracle production work, follow `AGENTS.md` → "Canonical Oracle production operations" and
+`docs/ops/ORACLE_VPS_OPERATIONS_KB.md`. Work in `/home/ubuntu/OmniRoute-src` on the canonical
+release branch. Do not create a Claude worktree for a live deploy/recovery operation, do not use
+the legacy `/home/ubuntu/OmniRoute` checkout as source, and never bypass the deploy gate.
+
 ## Base-green before opening PRs
 
 Before cutting a branch or opening a PR, run the base-green check (`AGENTS.md` → Git Workflow →

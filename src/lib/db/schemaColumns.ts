@@ -250,7 +250,12 @@ export function ensureCallLogsColumns(db: SqliteDatabase) {
       db.exec("ALTER TABLE call_logs ADD COLUMN session_tag TEXT DEFAULT NULL");
       console.log("[DB] Added call_logs.session_tag column");
     }
+    if (!columnNames.has("response_id")) {
+      db.exec("ALTER TABLE call_logs ADD COLUMN response_id TEXT DEFAULT NULL");
+      console.log("[DB] Added call_logs.response_id column");
+    }
 
+    db.exec("CREATE INDEX IF NOT EXISTS idx_cl_response_id ON call_logs(response_id)");
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_call_logs_requested_model ON call_logs(requested_model)"
     );

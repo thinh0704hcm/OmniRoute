@@ -40,3 +40,13 @@ test("mergeResponseToolNameMap unions base with executor _toolNameMap", () => {
   assert.equal(mergeResponseToolNameMap(base, {}), base);
   assert.equal(mergeResponseToolNameMap(null, {}), null);
 });
+
+test("mergeResponseToolNameMap composes executor aliases back to the client spelling", () => {
+  const base = new Map([["read_lower", "Read"]]);
+  const merged = mergeResponseToolNameMap(base, {
+    _toolNameMap: new Map([["read_wire", "read_lower"]]),
+  });
+
+  assert.equal(merged?.get("read_wire"), "Read");
+  assert.equal(merged?.get("read_lower"), "Read");
+});

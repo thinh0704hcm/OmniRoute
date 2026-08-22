@@ -114,44 +114,49 @@ export function remapToolNamesInRequest(body: Record<string, unknown>): boolean 
   // Remap tool definitions
   const tools = body.tools as Array<Record<string, unknown>> | undefined;
   if (Array.isArray(tools)) {
-    for (const tool of tools) {
-      if (!tool) continue;
+    body.tools = tools.map((tool) => {
+      if (!tool) return tool;
       // Server tools (bash_20250124 / web_search_20250305 / …) keep their
       // type-bound literal name.
-      if (isAnthropicServerToolType(tool.type)) continue;
+      if (isAnthropicServerToolType(tool.type)) return tool;
       const name = String(tool.name || "");
       if (TOOL_RENAME_MAP[name]) {
         const mapped = TOOL_RENAME_MAP[name];
-        tool.name = mapped;
         trackToolName(body, mapped, name);
         hasLowercase = true;
+        return { ...tool, name: mapped };
       } else if (REVERSE_MAP[name]) {
         hasTitleCase = true;
       }
-    }
+      return tool;
+    });
   }
 
   // Remap tool_result references in messages
   const messages = body.messages as Array<Record<string, unknown>> | undefined;
   if (Array.isArray(messages)) {
-    for (const msg of messages) {
+    body.messages = messages.map((msg) => {
       const content = msg.content as Array<Record<string, unknown>> | undefined;
-      if (!Array.isArray(content)) continue;
-      for (const block of content) {
+      if (!Array.isArray(content)) return msg;
+      let changed = false;
+      const remappedContent = content.map((block) => {
         if (block.type === "tool_use" && typeof block.name === "string") {
-          if (serverToolNames.has(block.name)) continue;
+          if (serverToolNames.has(block.name)) return block;
           const mapped = TOOL_RENAME_MAP[block.name];
           if (mapped) {
             const originalName = block.name;
-            block.name = mapped;
             trackToolName(body, mapped, originalName);
             hasLowercase = true;
+            changed = true;
+            return { ...block, name: mapped };
           } else if (REVERSE_MAP[block.name]) {
             hasTitleCase = true;
           }
         }
-      }
-    }
+        return block;
+      });
+      return changed ? { ...msg, content: remappedContent } : msg;
+    });
   }
 
   // Remap tool_choice
@@ -164,7 +169,7 @@ export function remapToolNamesInRequest(body: Record<string, unknown>): boolean 
     const mapped = TOOL_RENAME_MAP[toolChoice.name];
     if (mapped) {
       const originalName = toolChoice.name;
-      toolChoice.name = mapped;
+      body.tool_choice = { ...toolChoice, name: mapped };
       trackToolName(body, mapped, originalName);
       hasLowercase = true;
     } else if (REVERSE_MAP[toolChoice.name]) {
@@ -225,11 +230,18 @@ export function restoreClaudeToolName(
 
   if (toolNameMap?.size) {
     const lower = rawName.toLowerCase();
+    let foldedMatch: string | undefined;
     for (const [sanitized, original] of toolNameMap.entries()) {
       if (sanitized.toLowerCase() === lower || original.toLowerCase() === lower) {
-        return original;
+        if (foldedMatch !== undefined && foldedMatch !== original) {
+          // `Read` and `read` are distinct client declarations. An upstream
+          // echo of `READ` cannot be reversed safely, so leave it untouched.
+          return rawName;
+        }
+        foldedMatch = original;
       }
     }
+    if (foldedMatch !== undefined) return foldedMatch;
   }
 
   // When no request toolNameMap is provided (e.g. non-Claude client):

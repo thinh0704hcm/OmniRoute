@@ -25,6 +25,7 @@ import { protectPayloadForLog, parseStoredPayload } from "../logPayloads";
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 import {
   CALL_LOGS_DIR,
+  deleteCallArtifact,
   readCallArtifact,
   type CallLogArtifact,
   type CallLogDetailState,
@@ -67,6 +68,13 @@ type JsonRecord = Record<string, unknown>;
 
 const pendingCallLogSaves = new Set<Promise<void>>();
 let callLogSavesClosing = false;
+
+function finalizeCallLogSave(artifactRelPath: string | null, summaryCommitted: boolean): void {
+  if (!summaryCommitted && artifactRelPath) {
+    deleteCallArtifact(artifactRelPath);
+  }
+  scheduleCallLogRotation();
+}
 
 type CallLogSummaryRow = {
   id: string;
@@ -437,6 +445,8 @@ function getLegacyInlineDetail(id: string) {
 }
 
 async function saveCallLogOperation(entry: any): Promise<void> {
+  let artifactRelPath: string | null = null;
+  let summaryCommitted = false;
   try {
     const apiKeyContext = getCallLogApiKeyContext();
     // `||` (not `??`): an empty-string apiKeyId/apiKeyName is "unattributed",
@@ -518,7 +528,6 @@ async function saveCallLogOperation(entry: any): Promise<void> {
         protectedPipelinePayloads !== null);
 
     let detailState: CallLogDetailState = "none";
-    let artifactRelPath: string | null = null;
     let artifactSizeBytes: number | null = null;
     let artifactSha256: string | null = null;
 
@@ -579,10 +588,14 @@ async function saveCallLogOperation(entry: any): Promise<void> {
       hasPipelineDetails: protectedPipelinePayloads ? 1 : 0,
       requestSummary,
     });
-
-    scheduleCallLogRotation();
+    summaryCommitted = true;
   } catch (error) {
     console.error("[callLogs] Failed to save call log:", (error as Error).message);
+  } finally {
+    // Rotation also owns bounded orphan cleanup. Schedule it even when the
+    // summary INSERT fails so one schema/write fault cannot disable cleanup
+    // for every subsequent request.
+    finalizeCallLogSave(artifactRelPath, summaryCommitted);
   }
 }
 

@@ -36,6 +36,38 @@ test("resolveOmniRouteBaseUrl falls back to NEXT_PUBLIC_BASE_URL", () => {
   );
 });
 
+test("resolveOmniRouteBaseUrl prefers OMNIROUTE_PORT when no base URL is set", () => {
+  assert.equal(
+    resolveOmniRouteBaseUrl({ OMNIROUTE_PORT: 20130, PORT: 20128 }),
+    "http://localhost:20130"
+  );
+});
+
+test("resolveOmniRouteBaseUrl falls back to PORT when OMNIROUTE_PORT is absent", () => {
+  assert.equal(resolveOmniRouteBaseUrl({ PORT: "30130" }), "http://localhost:30130");
+});
+
+test("resolveOmniRouteBaseUrl ignores malformed and out-of-range ports", () => {
+  assert.equal(
+    resolveOmniRouteBaseUrl({ OMNIROUTE_PORT: "20130/path", PORT: "30130" }),
+    "http://localhost:30130"
+  );
+  assert.equal(
+    resolveOmniRouteBaseUrl({ OMNIROUTE_PORT: 0, PORT: 65536 }),
+    DEFAULT_OMNIROUTE_BASE_URL
+  );
+});
+
+test("resolveOmniRouteBaseUrl prefers explicit URLs over port settings", () => {
+  assert.equal(
+    resolveOmniRouteBaseUrl({
+      OMNIROUTE_BASE_URL: "https://custom.omniroute.local",
+      OMNIROUTE_PORT: 20130,
+    }),
+    "https://custom.omniroute.local"
+  );
+});
+
 test("resolveOmniRouteBaseUrl ignores blank values", () => {
   assert.equal(
     resolveOmniRouteBaseUrl({

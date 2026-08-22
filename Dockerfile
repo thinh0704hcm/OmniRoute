@@ -175,18 +175,33 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-next-cache,targ
   && npm run build \
   && node --input-type=module -e "import { createRequire } from 'node:module'; import { pathToFileURL } from 'node:url'; const standaloneRoot = '/app/.build/next/standalone/node_modules/'; const require = createRequire('/app/.build/next/standalone/package.json'); for (const pkg of ['@atjsh/llmlingua-2', '@huggingface/transformers', 'js-tiktoken']) { const resolved = require.resolve(pkg); if (!resolved.startsWith(standaloneRoot)) throw new Error(pkg + ' resolved outside standalone: ' + resolved); await import(pathToFileURL(resolved).href); } const onnxRuntime = require.resolve('onnxruntime-node'); if (!onnxRuntime.startsWith(standaloneRoot)) throw new Error('onnxruntime-node resolved outside standalone: ' + onnxRuntime); await import(pathToFileURL(onnxRuntime).href);"
 
+# Operator-only image containing the reviewed TypeScript DB remediators and
+# their exact dependency graph. It is never used as the production service;
+# build it with --target ops, run one bounded command against /app/data, then
+# remove it after verification.
+FROM builder AS ops
+
+ARG OMNIROUTE_BUILD_SHA=""
+LABEL org.opencontainers.image.revision="${OMNIROUTE_BUILD_SHA}"
+ENV OMNIROUTE_BUILD_SHA="${OMNIROUTE_BUILD_SHA}"
+USER node
+
 # ── Runner base ────────────────────────────────────────────────────────────
 FROM base AS runner-base
+
+ARG OMNIROUTE_BUILD_SHA=""
 
 LABEL org.opencontainers.image.title="omniroute" \
   org.opencontainers.image.description="Unified AI proxy — route any LLM through one endpoint" \
   org.opencontainers.image.url="https://omniroute.online" \
   org.opencontainers.image.source="https://github.com/diegosouzapw/OmniRoute" \
-  org.opencontainers.image.licenses="MIT"
+  org.opencontainers.image.licenses="MIT" \
+  org.opencontainers.image.revision="${OMNIROUTE_BUILD_SHA}"
 
 ENV NODE_ENV=production
 ENV PORT=20128
 ENV HOSTNAME=0.0.0.0
+ENV OMNIROUTE_BUILD_SHA="${OMNIROUTE_BUILD_SHA}"
 # Runtime heap ceiling. 1024MB is enough for normal traffic but can be tight
 # for large fusion-combo panels (many models fanned out in parallel, each
 # response buffered in full — see open-sse/services/fusion.ts::FUSION_DEFAULTS

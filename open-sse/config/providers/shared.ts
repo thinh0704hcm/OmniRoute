@@ -62,6 +62,8 @@ export interface RegistryModel {
   supportsXHighEffort?: boolean;
   maxOutputTokens?: number;
   targetFormat?: string;
+  /** Provider/model-scoped outbound function-name compatibility policy. */
+  toolNamePolicy?: "preserve" | "lowercase";
   strip?: readonly string[];
   unsupportedParams?: readonly string[];
   /** Maximum context window in tokens */

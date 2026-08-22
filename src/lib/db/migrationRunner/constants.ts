@@ -179,6 +179,15 @@ export const RENAMED_MIGRATION_COMPATIBILITY = [
     toVersion: "153",
     toName: "radar_local_model_state",
   },
+  {
+    // A pre-release lease migration occupied 154 before the canonical
+    // call_logs_response_id migration landed. Move that marker to the lease
+    // migration's permanent 157 slot so 154 can still add response_id.
+    fromVersion: "154",
+    fromName: "exclusive_connection_leases",
+    toVersion: "157",
+    toName: "exclusive_connection_leases",
+  },
 ] as const;
 
 export const LEGACY_VERSION_SLOT_MIGRATIONS = [

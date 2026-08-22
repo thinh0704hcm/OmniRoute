@@ -5,6 +5,11 @@
 > quality gates, code conventions, file-placement / repo-root hygiene rules, the repository map
 > and the local development access notes that used to live in this file.
 
+For Oracle production work, follow `AGENTS.md` → "Canonical Oracle production operations" and
+`docs/ops/ORACLE_VPS_OPERATIONS_KB.md`. Use `/home/ubuntu/OmniRoute-src` as the canonical source
+checkout and the tested deploy orchestrator; never deploy from the legacy workdir or bypass a
+failed qualification gate.
+
 Gemini-specific notes:
 
 - Skills activate via the `activate_skill` tool (skill metadata is loaded at session start and

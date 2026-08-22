@@ -138,6 +138,7 @@ export const githubProvider: RegistryEntry = {
       id: "gpt-5.6-luna",
       name: "GPT-5.6 Luna",
       targetFormat: "openai-responses",
+      toolNamePolicy: "lowercase",
       maxOutputTokens: 128000,
     },
     { id: "gpt-5.5", name: "GPT-5.5", ...GPT_5_5_CODEX_CAPABILITIES, maxOutputTokens: 128000 },

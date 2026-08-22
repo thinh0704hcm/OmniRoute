@@ -79,8 +79,40 @@ test("CloudflareAIExecutor.transformRequest preserves plain-string content", () 
     model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     messages: [{ role: "user", content: "hi" }],
   };
-  const out = executor.transformRequest("@cf/meta/llama-3.3-70b-instruct-fp8-fast", body, true, {} as any);
+  const out = executor.transformRequest(
+    "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    body,
+    true,
+    {} as any
+  );
   assert.deepEqual((out as any).messages, [{ role: "user", content: "hi" }]);
+});
+
+test("CloudflareAIExecutor transforms null tool-message content to an empty string", () => {
+  const executor = new CloudflareAIExecutor();
+  const body = {
+    model: "@cf/openai/gpt-oss-20b",
+    messages: [
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            type: "function",
+            id: "call_x",
+            function: { name: "add", arguments: '{"a":17,"b":8}' },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_x", content: "25" },
+      { role: "tool", tool_call_id: "call_y", content: null },
+    ],
+  };
+  const out = executor.transformRequest("@cf/openai/gpt-oss-20b", body, false, {} as never);
+  const messages = (out as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+  assert.equal(messages[0].content, "");
+  assert.equal(messages[1].content, "25");
+  assert.equal(messages[2].content, "");
 });
 
 // Regression for #2539: Workers AI /ai/v1/chat/completions rejects OpenAI content-part

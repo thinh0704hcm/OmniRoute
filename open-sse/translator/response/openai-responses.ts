@@ -5,7 +5,7 @@
 import { register } from "../registry.ts";
 import { FORMATS } from "../formats.ts";
 import { appendToolCallArgumentDelta } from "../../utils/toolCallArguments.ts";
-import { fallbackToolCallId } from "../helpers/toolCallHelper.ts";
+import { caseInsensitiveToolNameLookup, fallbackToolCallId } from "../helpers/toolCallHelper.ts";
 import { shouldParseTextualReasoningTags } from "../../handlers/responseSanitizer.ts";
 import { getReadableReasoningValue } from "../../utils/reasoningFields.ts";
 import {
@@ -540,7 +540,8 @@ function emitToolCall(state, emit, tc) {
   // and no follow-up request ever carried a result back. PR #7905 already intended this
   // precedence ("...while preserving explicit function-tool precedence") but its
   // unconditional `toolName === "apply_patch"` OR never actually implemented the carve-out.
-  const toolName = state.funcNames[tcIdx] || funcName || "";
+  const wireToolName = state.funcNames[tcIdx] || funcName || "";
+  const toolName = caseInsensitiveToolNameLookup(wireToolName, state.toolNameMap) ?? wireToolName;
   const lowerName = toolName.toLowerCase();
   const isCustomTool =
     ((lowerName === "apply_patch" || lowerName === "applypatch") &&
@@ -554,7 +555,9 @@ function emitToolCall(state, emit, tc) {
     // #7936 — restore the codex-side `{namespace, name}` pair when the bare
     // leaf on the Chat wire was flattened from a Responses namespace sub-tool.
     // Codex dispatches from `namespace` independently of `name` (no `__` split).
-    const identity = resolveRequestToolIdentity(state.requestToolIdentityMap, toolName);
+    const identity =
+      resolveRequestToolIdentity(state.requestToolIdentityMap, wireToolName) ??
+      resolveRequestToolIdentity(state.requestToolIdentityMap, toolName);
     emit("response.output_item.added", {
       type: "response.output_item.added",
       output_index: outputIndex,
@@ -611,7 +614,8 @@ function closeToolCall(state, emit, idx, recordAsCompleted = true) {
   if (callId && !state.funcItemDone[idx]) {
     const normalizedIndex = toolCallOutputIndexBase(state) + normalizeOutputIndex(idx);
     const args = state.funcArgsBuf[idx] || "{}";
-    const toolName = state.funcNames[idx] || "";
+    const wireToolName = state.funcNames[idx] || "";
+    const toolName = caseInsensitiveToolNameLookup(wireToolName, state.toolNameMap) ?? wireToolName;
     // See emitToolCall()'s isCustomTool comment — must stay in sync (both compute the
     // same classification independently for their respective add/close call sites).
     const lowerName = toolName.toLowerCase();
@@ -651,16 +655,15 @@ function closeToolCall(state, emit, idx, recordAsCompleted = true) {
         type: "custom_tool_call",
         input: rawInput,
         call_id: callId,
-        name: state.funcNames[idx] || "",
+        name: toolName,
         status: "completed",
       };
 
       // #7936 identity closure for custom_tool_call items (apply_patch stays
       // bare; namespace sub-tools get back their `namespace` + `name`).
-      const customIdentity = resolveRequestToolIdentity(
-        state.requestToolIdentityMap,
-        state.funcNames[idx] || ""
-      );
+      const customIdentity =
+        resolveRequestToolIdentity(state.requestToolIdentityMap, wireToolName) ??
+        resolveRequestToolIdentity(state.requestToolIdentityMap, toolName);
       if (customIdentity) {
         funcItem.namespace = customIdentity.namespace;
         funcItem.name = customIdentity.name;
@@ -684,7 +687,7 @@ function closeToolCall(state, emit, idx, recordAsCompleted = true) {
         type: "function_call",
         arguments: args,
         call_id: callId,
-        name: state.funcNames[idx] || "",
+        name: toolName,
         status: "completed",
       };
 
@@ -692,10 +695,9 @@ function closeToolCall(state, emit, idx, recordAsCompleted = true) {
       // its bare leaf and stamp the original `namespace` alongside it, matching
       // the codex ResponseItem::FunctionCall schema (independent `namespace`
       // field, NOT a `__` split on `name`).
-      const fnIdentity = resolveRequestToolIdentity(
-        state.requestToolIdentityMap,
-        state.funcNames[idx] || ""
-      );
+      const fnIdentity =
+        resolveRequestToolIdentity(state.requestToolIdentityMap, wireToolName) ??
+        resolveRequestToolIdentity(state.requestToolIdentityMap, toolName);
       if (fnIdentity) {
         funcItem.namespace = fnIdentity.namespace;
         funcItem.name = fnIdentity.name;
@@ -991,7 +993,9 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
     if (!state.toolCallIdsSeen) state.toolCallIdsSeen = new Set();
     if (state.currentToolCallId) state.toolCallIdsSeen.add(state.currentToolCallId);
 
-    const toolName = normalizeToolName(item.name);
+    const normalizedToolName = normalizeToolName(item.name);
+    const toolName =
+      caseInsensitiveToolNameLookup(normalizedToolName, state.toolNameMap) ?? normalizedToolName;
     state.currentToolName = toolName; // track for schema lookup at done time
     state.currentToolCallName = toolName;
     state.currentToolCallNeedsNormalization = toolName === "Agent";
@@ -1064,7 +1068,9 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
     const buffered = state.currentToolCallArgsBuffer || "";
     const currentIndex = state.toolCallIndex; // capture before increment
     const callId = item.call_id || state.currentToolCallId || fallbackToolCallId();
-    const toolName = normalizeToolName(item.name);
+    const normalizedToolName = normalizeToolName(item.name);
+    const toolName =
+      caseInsensitiveToolNameLookup(normalizedToolName, state.toolNameMap) ?? normalizedToolName;
     const toolSchema = state.toolSchemas?.get(toolName);
     const shouldNormalizeArguments = toolName === "Agent";
     state.currentToolCallNeedsNormalization = shouldNormalizeArguments;

@@ -159,6 +159,53 @@ test("fetchOpencodeQuota parses three-window quota response", async () => {
   invalidateOpencodeQuotaCache(connectionId);
 });
 
+test("fetchOpencodeQuota uses and parses the live /zen/go/v1/usage contract", async () => {
+  const connectionId = `oc-live-usage-${Date.now()}`;
+  let requestedUrl = "";
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url);
+    return new Response(
+      JSON.stringify({
+        useBalance: false,
+        rollingUsage: { status: "ok", resetInSec: 3_600, usagePercent: 33 },
+        weeklyUsage: { status: "ok", resetInSec: 86_400, usagePercent: 50 },
+        monthlyUsage: { status: "ok", resetInSec: 259_200, usagePercent: 20 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  };
+
+  const quota = await fetchOpencodeQuota(connectionId, { apiKey: "test-key" });
+  assert.match(requestedUrl, /\/zen\/go\/v1\/usage$/);
+  assert.ok(quota);
+  assert.equal(quota.windows?.window_5h.percentUsed, 0.33);
+  assert.equal(quota.windows?.window_weekly.percentUsed, 0.5);
+  assert.equal(quota.windows?.window_monthly.percentUsed, 0.2);
+  assert.equal(quota.percentUsed, 0.5);
+  assert.equal(quota.limitReached, false);
+  assert.ok(new Date(quota.windows?.window_5h.resetAt ?? 0).getTime() > Date.now());
+  invalidateOpencodeQuotaCache(connectionId);
+});
+
+test("live OpenCode rate-limited status is treated as exhausted even with stale percentage", async () => {
+  const connectionId = `oc-live-limited-${Date.now()}`;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        rollingUsage: { status: "rate-limited", resetInSec: 60, usagePercent: 82 },
+        weeklyUsage: { status: "ok", resetInSec: 3_600, usagePercent: 10 },
+        monthlyUsage: { status: "ok", resetInSec: 7_200, usagePercent: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+
+  const quota = await fetchOpencodeQuota(connectionId, { apiKey: "test-key" });
+  assert.ok(quota);
+  assert.equal(quota.window5h.percentUsed, 1);
+  assert.equal(quota.limitReached, true);
+  invalidateOpencodeQuotaCache(connectionId);
+});
+
 test("fetchOpencodeQuota parses reset_at timestamps in windows", async () => {
   const connectionId = `oc-reset-${Date.now()}`;
   const futureTs = Math.floor((Date.now() + 3_600_000) / 1000); // +1h unix seconds

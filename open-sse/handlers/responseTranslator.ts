@@ -12,6 +12,7 @@ import {
 } from "../translator/helpers/toolCallHelper.ts";
 import { extractReplayableResponsesReasoningText } from "../services/reasoningInputPolicy.ts";
 import { sanitizeToolId } from "../translator/helpers/schemaCoercion.ts";
+import { normalizeOpenAIBodyToolCallArgs } from "../utils/toolCallXmlNormalizer.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -156,7 +157,9 @@ export function translateNonStreamingResponse(
   // If already in source format, return as-is
   if (targetFormat === sourceFormat) {
     if (targetFormat === FORMATS.OPENAI) {
-      restoreOpenAIToolNames(responseBody, toolNameMap);
+      const normalized = normalizeOpenAIBodyToolCallArgs(responseBody).body;
+      restoreOpenAIToolNames(normalized, toolNameMap);
+      return normalized;
     }
     return responseBody;
   }
@@ -164,6 +167,7 @@ export function translateNonStreamingResponse(
   let intermediateOpenAI = responseBody;
 
   if (targetFormat === FORMATS.OPENAI) {
+    intermediateOpenAI = normalizeOpenAIBodyToolCallArgs(intermediateOpenAI).body;
     restoreOpenAIToolNames(intermediateOpenAI, toolNameMap);
   }
 

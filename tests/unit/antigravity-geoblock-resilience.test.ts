@@ -70,14 +70,8 @@ test("429 stays RATE_LIMITED (geo classification is status-scoped)", () => {
 // ── 1b. provider scoping of GEO_BLOCKED ──────────────────────────────────────
 
 test("geo refusal from Gemini API / Vertex providers -> GEO_BLOCKED", () => {
-  assert.equal(
-    classifyProviderError(400, GEO_BODY, "gemini"),
-    PROVIDER_ERROR_TYPES.GEO_BLOCKED
-  );
-  assert.equal(
-    classifyProviderError(400, GEO_BODY, "vertex"),
-    PROVIDER_ERROR_TYPES.GEO_BLOCKED
-  );
+  assert.equal(classifyProviderError(400, GEO_BODY, "gemini"), PROVIDER_ERROR_TYPES.GEO_BLOCKED);
+  assert.equal(classifyProviderError(400, GEO_BODY, "vertex"), PROVIDER_ERROR_TYPES.GEO_BLOCKED);
   assert.equal(
     classifyProviderError(400, GEO_BODY, "gemini-cli"),
     PROVIDER_ERROR_TYPES.GEO_BLOCKED
@@ -174,7 +168,7 @@ test("antigravity/agy connection test probes streamGenerateContent, not userinfo
     assert.equal(typeof entry.buildProbe, "function", `${provider} uses a buildProbe`);
 
     const probe = await entry.buildProbe(
-      { providerSpecificData: { clientProfile: "ide" } },
+      { projectId: "test-project", providerSpecificData: { clientProfile: "ide" } },
       "sk-test-token"
     );
     assert.match(probe.url, /v1internal:streamGenerateContent\?alt=sse/);
@@ -183,7 +177,11 @@ test("antigravity/agy connection test probes streamGenerateContent, not userinfo
     assert.equal(probe.headers["Content-Type"], "application/json");
     assert.ok(probe.body, "probe carries a minimal generation body");
     const parsedBody = JSON.parse(probe.body as string);
-    assert.ok(Array.isArray(parsedBody.contents));
-    assert.equal(parsedBody.generationConfig.maxOutputTokens, 1);
+    assert.equal(parsedBody.project, "test-project");
+    assert.equal(parsedBody.requestType, "agent");
+    assert.equal(typeof parsedBody.requestId, "string");
+    assert.ok(Array.isArray(parsedBody.request.contents));
+    assert.equal(parsedBody.request.generationConfig.maxOutputTokens, 1);
+    assert.equal(parsedBody.contents, undefined, "raw Gemini body must not leak outside envelope");
   }
 });

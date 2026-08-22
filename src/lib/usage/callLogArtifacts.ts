@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { RequestPipelinePayloads } from "@omniroute/open-sse/utils/requestLogger.ts";
-import { resolveDataDir } from "../dataPaths";
-import { getCallLogPipelineMaxSizeBytes, isChatDebugFileEnabled } from "../logEnv";
+import { resolveDataDir } from "../dataPaths.ts";
+import { getCallLogPipelineMaxSizeBytes, isChatDebugFileEnabled } from "../logEnv.ts";
 
 const isCloud = typeof globalThis.caches === "object" && globalThis.caches !== null;
 const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
@@ -75,7 +75,7 @@ export function buildArtifactRelativePath(timestamp: string, id: string) {
   return path.posix.join(dateFolder, `${safeTimestamp}_${id}.json`);
 }
 
-function computeArtifactChecksum(serialized: string): string {
+export function computeCallLogArtifactChecksum(serialized: string): string {
   const bytes = Buffer.from(serialized);
   let hash = 0x811c9dc5;
   for (const byte of bytes) {
@@ -208,7 +208,7 @@ export function writeCallArtifact(
     const sizeBytes = Buffer.byteLength(serialized);
     // Keep the legacy field name for storage compatibility, but use a non-cryptographic checksum
     // so artifact bookkeeping is not treated as password hashing by static analysis.
-    const fileChecksum = computeArtifactChecksum(serialized);
+    const fileChecksum = computeCallLogArtifactChecksum(serialized);
 
     fs.mkdirSync(path.dirname(absPath), { recursive: true });
     fs.writeFileSync(tmpPath, serialized);

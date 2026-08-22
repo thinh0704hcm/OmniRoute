@@ -5,6 +5,17 @@ import {
   stripOrphanedToolResults,
 } from "./helpers/toolCallHelper.ts";
 import {
+  attachNamespaceToolIdentityMap,
+  attachToolNameAliasMap,
+  buildDeclaredToolNameIdentityMap,
+  composeToolNameAliasMaps,
+  readNamespaceToolIdentityMap,
+  readToolNameAliasMap,
+  rewriteToolNamesForPolicy,
+  type NamespaceToolIdentityMap,
+  type ToolNameAliasMap,
+} from "./helpers/toolNameAliases.ts";
+import {
   NON_ANTHROPIC_THINKING_PLACEHOLDER,
   prepareClaudeRequest,
 } from "./helpers/claudeHelper.ts";
@@ -27,6 +38,7 @@ import { applyThinkingBudget } from "../services/thinkingBudget.ts";
 import { applyReasoningRuleDirective } from "@/lib/reasoningRouting/policy";
 import { getModelPreserveVideoUrl } from "@/lib/db/models/modelPreserveVideoUrl";
 import { getResolvedModelCapabilities, supportsReasoning } from "../services/modelCapabilities.ts";
+import { getModelToolNamePolicy } from "../config/providerModels.ts";
 import { normalizeRoles } from "../services/roleNormalizer.ts";
 import { hoistLeadingSystemMessage } from "./helpers/strictSystemHoist.ts";
 import {
@@ -331,6 +343,15 @@ export function translateRequest(
   );
   const normalizedProvider = String(provider ?? "");
   const normalizedModel = String(model ?? "");
+  let toolNameAliases = composeToolNameAliasMaps(
+    readToolNameAliasMap(body),
+    buildDeclaredToolNameIdentityMap(body)
+  );
+  let namespaceToolIdentities: NamespaceToolIdentityMap | null = readNamespaceToolIdentityMap(body);
+  const captureToolMetadata = (translated: unknown): void => {
+    toolNameAliases = composeToolNameAliasMaps(readToolNameAliasMap(translated), toolNameAliases);
+    namespaceToolIdentities = readNamespaceToolIdentityMap(translated) ?? namespaceToolIdentities;
+  };
   const isKimiCoding =
     normalizedProvider === "kimi-coding" || normalizedProvider === "kimi-coding-apikey";
 
@@ -442,6 +463,7 @@ export function translateRequest(
             }
           : credentials;
       result = directTranslator(model, result, stream, directCredentials);
+      captureToolMetadata(result);
     } else {
       // Fallback: hub-and-spoke via OpenAI
       // Step 1: source -> openai (if source is not openai)
@@ -473,6 +495,7 @@ export function translateRequest(
                 }
               : credentials;
           result = toOpenAI(model, result, stream, step1Credentials);
+          captureToolMetadata(result);
           // Log OpenAI intermediate format
           reqLogger?.logOpenAIRequest?.(result);
         }
@@ -498,26 +521,8 @@ export function translateRequest(
                   ...(hasProvider ? { _provider: provider } : {}),
                 }
               : credentials;
-          // #9780 — carry the Responses namespace identity map across the pivot.
-          // Target translators return a brand-new object (buildKiroPayload et
-          // al.), dropping the non-enumerable property step 1 attached; the
-          // #7936 seam then gets null and namespace sub-tool calls come back
-          // flattened, which Codex rejects with `unsupported call: <name>`.
-          const identityMap = (result as Record<string, unknown>)._namespaceToolIdentityMap;
           const translated = fromOpenAI(model, result, stream, translationCredentials);
-          if (
-            identityMap instanceof Map &&
-            translated &&
-            typeof translated === "object" &&
-            !((translated as Record<string, unknown>)._namespaceToolIdentityMap instanceof Map)
-          ) {
-            Object.defineProperty(translated, "_namespaceToolIdentityMap", {
-              value: identityMap,
-              enumerable: false,
-              configurable: true,
-              writable: true,
-            });
-          }
+          captureToolMetadata(translated);
           result = translated;
         }
       }
@@ -767,6 +772,39 @@ export function translateRequest(
   // prompt-cache prefixes stay stable.
   if (targetFormat === FORMATS.OPENAI && result.messages && Array.isArray(result.messages)) {
     result.messages = hoistLeadingSystemMessage(result.messages, provider);
+  }
+
+  const toolNamePolicy = getModelToolNamePolicy(normalizedProvider, normalizedModel);
+  const policyResult = rewriteToolNamesForPolicy(result, toolNamePolicy);
+  result = policyResult.body;
+  const policyAliases = composeToolNameAliasMaps(policyResult.aliases, toolNameAliases);
+  toolNameAliases = policyResult.aliases?.size
+    ? new Map(
+        [...policyResult.aliases.keys()].map((wireName) => [
+          wireName,
+          policyAliases?.get(wireName) ?? policyResult.aliases?.get(wireName) ?? wireName,
+        ])
+      )
+    : policyAliases;
+
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const metadataCarrier = result as Record<string, unknown>;
+    delete metadataCarrier._toolNameMap;
+    delete metadataCarrier._toolNameAliasMap;
+    delete metadataCarrier._namespaceToolIdentityMap;
+    attachToolNameAliasMap(metadataCarrier, toolNameAliases as ToolNameAliasMap | null);
+    attachNamespaceToolIdentityMap(metadataCarrier, namespaceToolIdentities);
+    // Legacy readers outside chatCore still expect `_toolNameMap`. Keep a
+    // string-only, non-enumerable compatibility view; namespace identities
+    // never share this property again.
+    if (toolNameAliases?.size) {
+      Object.defineProperty(metadataCarrier, "_toolNameMap", {
+        value: new Map(toolNameAliases),
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
+    }
   }
 
   return result;

@@ -79,12 +79,14 @@ import {
 import { applyThinkTag, flushThink, initThinkState } from "./thinkTagParser.ts";
 import {
   caseInsensitiveToolNameLookup,
+  restoreOpenAIResponsesToolNames,
   restoreOpenAIToolNames,
 } from "../translator/helpers/toolCallHelper.ts";
 import { restoreClaudeToolName } from "../services/claudeCodeToolRemapper.ts";
 import { normalizeFinalOpenAIStreamChunk } from "./openAIStreamChunk.ts";
 import { collectClaudeDelta } from "./streamClaudeDelta.ts";
 import { createStreamTiming, type StreamTiming } from "./streamTiming.ts";
+import { OpenAIToolCallArgumentStreamBuffer } from "./toolCallXmlNormalizer.ts";
 
 /**
  * Race a response body read against a timeout.
@@ -732,6 +734,7 @@ export function createSSEStream(options: StreamOptions = {}) {
   /** Passthrough: accumulate tool_calls deltas for call log responseBody */
   const passthroughToolCalls = new Map<string, ToolCall>();
   let passthroughToolCallSeq = 0;
+  const passthroughToolArgumentBuffer = new OpenAIToolCallArgumentStreamBuffer();
   const allowedToolNames = extractAllowedToolNames(body);
   let skipPassthroughEvent = false;
   const thinkState = initThinkState(mode === STREAM_MODE.PASSTHROUGH, provider, model);
@@ -982,6 +985,36 @@ export function createSSEStream(options: StreamOptions = {}) {
     if (pendingRequestClearedByStream) return;
     pendingRequestClearedByStream = true;
     trackPendingRequest(model, provider, connectionId, false);
+  };
+
+  const emitBufferedToolCallArguments = (
+    controller: TransformStreamDefaultController<Uint8Array>
+  ): boolean => {
+    let emitted = false;
+    for (const bufferedArgs of passthroughToolArgumentBuffer.drain()) {
+      const toolCall = passthroughToolCalls.get(bufferedArgs.key);
+      if (!toolCall) continue;
+      toolCall.function.arguments = bufferedArgs.arguments;
+      const syntheticChunk = buildSyntheticChatChunk(passthroughResponsesId, model, {
+        tool_calls: [
+          {
+            index: toolCall.index,
+            id: toolCall.id,
+            type: toolCall.type,
+            function: {
+              name: toolCall.function.name,
+              arguments: bufferedArgs.arguments,
+            },
+          },
+        ],
+      });
+      const output = `data: ${JSON.stringify(syntheticChunk)}\n\n`;
+      clientPayloadCollector.push(syntheticChunk);
+      reqLogger?.appendConvertedChunk?.(output);
+      forward(controller, encoder.encode(output));
+      emitted = true;
+    }
+    return emitted;
   };
 
   const emitClaudeEmptyStreamErrorAndAbort = (
@@ -1483,6 +1516,15 @@ export function createSSEStream(options: StreamOptions = {}) {
                       );
                     }
                   }
+                  const responsesToolNameRestored = restoreOpenAIResponsesToolNames(
+                    parsed,
+                    toolNameMap
+                  );
+                  const responsesNamespaceIdentityRestored =
+                    restoreResponsesPassthroughFunctionCallIdentity(
+                      parsed as JsonRecord,
+                      requestToolIdentityMap
+                    );
                   if (parsed.type === "response.failed") {
                     failurePayload = normalizeStreamFailurePayload(parsed);
                   }
@@ -1593,18 +1635,6 @@ export function createSSEStream(options: StreamOptions = {}) {
                       parsed.response.output
                     );
                   }
-                  // #7936 — restore `namespace` + `name` fields on passthrough
-                  // Responses function_call items for downstream Codex clients.
-                  if (
-                    parsed.type === "response.output_item.added" ||
-                    parsed.type === "response.output_item.done" ||
-                    parsed.type === "response.completed"
-                  ) {
-                    restoreResponsesPassthroughFunctionCallIdentity(
-                      parsed as JsonRecord,
-                      requestToolIdentityMap
-                    );
-                  }
                   if (
                     parsed.type === "response.completed" &&
                     passthroughResponsesPendingFunctionCalls.size > 0
@@ -1641,10 +1671,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                         isResponsesCommentaryMessageItem
                       ).items
                     : passthroughResponsesOutputItems;
-                  const backfilled = backfillResponsesCompletedOutput(
-                    parsed,
-                    backfillCandidates
-                  );
+                  const backfilled = backfillResponsesCompletedOutput(parsed, backfillCandidates);
                   const usageNormalized = normalizeUsage(parsed);
                   if (
                     stripped ||
@@ -1652,7 +1679,9 @@ export function createSSEStream(options: StreamOptions = {}) {
                     textualToolCallBackfilled ||
                     responsesIdsNormalized ||
                     usageNormalized ||
-                    responsesCommentaryStrippedFromCompleted
+                    responsesCommentaryStrippedFromCompleted ||
+                    responsesToolNameRestored ||
+                    responsesNamespaceIdentityRestored
                   ) {
                     output = `data: ${JSON.stringify(parsed)}\n\n`;
                     injectedUsage = true;
@@ -1807,6 +1836,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   const delta = parsed.choices?.[0]?.delta;
                   let textualToolCallConverted = false;
                   let toolCallIdCoerced = false;
+                  let toolCallArgumentsRewritten = false;
                   let splitMixedReasoningContent = false;
                   const thinkParsed = applyThinkTag(thinkState, delta);
 
@@ -1876,6 +1906,13 @@ export function createSSEStream(options: StreamOptions = {}) {
                       const existing = passthroughToolCalls.get(key);
                       const deltaArgs =
                         typeof tc?.function?.arguments === "string" ? tc.function.arguments : "";
+                      if (deltaArgs && tc?.function) {
+                        const buffered = passthroughToolArgumentBuffer.push(key, deltaArgs);
+                        if (buffered.changed) {
+                          tc.function.arguments = buffered.arguments;
+                          toolCallArgumentsRewritten = true;
+                        }
+                      }
                       if (!existing) {
                         passthroughToolCalls.set(key, {
                           id: tc?.id != null ? String(tc.id) : null,
@@ -1941,6 +1978,7 @@ export function createSSEStream(options: StreamOptions = {}) {
 
                   if (isFinishChunk) {
                     passthroughSawFinishReason = true;
+                    emitBufferedToolCallArguments(controller);
                   }
 
                   if (isFinishChunk && passthroughHasToolCalls) {
@@ -1985,6 +2023,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                     idFixed ||
                     needsReserialization ||
                     toolCallIdCoerced ||
+                    toolCallArgumentsRewritten ||
                     hadNonStringToolCallId ||
                     hadNonStringTopLevelId ||
                     restoredOpenAIToolName
@@ -2324,6 +2363,10 @@ export function createSSEStream(options: StreamOptions = {}) {
                 ]) as JsonRecord,
               restoreOpenAIToolNames: (parsed: JsonRecord) =>
                 restoreOpenAIToolNames(parsed, toolNameMap),
+              restoreOpenAIResponsesToolNames: (parsed: JsonRecord) =>
+                restoreOpenAIResponsesToolNames(parsed, toolNameMap),
+              restoreResponsesFunctionCallIdentity: (parsed: JsonRecord) =>
+                restoreResponsesPassthroughFunctionCallIdentity(parsed, requestToolIdentityMap),
             };
 
             for (const line of normalizedTailLines) {
@@ -2368,7 +2411,15 @@ export function createSSEStream(options: StreamOptions = {}) {
                   if (isResponses) {
                     const idsNormalized = normalizeResponsesSseIds(flushedParsed);
                     const usageNormalized = normalizeUsage(flushedParsed);
-                    if (idsNormalized || usageNormalized) {
+                    const toolNameRestored = restoreOpenAIResponsesToolNames(
+                      flushedParsed,
+                      toolNameMap
+                    );
+                    const identityRestored = restoreResponsesPassthroughFunctionCallIdentity(
+                      flushedParsed,
+                      requestToolIdentityMap
+                    );
+                    if (idsNormalized || usageNormalized || toolNameRestored || identityRestored) {
                       output = `data: ${JSON.stringify(flushedParsed)}\n\n`;
                     }
                   } else if (!isClaude) {
@@ -2471,6 +2522,7 @@ export function createSSEStream(options: StreamOptions = {}) {
               }).catch(() => {});
             }
             if (!doneSent) {
+              emitBufferedToolCallArguments(controller);
               // #7800: Some providers close the SSE stream without emitting a final
               // chunk carrying a non-null finish_reason. OpenAI spec requires the
               // terminal chunk to include finish_reason (e.g. "stop"); strict clients

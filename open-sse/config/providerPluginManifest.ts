@@ -14,6 +14,7 @@ export interface ProviderPluginModel {
   supportsVideo?: boolean;
   unsupportedParams?: readonly string[];
   targetFormat?: string;
+  toolNamePolicy?: "preserve" | "lowercase";
 }
 
 export interface ProviderPluginManifestEntry {
@@ -70,6 +71,7 @@ function mapModel(model: RegistryModel): ProviderPluginModel {
     supportsVideo: model.supportsVideo,
     unsupportedParams: model.unsupportedParams,
     targetFormat: model.targetFormat,
+    toolNamePolicy: model.toolNamePolicy,
   }) as ProviderPluginModel;
 }
 

@@ -1,6 +1,7 @@
 import { register } from "../registry.ts";
 import { FORMATS } from "../formats.ts";
 import { adjustMaxTokens } from "../helpers/maxTokensHelper.ts";
+import { attachToolNameAliasMap } from "../helpers/toolNameAliases.ts";
 
 type JsonRecord = Record<string, unknown>;
 const TOOL_CHOICE_ANY = ["a", "n", "y"].join("");
@@ -219,6 +220,14 @@ export function claudeToOpenAIRequest(model, body, stream, credentials: unknown 
 
     if (normalizedTools.length > 0) {
       result.tools = normalizedTools;
+      const declaredNames = new Map<string, string>();
+      for (const tool of normalizedTools) {
+        const fn = (tool.function ?? {}) as JsonRecord;
+        if (typeof fn.name === "string" && fn.name.length > 0) {
+          declaredNames.set(fn.name, fn.name);
+        }
+      }
+      attachToolNameAliasMap(result, declaredNames);
     }
   }
 

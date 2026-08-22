@@ -1,4 +1,15 @@
-export type NamespaceIdentity = { namespace: string; name: string };
+import {
+  readNamespaceToolIdentityMap,
+  readToolNameAliasMap,
+  type NamespaceToolIdentity,
+} from "../../translator/helpers/toolNameAliases.ts";
+
+export type NamespaceIdentity = NamespaceToolIdentity;
+
+export interface RequestToolMetadata {
+  toolNameAliasMap: Map<string, string> | null;
+  namespaceToolIdentityMap: Map<string, NamespaceIdentity> | null;
+}
 
 /**
  * Return a string-valued copy only when the complete map is an alias ledger.
@@ -34,14 +45,17 @@ export function toToolNameAliasMap(
 export function extractRequestToolIdentityMap(
   translatedBody: Record<string, unknown>
 ): Map<string, NamespaceIdentity> | null {
-  const namespaceIdentityMap = translatedBody._namespaceToolIdentityMap;
-  const requestToolIdentityMap =
-    namespaceIdentityMap instanceof Map
-      ? namespaceIdentityMap
-      : translatedBody._toolNameMap instanceof Map
-        ? translatedBody._toolNameMap
-        : null;
+  return extractRequestToolMetadata(translatedBody).namespaceToolIdentityMap;
+}
+
+/** Extract alias and namespace channels independently, then strip private metadata. */
+export function extractRequestToolMetadata(
+  translatedBody: Record<string, unknown>
+): RequestToolMetadata {
+  const toolNameAliasMap = readToolNameAliasMap(translatedBody);
+  const namespaceToolIdentityMap = readNamespaceToolIdentityMap(translatedBody);
   delete translatedBody._namespaceToolIdentityMap;
+  delete translatedBody._toolNameAliasMap;
   delete translatedBody._toolNameMap;
-  return requestToolIdentityMap as Map<string, NamespaceIdentity> | null;
+  return { toolNameAliasMap, namespaceToolIdentityMap };
 }

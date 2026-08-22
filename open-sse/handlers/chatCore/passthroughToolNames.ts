@@ -1,5 +1,12 @@
 import { CLAUDE_OAUTH_TOOL_PREFIX } from "../../translator/request/openai-to-claude.ts";
-import { restoreOpenAIToolNames } from "../../translator/helpers/toolCallHelper.ts";
+import {
+  restoreOpenAIResponsesToolNames,
+  restoreOpenAIToolNames,
+} from "../../translator/helpers/toolCallHelper.ts";
+import {
+  composeToolNameAliasMaps,
+  readToolNameAliasMap,
+} from "../../translator/helpers/toolNameAliases.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -58,19 +65,11 @@ export function mergeResponseToolNameMap(
     transformedBody && typeof transformedBody === "object" && !Array.isArray(transformedBody)
       ? (transformedBody as JsonRecord)
       : null;
-  const executorToolNameMap =
-    transformedRecord?._toolNameMap instanceof Map
-      ? (transformedRecord._toolNameMap as Map<string, string>)
-      : null;
+  const executorToolNameMap = readToolNameAliasMap(transformedRecord);
 
   if (!executorToolNameMap?.size) return baseToolNameMap;
   if (!baseToolNameMap?.size) return executorToolNameMap;
-
-  const merged = new Map(baseToolNameMap);
-  for (const [toolName, originalName] of executorToolNameMap.entries()) {
-    merged.set(toolName, originalName);
-  }
-  return merged;
+  return composeToolNameAliasMaps(executorToolNameMap, baseToolNameMap);
 }
 
 export function restoreNonStreamingToolNames(
@@ -84,6 +83,7 @@ export function restoreNonStreamingToolNames(
     ? restoreClaudePassthroughToolNames(responseBody, responseToolNameMap)
     : responseBody;
   restoreOpenAIToolNames(restoredBody, responseToolNameMap);
+  restoreOpenAIResponsesToolNames(restoredBody, responseToolNameMap);
   return [restoredBody, responseToolNameMap];
 }
 

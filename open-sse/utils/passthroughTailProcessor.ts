@@ -47,6 +47,8 @@ export type PassthroughTailProcessorContext = {
   hasPassthroughToolCalls: () => boolean;
   toResponsesCompletedWithToolCalls: (parsed: JsonRecord) => JsonRecord;
   restoreOpenAIToolNames: (parsed: JsonRecord) => boolean;
+  restoreOpenAIResponsesToolNames: (parsed: JsonRecord) => boolean;
+  restoreResponsesFunctionCallIdentity: (parsed: JsonRecord) => boolean;
 };
 
 function asRecord(value: unknown): JsonRecord {
@@ -65,6 +67,8 @@ function handleResponsesTailPayload(
   output: string,
   context: PassthroughTailProcessorContext
 ): string {
+  const toolNameRestored = context.restoreOpenAIResponsesToolNames(parsed);
+  const identityRestored = context.restoreResponsesFunctionCallIdentity(parsed);
   const responsesIdsNormalized = normalizeResponsesSseIds(parsed);
   const parsedResponse = asRecord(parsed.response);
   const responseId =
@@ -189,7 +193,9 @@ function handleResponsesTailPayload(
     backfilled ||
     textualToolCallBackfilled ||
     responsesIdsNormalized ||
-    usageNormalized
+    usageNormalized ||
+    toolNameRestored ||
+    identityRestored
   ) {
     output = `data: ${JSON.stringify(outputPayload)}\n\n`;
   }

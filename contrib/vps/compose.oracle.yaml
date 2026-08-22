@@ -1,0 +1,59 @@
+# Oracle production overlay. Apply after compose.yaml with project name "omniroute".
+# It intentionally mirrors the verified single-container production contract.
+services:
+  redis:
+    image: docker.io/library/redis:7.4.10-alpine
+    container_name: omniroute-parallel-redis
+    command:
+      [
+        "redis-server",
+        "--save",
+        "60",
+        "1",
+        "--loglevel",
+        "warning",
+        "--maxmemory",
+        "64mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+    ports: !override
+      - "${REDIS_BIND_HOST:-127.0.0.1}:6381:6379"
+    volumes: !override
+      - redis-data:/data
+
+  omniroute:
+    container_name: omniroute-parallel
+    environment:
+      PORT: "20130"
+      DASHBOARD_PORT: "20130"
+      API_PORT: "20131"
+      LIVE_WS_PORT: "20133"
+      OMNIROUTE_MEMORY_MB: "4096"
+      NODE_OPTIONS: --max-old-space-size=4096
+      OMNIROUTE_BASE_URL: http://omniroute-parallel:20130
+      REDIS_URL: redis://omniroute-parallel-redis:6379
+      OMNIROUTE_BUILD_SHA: ${OMNIROUTE_BUILD_SHA:?required}
+    ports: !override
+      - "${OMNIROUTE_BIND_HOST:-127.0.0.1}:20130:20130"
+      - "${OMNIROUTE_API_BIND_HOST:-127.0.0.1}:20131:20131"
+      - "${OMNIROUTE_WS_BIND_HOST:-127.0.0.1}:20133:20133"
+    volumes: !override
+      - "${OMNIROUTE_DATA_DIR:-/home/ubuntu/.omniroute}:/app/data"
+    mem_limit: 6g
+    memswap_limit: 6g
+    pids_limit: 512
+    healthcheck:
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 45s
+
+volumes:
+  redis-data:
+    external: true
+    name: omniroute_omniroute-parallel-redis
+
+networks:
+  default:
+    name: omniroute_default

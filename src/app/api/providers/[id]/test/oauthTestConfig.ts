@@ -2,6 +2,7 @@ import { buildGitLabOAuthEndpoints, resolveGitLabOAuthBaseUrl } from "@/lib/oaut
 import { ANTIGRAVITY_RUNTIME_BASE_URLS } from "@omniroute/open-sse/config/antigravityUpstream.ts";
 import { getAntigravityContentHeaders } from "@omniroute/open-sse/services/antigravityHeaders.ts";
 import { getAntigravityClientProfile } from "@omniroute/open-sse/services/antigravityClientProfile.ts";
+import { generateAntigravityRequestId } from "@omniroute/open-sse/services/antigravityIdentity.ts";
 import { isGeoBlockedError } from "@omniroute/open-sse/services/errorClassifier.ts";
 
 // Real model-surface probe for antigravity/agy. The previous probe only hit the
@@ -12,13 +13,29 @@ import { isGeoBlockedError } from "@omniroute/open-sse/services/errorClassifier.
 //   2xx      -> model path reachable (auth ok)
 //   400 geo  -> egress location blocked (auth ok — NOT an account problem)
 //   401/403  -> token bad
-// Mirrors AntigravityExecutor.buildUrl/buildHeaders so the probe exercises the
-// exact same surface as real requests.
+// Mirrors AntigravityExecutor.buildUrl/buildHeaders/buildBody so the probe
+// exercises the same required Cloud Code envelope as real requests.
+function resolveAntigravityProbeProjectId(connection: {
+  projectId?: unknown;
+  providerSpecificData?: unknown;
+}): string | null {
+  if (typeof connection.projectId === "string" && connection.projectId.trim()) {
+    return connection.projectId.trim();
+  }
+  const providerData = connection.providerSpecificData;
+  if (providerData && typeof providerData === "object" && !Array.isArray(providerData)) {
+    const projectId = (providerData as Record<string, unknown>).projectId;
+    if (typeof projectId === "string" && projectId.trim()) return projectId.trim();
+  }
+  return null;
+}
+
 function buildAntigravityProbe(
-  connection: { providerSpecificData?: unknown },
+  connection: { projectId?: unknown; providerSpecificData?: unknown },
   accessToken: string
 ) {
   const profile = getAntigravityClientProfile(connection as never);
+  const projectId = resolveAntigravityProbeProjectId(connection);
   return {
     url: `${ANTIGRAVITY_RUNTIME_BASE_URLS[0]}/v1internal:streamGenerateContent?alt=sse`,
     method: "POST",
@@ -29,8 +46,15 @@ function buildAntigravityProbe(
       ...getAntigravityContentHeaders(profile, accessToken),
     },
     body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: "ping" }] }],
-      generationConfig: { maxOutputTokens: 1 },
+      ...(projectId ? { project: projectId } : {}),
+      model: "gemini-3.1-pro-low",
+      requestId: generateAntigravityRequestId(),
+      userAgent: "antigravity",
+      requestType: "agent",
+      request: {
+        contents: [{ role: "user", parts: [{ text: "ping" }] }],
+        generationConfig: { maxOutputTokens: 1 },
+      },
     }),
   };
 }

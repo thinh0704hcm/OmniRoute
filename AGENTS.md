@@ -402,6 +402,31 @@ Documentation must describe verified behavior, not plausible behavior.
 
 ---
 
+## Canonical Oracle production operations
+
+The production source checkout, deployment policy, and operator knowledge base have one
+canonical location and branch:
+
+- Host: SSH alias `oracle-vps`.
+- Checkout: `/home/ubuntu/OmniRoute-src`.
+- Branch: `update/v3.8.50` (or its explicitly selected successor release branch).
+- Upstream remote: `origin`; personal fork remote: `fork`. Never push the upstream remote.
+- Runtime data: `/home/ubuntu/.omniroute`; never replace it with a canary copy or delete it
+  recursively.
+- Deployment configuration: `contrib/vps/.env`, mode `0600`, never printed or committed.
+- Runbook: [`docs/ops/ORACLE_VPS_OPERATIONS_KB.md`](docs/ops/ORACLE_VPS_OPERATIONS_KB.md).
+
+Production changes use `scripts/ops/oracle-deploy.mjs`: immutable SHA-bearing runner and ops
+images, isolated canary qualification, verified SQLite backup, exact rollback-image pinning,
+runtime gates, and an active/rolled-back manifest. Never bypass a failed qualification or
+promotion gate with a manual `docker run`/container replacement. Recovery and orphan pruning
+are separate post-promotion operations: recovery is dry-run before `--apply`, and pruning runs
+only after recovery with the exact confirmed count and byte total from its dry run.
+
+Keep one canonical checkout and branch after a verified rollout. Preserve the live image, the
+immediate rollback image, recent verified database backups, and private archive/data paths until
+the rollback drill and observation window pass. Audit old workdirs before removing them.
+
 ## Reference Documentation
 
 For any non-trivial change, read the matching deep-dive first:

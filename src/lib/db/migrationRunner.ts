@@ -348,6 +348,12 @@ function hasColumn(db: SqliteAdapter, tableName: string, columnName: string): bo
   return columns.some((column) => column.name === columnName);
 }
 
+function hasIndex(db: SqliteAdapter, indexName: string): boolean {
+  return Boolean(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(indexName)
+  );
+}
+
 function ensureColumn(db: SqliteAdapter, tableName: string, columnName: string, ddl: string): void {
   if (!hasColumn(db, tableName, columnName)) {
     db.exec(ddl);
@@ -505,6 +511,9 @@ function isSchemaAlreadyApplied(
       // Retroactive guard for 143_radar_local_model_state -> 153. A database
       // that already created the table must not execute or track it twice.
       return hasTable(db, "radar_local_model_state");
+    case "154":
+      if (migration.name !== "call_logs_response_id") return false;
+      return hasColumn(db, "call_logs", "response_id") && hasIndex(db, "idx_cl_response_id");
     case "159":
       // Renumbered from 158 (collided with 158_call_logs_error_type on
       // release/v3.8.50). Idempotent freepik->magnific slug rewrite: skip
@@ -513,9 +522,8 @@ function isSchemaAlreadyApplied(
       if (migration.name !== "rename_freepik_to_magnific") return false;
       if (!hasTable(db, "provider_connections")) return false;
       return (
-        db
-          .prepare("SELECT 1 FROM provider_connections WHERE provider = 'freepik' LIMIT 1")
-          .get() == null
+        db.prepare("SELECT 1 FROM provider_connections WHERE provider = 'freepik' LIMIT 1").get() ==
+        null
       );
     default:
       return false;
@@ -534,6 +542,16 @@ function applyApiKeyLifecycleMigration(db: SqliteAdapter): void {
     CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_at ON api_keys(revoked_at);
     CREATE INDEX IF NOT EXISTS idx_api_keys_expires_at ON api_keys(expires_at);
   `);
+}
+
+function applyCallLogsResponseIdMigration(db: SqliteAdapter): void {
+  ensureColumn(
+    db,
+    "call_logs",
+    "response_id",
+    "ALTER TABLE call_logs ADD COLUMN response_id TEXT DEFAULT NULL"
+  );
+  db.exec("CREATE INDEX IF NOT EXISTS idx_cl_response_id ON call_logs(response_id);");
 }
 
 function isSearchRequestTypeMigration(migration: { version: string; name: string }): boolean {
@@ -1104,6 +1122,8 @@ export function runMigrations(db: SqliteAdapter, options?: { isNewDb?: boolean }
         applyCompressionReceiptsMigration(db);
       } else if (migration.version === "042") {
         applyCompressionCombosMigration(db, migration.path);
+      } else if (migration.version === "154" && migration.name === "call_logs_response_id") {
+        applyCallLogsResponseIdMigration(db);
       } else {
         const sql = fs.readFileSync(migration.path, "utf-8");
         db.exec(sql);

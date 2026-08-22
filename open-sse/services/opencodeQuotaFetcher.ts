@@ -9,8 +9,8 @@
  *   - Weekly:            $30 of usage
  *   - Monthly:           $60 of usage
  *
- * Upstream endpoint (defensive — no public API exists yet):
- *   GET https://opencode.ai/zen/go/v1/quota
+ * Upstream endpoint:
+ *   GET https://opencode.ai/zen/go/v1/usage
  *   Authorization: Bearer <apiKey>
  *
  * Expected response shape:
@@ -22,12 +22,9 @@
  *     }
  *   }
  *
- * NOTE: As of 2026, no public quota API exists for OpenCode Go / OpenCode Zen
- * (tracked upstream in anomalyco/opencode#16017, #18648, #31084). The default
- * endpoint currently returns HTTP 404. This fetcher is implemented defensively
- * so that the dashboard shows "No quota data" gracefully rather than crashing,
- * and so that when an endpoint is finally published, only the URL constant
- * needs to change.
+ * Older OpenCode deployments may still return HTTP 404. This fetcher is
+ * implemented defensively so the dashboard shows "No quota data" rather than
+ * crashing while those deployments catch up.
  *
  * On a 404 response we log ONE console.warn (latched per process — not per
  * request) pointing at the upstream tracking issues, then cache the
@@ -38,9 +35,7 @@
  *
  * Cache: in-memory TTL (60s for success, 5 min for 404).
  *
- * Override: set OMNIROUTE_OPENCODE_QUOTA_URL to a working endpoint. If
- * OpenCode ships a public endpoint (likely in the form of the merged PR
- * #16513), the maintainer can update the default.
+ * Override: set OMNIROUTE_OPENCODE_QUOTA_URL for a self-hosted endpoint.
  *
  * Registration: call registerOpencodeQuotaFetcher() once at server startup.
  */
@@ -49,11 +44,10 @@ import { registerQuotaFetcher, registerQuotaWindows, type QuotaInfo } from "./qu
 import { registerMonitorFetcher } from "./quotaMonitor.ts";
 import { throttleQuotaFetch } from "./quotaFetchThrottle.ts";
 
-// OpenCode quota endpoint — same key works across opencode, opencode-go, opencode-zen
-// Default points at /zen/go/v1/quota which returns 404 today (no public quota API yet,
-// tracked in anomalyco/opencode#16017).  Set OMNIROUTE_OPENCODE_QUOTA_URL to override.
+// OpenCode usage endpoint — same key works across opencode, opencode-go, opencode-zen.
+// Set OMNIROUTE_OPENCODE_QUOTA_URL to override for self-hosted deployments.
 const OPENCODE_QUOTA_URL =
-  process.env.OMNIROUTE_OPENCODE_QUOTA_URL ?? "https://opencode.ai/zen/go/v1/quota";
+  process.env.OMNIROUTE_OPENCODE_QUOTA_URL ?? "https://opencode.ai/zen/go/v1/usage";
 
 // Cache TTL — matches Codex / DeepSeek / Bailian pattern (60s)
 const CACHE_TTL_MS = 60_000;
@@ -157,10 +151,73 @@ function parseWindowPercent(window: Record<string, unknown>): number {
   return Math.max(0, Math.min(1, used / limit));
 }
 
+interface ParsedUsageWindow {
+  percentUsed: number;
+  resetAt: string | null;
+}
+
+function parseLiveUsageWindow(value: unknown): ParsedUsageWindow | null {
+  const window = toRecord(value);
+  const rawPercent = toNumber(window.usagePercent, Number.NaN);
+  if (!Number.isFinite(rawPercent)) return null;
+  const exhausted = window.status === "rate-limited";
+  const percentUsed = exhausted ? 1 : Math.max(0, Math.min(1, rawPercent / 100));
+  const resetInSec = toNumber(window.resetInSec, 0);
+  const resetAt = resetInSec > 0 ? new Date(Date.now() + resetInSec * 1000).toISOString() : null;
+  return { percentUsed, resetAt };
+}
+
+function buildQuotaFromWindows(
+  window5h: ParsedUsageWindow | null,
+  windowWeekly: ParsedUsageWindow | null,
+  windowMonthly: ParsedUsageWindow | null,
+  explicitLimitReached = false
+): OpencodeTripleWindowQuota | null {
+  if (!window5h && !windowWeekly && !windowMonthly) return null;
+
+  const percent5h = window5h?.percentUsed ?? 0;
+  const percentWeekly = windowWeekly?.percentUsed ?? 0;
+  const percentMonthly = windowMonthly?.percentUsed ?? 0;
+  const worstPercent = Math.max(percent5h, percentWeekly, percentMonthly);
+  const windows: Record<string, ParsedUsageWindow> = {};
+  if (window5h) windows[OPENCODE_WINDOW_5H] = window5h;
+  if (windowWeekly) windows[OPENCODE_WINDOW_WEEKLY] = windowWeekly;
+  if (windowMonthly) windows[OPENCODE_WINDOW_MONTHLY] = windowMonthly;
+
+  let resetAt: string | null;
+  if (worstPercent === percent5h) {
+    resetAt = window5h?.resetAt ?? windowWeekly?.resetAt ?? windowMonthly?.resetAt ?? null;
+  } else if (worstPercent === percentWeekly) {
+    resetAt = windowWeekly?.resetAt ?? window5h?.resetAt ?? windowMonthly?.resetAt ?? null;
+  } else {
+    resetAt = windowMonthly?.resetAt ?? windowWeekly?.resetAt ?? window5h?.resetAt ?? null;
+  }
+
+  return {
+    used: worstPercent * 100,
+    total: 100,
+    percentUsed: worstPercent,
+    resetAt,
+    windows,
+    window5h: window5h ?? { percentUsed: 0, resetAt: null },
+    windowWeekly: windowWeekly ?? { percentUsed: 0, resetAt: null },
+    windowMonthly: windowMonthly ?? { percentUsed: 0, resetAt: null },
+    limitReached: explicitLimitReached || worstPercent >= 1,
+  };
+}
+
 // ─── Response Parser ──────────────────────────────────────────────────────────
 
 function parseOpencodeQuotaResponse(data: unknown): OpencodeTripleWindowQuota | null {
   const obj = toRecord(data);
+
+  const liveQuota = buildQuotaFromWindows(
+    parseLiveUsageWindow(obj.rollingUsage),
+    parseLiveUsageWindow(obj.weeklyUsage),
+    parseLiveUsageWindow(obj.monthlyUsage)
+  );
+  if (liveQuota) return liveQuota;
+
   const quotaObj = toRecord(obj["quota"] ?? obj["data"] ?? obj["usage"]);
 
   // Look for windows under various possible keys
@@ -279,16 +336,14 @@ export async function fetchOpencodeQuota(
 
     if (!response.ok) {
       if (response.status === 404) {
-        // Upstream doesn't expose this endpoint. Warn once per URL per process so
-        // operators know the dashboard will be empty for opencode-go connections.
-        // Cache a 404 sentinel for NO_ENDPOINT_TTL_MS to avoid hammering.
-        // See opencode issues #10448, #16017, #18648, #31084.
+        // This deployment does not expose the endpoint. Warn once per URL per
+        // process and cache a 404 sentinel to avoid hammering it.
         if (!_warned404Urls.has(OPENCODE_QUOTA_URL)) {
           _warned404Urls.add(OPENCODE_QUOTA_URL);
           console.warn(
-            `[opencodeQuotaFetcher] ${OPENCODE_QUOTA_URL} returned 404 — opencode-go usage API is not yet public. ` +
-              `Set OMNIROUTE_OPENCODE_QUOTA_URL to a working endpoint, or follow ` +
-              `https://github.com/anomalyco/opencode/issues/16017 for upstream status.`
+            `[opencodeQuotaFetcher] ${OPENCODE_QUOTA_URL} returned 404 — the usage endpoint ` +
+              `is unavailable on this OpenCode deployment. Set OMNIROUTE_OPENCODE_QUOTA_URL ` +
+              `if the deployment exposes it elsewhere.`
           );
         }
         quotaCache.set(connectionId, {
