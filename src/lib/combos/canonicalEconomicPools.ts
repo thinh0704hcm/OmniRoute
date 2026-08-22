@@ -6,7 +6,7 @@
  */
 
 export const CANONICAL_COMBO_MANAGER = "canonical-economic-pools";
-export const CANONICAL_COMBO_VERSION = 2;
+export const CANONICAL_COMBO_VERSION = 3;
 
 export type CanonicalComboStep =
   | {
@@ -256,9 +256,9 @@ const CANONICAL_COMBOS: CanonicalComboSpec[] = [
     { name: "codex", comboName: "pool-luna-codex" },
   ]),
   parentCombo("pool-terra", [
-    { name: "free", comboName: "pool-sonnet-free" },
     { name: "antigravity", comboName: "pool-sonnet-antigravity" },
     { name: "credits", comboName: "pool-sonnet-credits" },
+    { name: "free", comboName: "pool-sonnet-free" },
     { name: "codex", comboName: "pool-terra-codex" },
   ]),
   parentCombo("pool-opus", [

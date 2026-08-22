@@ -41,4 +41,9 @@ test("canonical pools map GPT-5.6 aliases to performance-specific pools", () => 
     assert.equal(combos.get(alias)?.models[0]?.kind, "combo-ref");
     assert.equal((combos.get(alias)?.models[0] as { comboName: string }).comboName, target);
   }
+  const terra = combos.get("pool-terra");
+  assert.deepEqual(
+    terra?.models.map((step) => (step as { label?: string }).label),
+    ["antigravity", "credits", "free", "codex"]
+  );
 });

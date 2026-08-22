@@ -437,7 +437,9 @@ the rollback drill and observation window pass. Audit old workdirs before removi
 Managed GPT-5.6 aliases must remain performance/economics-specific (`gpt-5.6-luna` →
 `pool-luna`, `gpt-5.6-terra` → `pool-terra`, `gpt-5.6-sol` → `pool-sol-codex`). Update
 `src/lib/combos/tierEvidence.ts` and its replay test whenever pricing, benchmark, or provider
-availability evidence changes; do not hand-edit only the persisted combo rows.
+availability evidence changes; do not hand-edit only the persisted combo rows. Terra’s
+protocol-capable Antigravity/credits targets precede free targets because free-model
+availability does not imply tool-call compatibility.
 
 ## Reference Documentation
 

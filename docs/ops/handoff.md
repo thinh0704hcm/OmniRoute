@@ -295,7 +295,9 @@ Never broadly delete /home/ubuntu/.omniroute.
 - Canonical branch: `update/v3.8.50`; Oracle has one checkout and the legacy workdir is archived.
 - Effective builder: `omniroute-safe-12g-4`; BuildKit limits are 18 GiB memory / 20 GiB memory+swap.
 - GPT-5.6 pools are now tiered by documented capability and economics: Luna → `pool-luna`,
-  Terra → `pool-terra`, Sol → frontier-only `pool-sol-codex`.
+  Terra → `pool-terra`, Sol → frontier-only `pool-sol-codex`. Terra orders
+  Antigravity/credits before free targets because a live replay found the first Tencent
+  free target did not emit a tool call.
 - Source URLs and deterministic scoring are recorded in `src/lib/combos/tierEvidence.ts`;
   replay with `node scripts/ops/replay-tier-evidence.mjs snapshot.json`.
 - Focused regression coverage is in `tests/unit/tier-evidence-replay.test.ts`.

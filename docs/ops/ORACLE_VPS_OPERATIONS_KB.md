@@ -329,10 +329,15 @@ Never broadly delete /home/ubuntu/.omniroute.
 
 The managed GPT-5.6 aliases now use performance-specific pools: `gpt-5.6-luna`
 uses `pool-luna` (free → Antigravity → credits → Codex), `gpt-5.6-terra` uses
-`pool-terra` (Sonnet-class free/Antigravity/credits → Codex), and `gpt-5.6-sol`
+`pool-terra` (Antigravity → credits → Sonnet-class free → Codex), and `gpt-5.6-sol`
 uses the frontier `pool-sol-codex`. Claude aliases retain their existing semantic
 pools. This preserves cheap fallbacks for Luna, balanced fallbacks for Terra, and
 frontier-only behavior for Sol.
+
+Terra intentionally places the free pool after protocol-capable Antigravity and
+credits targets. A live replay showed the first free Tencent target returning only
+thinking content for a tool request, so making free the first Terra target would
+regress mixed-case tool continuation despite a successful HTTP response.
 
 The evidence ledger is `src/lib/combos/tierEvidence.ts`; it is deliberately pure
 and records source URL, price, performance score, and availability weight. Sources
