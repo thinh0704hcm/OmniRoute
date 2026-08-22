@@ -1,3 +1,7 @@
+---
+title: Oracle VPS operations knowledge base
+---
+
 # Oracle VPS operations knowledge base
 
 Last updated: 2026-08-22
