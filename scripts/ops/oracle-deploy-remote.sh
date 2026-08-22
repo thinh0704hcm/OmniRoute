@@ -326,6 +326,9 @@ print(hashlib.sha256(serialized).hexdigest())
       find "$canary_dir" -depth -delete
       fail "failed to prepare the canary database copy"
     fi
+    if test -f "$DATA_DIR/server.env"; then
+      install -m 600 "$DATA_DIR/server.env" "$canary_dir/server.env"
+    fi
     printf '%s\n' "$canary_dir"
     ;;
 
