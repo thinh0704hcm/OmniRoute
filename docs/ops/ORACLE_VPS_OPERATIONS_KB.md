@@ -364,3 +364,9 @@ Operational build decision: the effective Oracle BuildKit builder remains
 `omniroute-safe-12g-4`, but its BuildKit container was raised to 18 GiB memory and
 20 GiB memory+swap to finish the production image reliably; the historical builder
 name was retained for compatibility. Cache was pruned to recover disk space.
+
+Rollback root cause fixed: the remote Compose fingerprint now removes both
+`OMNIROUTE_IMAGE` and `OMNIROUTE_BUILD_SHA` from the resolved `env_file` environment.
+Previously only `OMNIROUTE_BUILD_SHA` was removed, so every image identity change
+made the effective Compose hash differ and incorrectly blocked an immediate rollback.
+The regression is covered by `tests/unit/oracle-deploy-remote.test.ts`.

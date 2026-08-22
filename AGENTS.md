@@ -426,6 +426,10 @@ promotion gate with a manual `docker run`/container replacement. Recovery and or
 are separate post-promotion operations: recovery is dry-run before `--apply`, and pruning runs
 only after recovery with the exact confirmed count and byte total from its dry run.
 
+The remote Compose fingerprint must exclude both mutable image identity values
+(`OMNIROUTE_IMAGE` and `OMNIROUTE_BUILD_SHA`), including when they arrive through `.env`; otherwise
+an image change falsely blocks the rollback command.
+
 Keep one canonical checkout and branch after a verified rollout. Preserve the live image, the
 immediate rollback image, recent verified database backups, and private archive/data paths until
 the rollback drill and observation window pass. Audit old workdirs before removing them.

@@ -303,3 +303,6 @@ Never broadly delete /home/ubuntu/.omniroute.
   Antigravity 4, Gemini 7, Command Code 3 active of 5, AgentRouter 1. Quota snapshots
   are not treated as current until reduced by latest window.
 - Broad unit tests were deliberately not run; lint and focused tests are the required gate.
+- Rollback fingerprint root cause fixed: Compose hashing now excludes both mutable
+  `OMNIROUTE_IMAGE` and `OMNIROUTE_BUILD_SHA` values imported through `.env`; the
+  previous implementation excluded only the build SHA and rejected valid immediate rollbacks.

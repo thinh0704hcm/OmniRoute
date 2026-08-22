@@ -305,6 +305,10 @@ service.pop("image", None)
 environment = service.get("environment", {})
 if isinstance(environment, dict):
     environment.pop("OMNIROUTE_BUILD_SHA", None)
+    # Identity values are also imported through env_file. Excluding only
+    # BUILD_SHA made the compose hash change after every image promotion,
+    # blocking an otherwise valid immediate rollback.
+    environment.pop("OMNIROUTE_IMAGE", None)
 serialized = json.dumps(config, sort_keys=True, separators=(",", ":")).encode()
 print(hashlib.sha256(serialized).hexdigest())
 '

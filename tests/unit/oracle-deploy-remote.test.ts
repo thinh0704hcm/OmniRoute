@@ -149,6 +149,11 @@ test("Oracle rollback restore pins the dedicated rollback tag before recreation"
   assert.match(HELPER_SOURCE, /ROLLBACK_TAG="omniroute:rollback-canary"/);
 });
 
+test("Oracle compose hash excludes both mutable image identity values", () => {
+  assert.match(HELPER_SOURCE, /environment\.pop\("OMNIROUTE_BUILD_SHA", None\)/);
+  assert.match(HELPER_SOURCE, /environment\.pop\("OMNIROUTE_IMAGE", None\)/);
+});
+
 test("Oracle canary cleanup rejects traversal and symlink escapes", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-canary-path-"));
   const dataDir = path.join(root, "data");
