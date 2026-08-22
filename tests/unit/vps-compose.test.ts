@@ -108,6 +108,7 @@ test("Oracle canary is host-only, uses copied data, and cannot collide with prod
   const parsed = loadCompose(raw);
   const service = parsed.services?.omniroute;
 
+  assert.equal(parsed.services?.redis?.image, "docker.io/library/redis:7.4.10-alpine");
   assert.equal(service?.container_name, "omniroute-canary");
   assert.deepEqual(service?.ports, [
     "127.0.0.1:30130:20130",
