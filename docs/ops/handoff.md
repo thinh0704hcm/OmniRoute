@@ -6,10 +6,13 @@ title: Oracle production repair handoff
 
 Last updated: 2026-08-23
 
-> Completion update (2026-08-23): the repair was promoted successfully. Production runs
-> `omniroute:canary-1cbcbcdc7-20260823` at image ID `sha256:54e1f509e4da...`, rollback and
-> re-promotion were live-tested, all four aliases passed, mixed-case tool names passed on Luna,
-> Terra, and Sol, and 13,557 missing call-log rows were recovered without integrity errors.
+> Completion update (2026-08-23): production runs
+> `omniroute:canary-4506bd9326-20260823` at image ID
+> `sha256:cbfd94dcea5e0623163af2a505b2a2693557b3e92084be20a444dbd5d3535265`.
+> The final candidate passed all four completions, streaming, all four mixed-case tool
+> continuations, combo evidence, and advancing call-log gates. Rollback and re-promotion were
+> live-tested after fixing the Compose fingerprint root cause. The Terra free-target tool
+> regression was reproduced and corrected by ordering protocol-capable targets first.
 > The authoritative final decisions and exact identifiers are in
 > `docs/ops/ORACLE_VPS_OPERATIONS_KB.md`; that section supersedes the unfinished-state notes
 > below. The BuildKit container now uses 18 GiB memory and 20 GiB memory+swap despite retaining
@@ -24,20 +27,19 @@ Continue only on oracle-vps in /home/ubuntu/OmniRoute-src.
     fork remote: fork
     upstream base: 6cd4d38e2
 
-The Oracle working tree has the complete repair and tests, formatted but not
-committed or pushed. It had 66 changed/untracked paths at handoff. Do not restart
-from the workstation checkout; it does not contain the final Oracle formatting.
+The Oracle working tree is clean at the canonical pushed commit. Develop on the workstation,
+push `fork/update/v3.8.50`, synchronize Oracle, and verify there; do not deploy a dirty checkout.
 
-Production has not been changed:
+Current live state:
 
     container: omniroute-parallel
-    image: omniroute:canary-6fe25f3dc-20260822
-    image ID: sha256:75d4021de57fc4f6703e1439b0eb590afa237c0cab5f833f7379fe33851c46dc
+    image: omniroute:canary-4506bd9326-20260823
+    image ID: sha256:cbfd94dcea5e0623163af2a505b2a2693557b3e92084be20a444dbd5d3535265
     status: running, healthy, 0 restarts
     rollback tag: omniroute:rollback-canary
-    rollback ID: sha256:f66f258dfaff7b6cd3987febf8a59d012afddfb69d1fb3aae7953cf9760298e8
+    rollback ID: sha256:54e1f509e4dacad520e7b55ad8eb5f6bf22385c464395b32d7c6765b798453f6
 
-Pre-deploy database evidence:
+Historical pre-repair database evidence:
 
     call_logs rows: 44,976
     latest timestamp: 2026-08-19T12:44:10.277Z

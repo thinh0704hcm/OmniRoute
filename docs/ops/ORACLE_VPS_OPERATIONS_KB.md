@@ -13,20 +13,21 @@ provenance for the August 2026 repair; update the live-state fields after every 
 
 ## Verified repair outcome — 2026-08-23
 
-- Canonical fork branch: `update/v3.8.50`; runtime source commit: `1cbcbcdc702437d5fb1881cf6564f5d13e6b6ca7`.
-- Production image: `omniroute:canary-1cbcbcdc7-20260823`, image ID
-  `sha256:54e1f509e4dacad520e7b55ad8eb5f6bf22385c464395b32d7c6765b798453f6`.
+- Canonical fork branch: `update/v3.8.50`; runtime source commit: `4506bd9326`.
+- Production image: `omniroute:canary-4506bd9326-20260823`, image ID
+  `sha256:cbfd94dcea5e0623163af2a505b2a2693557b3e92084be20a444dbd5d3535265`.
 - Immediate rollback image ID:
   `sha256:75d4021de57fc4f6703e1439b0eb590afa237c0cab5f833f7379fe33851c46dc`.
 - Production promotion, live rollback, and re-promotion all reached healthy status with zero
-  restarts. All four public aliases returned HTTP 200; Luna, Terra, and Sol preserved the exact
-  mixed-case tool name `GetTestValue`; Luna streaming produced SSE and `[DONE]`.
+  restarts. The final candidate’s canary and post-promotion gates passed all four completions,
+  streaming, all four mixed-case tool continuations, combo evidence, and advancing call logs.
+  Terra’s free-target tool regression was reproduced, fixed, and replayed successfully.
 - Call-log recovery inserted 13,557 valid missing rows for
   `(2026-08-19T12:44:10.277Z, 2026-08-22T18:52:48.000Z]`, with zero corruption, invalid rows,
   checksum mismatches, collisions, or capacity skips. The repeat scan found 13,557 duplicates
   and zero inserts. Orphan inventory scanned 22,675 artifacts and found zero orphans.
-- The integrity-checked pre-promotion backup is
-  `/home/ubuntu/.omniroute/deployments/backups/storage_20260822T185248176348595Z_2285006_pre-promote.sqlite`.
+- The latest integrity-checked pre-promotion backup is
+  `/home/ubuntu/.omniroute/deployments/backups/storage_20260822T202429499086488Z_2336671_pre-promote.sqlite`.
 
 ### Decisions discovered during qualification
 
@@ -59,20 +60,20 @@ Continue only on oracle-vps in /home/ubuntu/OmniRoute-src.
     fork remote: fork
     upstream base: 6cd4d38e2
 
-The Oracle working tree has the complete repair and tests, formatted but not
-committed or pushed. It had 66 changed/untracked paths at handoff. Do not restart
-from the workstation checkout; it does not contain the final Oracle formatting.
+The Oracle working tree is clean at the canonical pushed commit. Changes are developed on the
+workstation, pushed to `fork`, then synchronized and verified on Oracle; never deploy a dirty
+checkout or hand-edit only persisted combo rows.
 
-Production has not been changed:
+Current live state:
 
     container: omniroute-parallel
-    image: omniroute:canary-6fe25f3dc-20260822
-    image ID: sha256:75d4021de57fc4f6703e1439b0eb590afa237c0cab5f833f7379fe33851c46dc
+    image: omniroute:canary-4506bd9326-20260823
+    image ID: sha256:cbfd94dcea5e0623163af2a505b2a2693557b3e92084be20a444dbd5d3535265
     status: running, healthy, 0 restarts
     rollback tag: omniroute:rollback-canary
-    rollback ID: sha256:f66f258dfaff7b6cd3987febf8a59d012afddfb69d1fb3aae7953cf9760298e8
+    rollback ID: sha256:54e1f509e4dacad520e7b55ad8eb5f6bf22385c464395b32d7c6765b798453f6
 
-Pre-deploy database evidence:
+Historical pre-repair database evidence:
 
     call_logs rows: 44,976
     latest timestamp: 2026-08-19T12:44:10.277Z
