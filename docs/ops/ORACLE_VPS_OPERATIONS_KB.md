@@ -328,7 +328,8 @@ Never broadly delete /home/ubuntu/.omniroute.
 
 ## Tier evidence and replay decision (2026-08-23)
 
-The managed GPT-5.6 aliases now use performance-specific pools: `gpt-5.6-luna`
+The canonical economic pool manifest is version 3. The managed GPT-5.6 aliases now use
+performance-specific pools: `gpt-5.6-luna`
 uses `pool-luna` (free → Antigravity → credits → Codex), `gpt-5.6-terra` uses
 `pool-terra` (Antigravity → credits → Sonnet-class free → Codex), and `gpt-5.6-sol`
 uses the frontier `pool-sol-codex`. Claude aliases retain their existing semantic
