@@ -11,6 +11,7 @@ CANARY_COMPOSE="$DEPLOY_DIR/compose.canary.yaml"
 ENV_FILE="$DEPLOY_DIR/.env"
 DATA_DIR="${OMNIROUTE_DATA_DIR:-/home/ubuntu/.omniroute}"
 STATE_DIR="$DATA_DIR/deployments"
+BACKUP_DIR="$STATE_DIR/backups"
 LOCK_DIR="$STATE_DIR/deploy.lock"
 CANARY_LOCK_DIR="$STATE_DIR/canary.lock"
 CANARY_ROOT="${OMNIROUTE_CANARY_ROOT:-/home/ubuntu/.omniroute-canary}"
@@ -61,7 +62,7 @@ ensure_layout() {
   require_file "$ORACLE_COMPOSE"
   require_file "$CANARY_COMPOSE"
   require_file "$ENV_FILE"
-  mkdir -p "$STATE_DIR" "$CANARY_ROOT"
+  mkdir -p "$STATE_DIR" "$BACKUP_DIR" "$CANARY_ROOT"
 }
 
 require_compose_version() {
@@ -312,7 +313,7 @@ print(hashlib.sha256(serialized).hexdigest())
   backup)
     ensure_layout
     stamp="$(date -u +%Y%m%dT%H%M%S%NZ)"
-    destination="$DATA_DIR/db_backups/storage_${stamp}_${BASHPID}_pre-promote.sqlite"
+    destination="$BACKUP_DIR/storage_${stamp}_${BASHPID}_pre-promote.sqlite"
     backup_sqlite "$DATA_DIR/storage.sqlite" "$destination"
     printf '%s\n' "$destination"
     ;;

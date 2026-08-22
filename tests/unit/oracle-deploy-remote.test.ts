@@ -117,6 +117,7 @@ test("Oracle SQLite backups are unique, integrity-checked, and never overwrite",
     const secondPath = second.stdout.trim();
     assert.notEqual(firstPath, secondPath);
     for (const backupPath of [firstPath, secondPath]) {
+      assert.match(backupPath, /deployments\/backups\/storage_/);
       const backup = new Database(backupPath, { readonly: true, fileMustExist: true });
       assert.equal(backup.pragma("integrity_check", { simple: true }), "ok");
       assert.equal(
