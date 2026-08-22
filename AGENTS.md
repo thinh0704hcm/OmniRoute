@@ -415,6 +415,9 @@ canonical location and branch:
   recursively.
 - Deployment configuration: `contrib/vps/.env`, mode `0600`, never printed or committed.
 - Runbook: [`docs/ops/ORACLE_VPS_OPERATIONS_KB.md`](docs/ops/ORACLE_VPS_OPERATIONS_KB.md).
+- Production builds require an 18 GiB BuildKit memory limit with 20 GiB memory+swap on this
+  Oracle host. The retained builder is still named `omniroute-safe-12g-4` for continuity, but
+  its BuildKit container must report `memory=19327352832` and `swap=21474836480` before builds.
 
 Production changes use `scripts/ops/oracle-deploy.mjs`: immutable SHA-bearing runner and ops
 images, isolated canary qualification, verified SQLite backup, exact rollback-image pinning,

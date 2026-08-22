@@ -4,12 +4,51 @@ title: Oracle VPS operations knowledge base
 
 # Oracle VPS operations knowledge base
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
 This is the canonical, durable runbook for OmniRoute production on `oracle-vps`. It covers
 source ownership, validation, immutable builds, isolated canary qualification, promotion,
 rollback, log recovery, artifact pruning, and cleanup. The incident snapshot below remains as
 provenance for the August 2026 repair; update the live-state fields after every verified rollout.
+
+## Verified repair outcome — 2026-08-23
+
+- Canonical fork branch: `update/v3.8.50`; runtime source commit: `1cbcbcdc702437d5fb1881cf6564f5d13e6b6ca7`.
+- Production image: `omniroute:canary-1cbcbcdc7-20260823`, image ID
+  `sha256:54e1f509e4dacad520e7b55ad8eb5f6bf22385c464395b32d7c6765b798453f6`.
+- Immediate rollback image ID:
+  `sha256:75d4021de57fc4f6703e1439b0eb590afa237c0cab5f833f7379fe33851c46dc`.
+- Production promotion, live rollback, and re-promotion all reached healthy status with zero
+  restarts. All four public aliases returned HTTP 200; Luna, Terra, and Sol preserved the exact
+  mixed-case tool name `GetTestValue`; Luna streaming produced SSE and `[DONE]`.
+- Call-log recovery inserted 13,557 valid missing rows for
+  `(2026-08-19T12:44:10.277Z, 2026-08-22T18:52:48.000Z]`, with zero corruption, invalid rows,
+  checksum mismatches, collisions, or capacity skips. The repeat scan found 13,557 duplicates
+  and zero inserts. Orphan inventory scanned 22,675 artifacts and found zero orphans.
+- The integrity-checked pre-promotion backup is
+  `/home/ubuntu/.omniroute/deployments/backups/storage_20260822T185248176348595Z_2285006_pre-promote.sqlite`.
+
+### Decisions discovered during qualification
+
+- The 12 GiB BuildKit cap failed with `cannot allocate memory`. Keep the existing builder name
+  `omniroute-safe-12g-4`, but its container is updated to 18 GiB memory and 20 GiB memory+swap.
+  Verify the effective limits with `docker inspect` before future builds; recreating the builder
+  from its old driver options would silently restore the insufficient 12/16 GiB limits.
+- The required `JWT_SECRET`, `API_KEY_SECRET`, and `OMNIROUTE_WS_BRIDGE_SECRET` were empty or
+  absent in the transferred environment. Fresh 256-bit values were generated on Oracle and are
+  stored only in `contrib/vps/.env` (mode `0600`). Never print or commit them.
+- Canary containers run with the host data owner (UID/GID 1001 on this host), while production
+  reconciliation runs as the image data owner (UID/GID 1000). Canary preparation copies
+  `server.env` at mode `0600` so encrypted credentials remain decryptable.
+- Oracle Redis is Redis 7.4.10. The verified existing image ID was also tagged locally as
+  `docker.io/library/redis:7.4.10-alpine`; canary and production overlays use that exact tag.
+- Exact stored combo names must win before route-level model alias expansion. Otherwise
+  `gpt-5.6-luna` and peers become `opencode/...`, bypass the quota-tiered combos, and return 402.
+- Deployment backups live under the host-writable `deployments/backups` directory. The
+  application-owned `db_backups` directory is not a valid deploy-user destination.
+- Validation policy for this repair was broad `npm run lint` plus focused unit tests only. The
+  broad unit runner was explicitly stopped; Vitest was not run. Focused routing/deploy matrices
+  and real canary/production probes provide the bug-fix evidence.
 
 ## Authority and current state
 
@@ -104,7 +143,7 @@ it is not production configuration and its secrets must not replace production.
 
 Cleanup completed:
 
-- Keep only Buildx builder omniroute-safe-12g-4.
+- Keep only Buildx builder omniroute-safe-12g-4 (effective limit: 18 GiB memory / 20 GiB swap).
 - Six obsolete builders and old OmniRoute images were removed.
 - Live and rollback images remain protected.
 - Oracle has more than 100 GB free.
