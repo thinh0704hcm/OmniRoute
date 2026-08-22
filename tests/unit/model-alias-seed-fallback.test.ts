@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveModelAliasWithSeedFallback } from "../../src/lib/modelAliasResolver";
+import {
+  resolveModelAliasWithSeedFallback,
+  resolveModelAliasWithSeedFallbackOnBody,
+} from "../../src/lib/modelAliasResolver";
 
 // Hermetic test: isolate DATA_DIR so the alias lookup reads an EMPTY
 // modelAliases namespace (fresh install state) instead of the operator's live
@@ -54,6 +57,21 @@ test("resolveModelAliasWithSeedFallback: unmapped-but-seeded alias resolves (401
   await withEmptyAliasDb(async () => {
     const resolved = await resolveModelAliasWithSeedFallback("claude-opus-4-6-thinking");
     assert.equal(resolved, "agy/claude-opus-4-6-thinking");
+  });
+});
+
+test("route alias resolution preserves an exact stored combo over a colliding seed alias", async () => {
+  await withEmptyAliasDb(async () => {
+    const { createCombo } = await import("../../src/lib/db/combos");
+    await createCombo({
+      id: "gpt-5.6-luna-combo",
+      name: "gpt-5.6-luna",
+      models: [{ id: "target", model: "codex/gpt-5.6-luna", providerId: "codex" }],
+      strategy: "priority",
+    });
+    const body: Record<string, unknown> = { model: "gpt-5.6-luna" };
+    await resolveModelAliasWithSeedFallbackOnBody(body);
+    assert.equal(body.model, "gpt-5.6-luna");
   });
 });
 

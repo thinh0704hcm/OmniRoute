@@ -9,6 +9,7 @@
  * `src/lib/modelAliasSeed.ts`.
  */
 import { getModelAliases } from "@/lib/db/models/aliases";
+import { getComboByName } from "@/lib/db/combos";
 import { DEFAULT_MODEL_ALIAS_SEED } from "@/lib/modelAliasSeed";
 
 let cachedAliases: Record<string, unknown> | null = null;
@@ -68,7 +69,12 @@ export async function resolveModelAliasWithSeedFallbackOnBody(
   body: Record<string, unknown> | null | undefined
 ): Promise<void> {
   if (!body || typeof body !== "object") return;
-  body.model = await resolveModelAliasWithSeedFallback(body.model as string | null | undefined);
+  const model = body.model as string | null | undefined;
+  if (typeof model === "string") {
+    const exactCombo = await getComboByName(model);
+    if (exactCombo && Array.isArray(exactCombo.models) && exactCombo.models.length > 0) return;
+  }
+  body.model = await resolveModelAliasWithSeedFallback(model);
 }
 
 /**
