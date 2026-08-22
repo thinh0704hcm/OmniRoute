@@ -412,12 +412,14 @@ PY
     validate_immutable_image_ref "$ops_image_ref"
     if test "$requested_data_dir" = "production"; then
       target_data_dir="$(realpath -m -- "$DATA_DIR")"
+      runtime_user="1000:1000"
     else
       target_data_dir="$(canonical_canary_child "$requested_data_dir")"
+      runtime_user="$(id -u):$(id -g)"
     fi
     test -f "$target_data_dir/storage.sqlite" || fail "target database does not exist"
     docker run --rm \
-      --user "$(id -u):$(id -g)" \
+      --user "$runtime_user" \
       --network none \
       --read-only \
       --tmpfs /tmp:size=64m,mode=1777 \
@@ -427,7 +429,7 @@ PY
       node scripts/ops/reconcile-canonical-combos.mjs \
         --db /app/data/storage.sqlite --apply --adopt --json
     docker run --rm \
-      --user "$(id -u):$(id -g)" \
+      --user "$runtime_user" \
       --network none \
       --read-only \
       --tmpfs /tmp:size=64m,mode=1777 \
