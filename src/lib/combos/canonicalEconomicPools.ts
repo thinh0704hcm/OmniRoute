@@ -5,8 +5,10 @@
  * deployment gates, and the operator CLI all consume one typed manifest and safety policy.
  */
 
+import type { ClaudePerformanceTier, PricingStructure } from "./tierEvidence";
+
 export const CANONICAL_COMBO_MANAGER = "canonical-economic-pools";
-export const CANONICAL_COMBO_VERSION = 3;
+export const CANONICAL_COMBO_VERSION = 4;
 
 export type CanonicalComboStep =
   | {
@@ -33,6 +35,10 @@ type CompositeTier = {
 type CanonicalComboConfig = Record<string, unknown> & {
   nestedComboMode: "execute";
   maxRetries: 0;
+  performanceTier?: ClaudePerformanceTier;
+  relativePerformanceBand?: ClaudePerformanceTier | "special";
+  pricingStructure?: PricingStructure;
+  accessPolicy?: "open" | "explicit";
   compositeTiers?: {
     defaultTier: string;
     tiers: Record<string, CompositeTier>;
@@ -159,19 +165,27 @@ function comboRefStep(id: string, comboName: string, label?: string): CanonicalC
 function leafCombo(
   name: string,
   strategy: CanonicalComboSpec["strategy"],
-  models: readonly string[]
+  models: readonly string[],
+  metadata: {
+    performanceTier?: ClaudePerformanceTier;
+    relativePerformanceBand?: ClaudePerformanceTier | "special";
+    pricingStructure?: PricingStructure;
+    accessPolicy?: "open" | "explicit";
+  } = {}
 ): CanonicalComboSpec {
   return {
     name,
     strategy,
     models: models.map((model, index) => modelStep(name, model, index)),
-    config: { nestedComboMode: "execute", maxRetries: 0 },
+    config: { nestedComboMode: "execute", maxRetries: 0, ...metadata },
   };
 }
 
 function parentCombo(
   name: string,
-  tiers: Array<{ name: string; comboName: string }>
+  tiers: Array<{ name: string; comboName: string }>,
+  performanceTier?: ClaudePerformanceTier,
+  relativePerformanceBand?: ClaudePerformanceTier | "special"
 ): CanonicalComboSpec {
   const models = tiers.map((tier) =>
     comboRefStep(`${name}-tier-${tier.name}`, tier.comboName, tier.name)
@@ -190,6 +204,8 @@ function parentCombo(
     config: {
       nestedComboMode: "execute",
       maxRetries: 0,
+      ...(performanceTier ? { performanceTier } : {}),
+      ...(relativePerformanceBand ? { relativePerformanceBand } : {}),
       compositeTiers: { defaultTier: tiers[0].name, tiers: tierConfig },
     },
   };
@@ -205,76 +221,135 @@ function aliasCombo(name: string, target: string): CanonicalComboSpec {
 }
 
 const CANONICAL_COMBOS: CanonicalComboSpec[] = [
-  leafCombo("pool-haiku-free", "reset-aware", HAIKU_FREE_MODELS),
-  leafCombo("pool-haiku-antigravity", "reset-aware", ["antigravity/gemini-2.5-flash"]),
+  leafCombo("pool-haiku-free", "reset-aware", HAIKU_FREE_MODELS, {
+    performanceTier: "haiku",
+    pricingStructure: "free",
+  }),
+  leafCombo("pool-haiku-antigravity", "reset-aware", ["antigravity/gemini-2.5-flash"], {
+    performanceTier: "haiku",
+    pricingStructure: "subscription",
+  }),
   leafCombo("pool-luna-free", "reset-aware", HAIKU_FREE_MODELS),
   leafCombo("pool-luna-antigravity", "reset-aware", ["antigravity/gemini-2.5-flash"]),
   leafCombo("pool-luna-credits", "reset-aware", ["command-code/poolside/laguna-s-2.1-free"]),
   leafCombo("pool-luna-codex", "priority", ["codex/gpt-5.6-luna"]),
-  leafCombo("pool-sonnet-free", "reset-aware", [
-    "nvidia/z-ai/glm-5.2",
-    "nous-research/tencent/hy3:free",
-    "nous-research/upstage/solar-pro4:free",
-    "nous-research/poolside/laguna-s-2.1:free",
-  ]),
-  leafCombo("pool-sonnet-antigravity", "reset-aware", [
-    "antigravity/gemini-3.6-flash-medium",
-    "antigravity/claude-sonnet-4-6",
-  ]),
-  leafCombo("pool-sonnet-credits", "reset-aware", ["command-code/poolside/laguna-s-2.1-free"]),
-  leafCombo("pool-opus-antigravity", "reset-aware", [
-    "antigravity/gemini-3.7-flash-tiered",
-    "antigravity/claude-opus-4-6-thinking",
-  ]),
-  leafCombo("pool-opus-credits", "reset-aware", ["agentrouter/claude-opus-5"]),
-  leafCombo("pool-opus-codex", "priority", ["codex/gpt-5.6-luna"]),
-  leafCombo("pool-fable-antigravity", "reset-aware", [
-    "antigravity/gemini-3.7-flash-tiered",
-    "antigravity/claude-opus-4-6-thinking",
-  ]),
-  leafCombo("pool-fable-credits", "reset-aware", [
-    "agentrouter/claude-opus-5",
-    "command-code/meta/muse-spark-1.2-contributor",
-  ]),
-  leafCombo("pool-fable-codex", "priority", ["codex/gpt-5.6-terra"]),
-  leafCombo("pool-fable-premium", "priority", ["codex/gpt-5.6-sol"]),
-  leafCombo("pool-sol-codex", "priority", ["codex/gpt-5.6-sol"]),
+  leafCombo(
+    "pool-sonnet-free",
+    "reset-aware",
+    [
+      "nvidia/z-ai/glm-5.2",
+      "nous-research/tencent/hy3:free",
+      "nous-research/upstage/solar-pro4:free",
+      "nous-research/poolside/laguna-s-2.1:free",
+    ],
+    { performanceTier: "sonnet", pricingStructure: "free" }
+  ),
+  leafCombo(
+    "pool-sonnet-antigravity",
+    "reset-aware",
+    ["antigravity/gemini-3.6-flash-medium", "antigravity/claude-sonnet-4-6"],
+    { performanceTier: "sonnet", pricingStructure: "subscription" }
+  ),
+  leafCombo("pool-sonnet-credits", "reset-aware", ["command-code/poolside/laguna-s-2.1-free"], {
+    performanceTier: "sonnet",
+    pricingStructure: "credits",
+  }),
+  leafCombo(
+    "pool-opus-antigravity",
+    "reset-aware",
+    ["antigravity/gemini-3.7-flash-tiered", "antigravity/claude-opus-4-6-thinking"],
+    { performanceTier: "opus", pricingStructure: "subscription" }
+  ),
+  leafCombo("pool-opus-credits", "reset-aware", ["agentrouter/claude-opus-5"], {
+    performanceTier: "opus",
+    pricingStructure: "credits",
+  }),
+  leafCombo("pool-opus-codex", "priority", ["codex/gpt-5.6-luna"], {
+    performanceTier: "opus",
+    pricingStructure: "api",
+  }),
+  leafCombo(
+    "pool-fable-antigravity",
+    "reset-aware",
+    ["antigravity/gemini-3.7-flash-tiered", "antigravity/claude-opus-4-6-thinking"],
+    { performanceTier: "fable", pricingStructure: "subscription" }
+  ),
+  leafCombo(
+    "pool-fable-credits",
+    "reset-aware",
+    ["agentrouter/claude-opus-5", "command-code/meta/muse-spark-1.2-contributor"],
+    { performanceTier: "fable", pricingStructure: "credits" }
+  ),
+  leafCombo("pool-fable-codex", "priority", ["codex/gpt-5.6-terra"], {
+    performanceTier: "fable",
+    pricingStructure: "api",
+  }),
+  leafCombo("pool-fable-premium", "priority", ["codex/gpt-5.6-sol"], {
+    relativePerformanceBand: "special",
+    pricingStructure: "api",
+    accessPolicy: "explicit",
+  }),
+  leafCombo("pool-sol-codex", "priority", ["codex/gpt-5.6-sol"], { accessPolicy: "explicit" }),
   leafCombo("pool-terra-codex", "priority", ["codex/gpt-5.6-terra"]),
-  parentCombo("pool-haiku", [
-    { name: "free", comboName: "pool-haiku-free" },
-    { name: "antigravity", comboName: "pool-haiku-antigravity" },
-  ]),
-  parentCombo("pool-sonnet", [
-    { name: "free", comboName: "pool-sonnet-free" },
-    { name: "antigravity", comboName: "pool-sonnet-antigravity" },
-    { name: "credits", comboName: "pool-sonnet-credits" },
-  ]),
+  parentCombo(
+    "pool-haiku",
+    [
+      { name: "free", comboName: "pool-haiku-free" },
+      { name: "antigravity", comboName: "pool-haiku-antigravity" },
+    ],
+    "haiku"
+  ),
+  parentCombo(
+    "pool-sonnet",
+    [
+      { name: "free", comboName: "pool-sonnet-free" },
+      { name: "antigravity", comboName: "pool-sonnet-antigravity" },
+      { name: "credits", comboName: "pool-sonnet-credits" },
+    ],
+    "sonnet"
+  ),
   parentCombo("pool-luna", [
     { name: "free", comboName: "pool-luna-free" },
     { name: "antigravity", comboName: "pool-luna-antigravity" },
     { name: "credits", comboName: "pool-luna-credits" },
     { name: "codex", comboName: "pool-luna-codex" },
   ]),
-  parentCombo("pool-terra", [
-    { name: "antigravity", comboName: "pool-sonnet-antigravity" },
-    { name: "credits", comboName: "pool-sonnet-credits" },
-    { name: "free", comboName: "pool-sonnet-free" },
-    { name: "codex", comboName: "pool-terra-codex" },
-  ]),
-  parentCombo("pool-opus", [
-    { name: "antigravity", comboName: "pool-opus-antigravity" },
-    { name: "credits", comboName: "pool-opus-credits" },
-    { name: "codex", comboName: "pool-opus-codex" },
-  ]),
-  parentCombo("pool-fable", [
-    { name: "antigravity", comboName: "pool-fable-antigravity" },
-    { name: "credits", comboName: "pool-fable-credits" },
-    { name: "codex", comboName: "pool-fable-codex" },
-  ]),
+  parentCombo(
+    "pool-terra",
+    [
+      { name: "antigravity", comboName: "pool-sonnet-antigravity" },
+      { name: "credits", comboName: "pool-sonnet-credits" },
+      { name: "free", comboName: "pool-sonnet-free" },
+      { name: "codex", comboName: "pool-terra-codex" },
+    ],
+    undefined,
+    "fable"
+  ),
+  parentCombo(
+    "pool-opus",
+    [
+      { name: "antigravity", comboName: "pool-opus-antigravity" },
+      { name: "credits", comboName: "pool-opus-credits" },
+      { name: "codex", comboName: "pool-opus-codex" },
+    ],
+    "opus"
+  ),
+  parentCombo(
+    "pool-fable",
+    [
+      { name: "antigravity", comboName: "pool-fable-antigravity" },
+      { name: "credits", comboName: "pool-fable-credits" },
+      { name: "codex", comboName: "pool-fable-codex" },
+    ],
+    "fable"
+  ),
   aliasCombo("gpt-5.4-mini", "pool-haiku"),
   aliasCombo("gpt-5.6-luna", "pool-luna"),
   aliasCombo("gpt-5.6-terra", "pool-terra"),
-  aliasCombo("gpt-5.6-sol", "pool-sol-codex"),
+  {
+    ...aliasCombo("gpt-5.6-sol", "pool-sol-codex"),
+    config: { nestedComboMode: "execute", maxRetries: 0, accessPolicy: "explicit" },
+  },
   aliasCombo("claude-haiku-4-5-20251001", "pool-haiku"),
   aliasCombo("claude-sonnet-5", "pool-sonnet"),
   aliasCombo("claude-opus-5", "pool-opus"),

@@ -328,13 +328,17 @@ Never broadly delete /home/ubuntu/.omniroute.
 
 ## Tier evidence and replay decision (2026-08-23)
 
-The canonical economic pool manifest is version 3. The managed GPT-5.6 aliases now use
+The canonical economic pool manifest is version 4. The managed GPT-5.6 aliases now use
 performance-specific pools: `gpt-5.6-luna`
 uses `pool-luna` (free → Antigravity → credits → Codex), `gpt-5.6-terra` uses
 `pool-terra` (Antigravity → credits → Sonnet-class free → Codex), and `gpt-5.6-sol`
 uses the frontier `pool-sol-codex`. Claude aliases retain their existing semantic
 pools. This preserves cheap fallbacks for Luna, balanced fallbacks for Terra, and
-frontier-only behavior for Sol.
+frontier-only behavior for Sol. Claude is explicitly modeled as four relative performance
+bands — Haiku, Sonnet, Opus, and Fable — with pricing-structure pools underneath each band
+(free, subscription, credits, or API). Claude Fable and GPT-5.6 Terra share the normalized
+general-access top band; GPT-5.6 Sol is a separate explicit-access special model and is never
+implicitly selected.
 
 Terra intentionally places the free pool after protocol-capable Antigravity and
 credits targets. A live replay showed the first free Tencent target returning only

@@ -300,6 +300,10 @@ Never broadly delete /home/ubuntu/.omniroute.
   Terra → `pool-terra`, Sol → frontier-only `pool-sol-codex`. Terra orders
   Antigravity/credits before free targets because a live replay found the first Tencent
   free target did not emit a tool call.
+- Claude uses four relative performance bands (Haiku, Sonnet, Opus, Fable), with free,
+  subscription, credits, and API represented as child pricing pools. Fable and GPT-5.6 Terra
+  share the normalized general-access top band; GPT-5.6 Sol is explicit-access and never
+  selected implicitly.
 - Source URLs and deterministic scoring are recorded in `src/lib/combos/tierEvidence.ts`;
   replay with `node scripts/ops/replay-tier-evidence.mjs snapshot.json`.
 - Focused regression coverage is in `tests/unit/tier-evidence-replay.test.ts`.
