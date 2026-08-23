@@ -23,6 +23,96 @@ export type ClaudeTierEvidence = {
   source: string;
 };
 
+/** Provider-scoped benchmark evidence; scores must not be generalized to other hosts. */
+export type ProviderBenchmarkEvidence = {
+  provider: string;
+  model: string;
+  compositeScore: number;
+  successRate: number;
+  runs: number;
+  source: string;
+};
+
+/** NIMStats measurements supplied for NVIDIA NIM only (720 runs, 16 models). */
+export const NIM_BENCHMARK_EVIDENCE: readonly ProviderBenchmarkEvidence[] = Object.freeze([
+  {
+    provider: "nvidia",
+    model: "nemotron-3.5-lightning-30b-a3b",
+    compositeScore: 75,
+    successRate: 0.98,
+    runs: 24,
+    source: "NIMStats",
+  },
+  {
+    provider: "nvidia",
+    model: "gpt-oss-20b",
+    compositeScore: 74,
+    successRate: 1,
+    runs: 14,
+    source: "NIMStats",
+  },
+  {
+    provider: "nvidia",
+    model: "nemotron-3-super-120b-a12b",
+    compositeScore: 73,
+    successRate: 0.9,
+    runs: 26,
+    source: "NIMStats",
+  },
+  {
+    provider: "nvidia",
+    model: "nemotron-3-ultra-550b-a55b",
+    compositeScore: 72,
+    successRate: 0.88,
+    runs: 38,
+    source: "NIMStats",
+  },
+  {
+    provider: "nvidia",
+    model: "nemotron-3-nano-omni-30b-a3b-reasoning",
+    compositeScore: 68,
+    successRate: 0.86,
+    runs: 15,
+    source: "NIMStats",
+  },
+  {
+    provider: "nvidia",
+    model: "deepseek-v4-flash-0731",
+    compositeScore: 53,
+    successRate: 0.68,
+    runs: 52,
+    source: "NIMStats",
+  },
+  {
+    provider: "nvidia",
+    model: "glm-5.2",
+    compositeScore: 43,
+    successRate: 0.18,
+    runs: 53,
+    source: "NIMStats",
+  },
+]);
+
+export function validateProviderBenchmarkEvidence(
+  entries: readonly ProviderBenchmarkEvidence[] = NIM_BENCHMARK_EVIDENCE
+): { ok: boolean; errors: string[] } {
+  const errors: string[] = [];
+  for (const entry of entries) {
+    if (!entry.provider || !entry.model || entry.source !== "NIMStats") {
+      errors.push(`${entry.provider}/${entry.model} has invalid scope metadata`);
+    }
+    if (
+      entry.compositeScore < 0 ||
+      entry.successRate < 0 ||
+      entry.successRate > 1 ||
+      entry.runs <= 0
+    ) {
+      errors.push(`${entry.provider}/${entry.model} has invalid benchmark values`);
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 /** Anthropic's four performance bands, with pricing kept as a separate pool axis. */
 export const CLAUDE_PERFORMANCE_EVIDENCE: readonly ClaudeTierEvidence[] = Object.freeze([
   {

@@ -130,13 +130,16 @@ const HAIKU_FREE_MODELS = Object.freeze([
   "nous-research/stepfun/step-3.7-flash:free",
   "openrouter/nvidia/nemotron-3.5-lightning:free",
   "cloudflare-ai/@cf/google/gemma-4-26b-a4b-it",
-  "nvidia/nvidia/nemotron-3-super-120b-a12b",
   "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
   "groq/openai/gpt-oss-120b",
   "nous-research/poolside/laguna-xs-2.1:free",
   "openrouter/poolside/laguna-xs-2.1:free",
   "groq/openai/gpt-oss-20b",
   "openrouter/openai/gpt-oss-20b:free",
+  // Recurring keyless routes with useful text fallback, but not yet promoted for tools.
+  "opencode/nemotron-3-ultra-free",
+  "opencode/nemotron-3.5-lightning-free",
+  "gemini/gemini-2.5-flash-lite",
 ]);
 
 // LongCat 2.0 is promoted to the Sonnet band: the live :free route emitted a native
@@ -144,9 +147,14 @@ const HAIKU_FREE_MODELS = Object.freeze([
 const SONNET_FREE_MODELS = Object.freeze([
   "nous-research/meituan/longcat-2.0:free",
   "nvidia/z-ai/glm-5.2",
+  "nvidia/nvidia/nemotron-3-super-120b-a12b",
   "nous-research/tencent/hy3:free",
   "nous-research/upstage/solar-pro4:free",
   "nous-research/poolside/laguna-s-2.1:free",
+  "opencode/mimo-v2.5-free",
+  "cloudflare-ai/@cf/qwen/qwen2.5-coder-32b-instruct",
+  "gemini/gemini-3-flash-preview",
+  "mistral/devstral-latest",
 ]);
 
 function modelStep(comboName: string, model: string, index: number): CanonicalComboStep {

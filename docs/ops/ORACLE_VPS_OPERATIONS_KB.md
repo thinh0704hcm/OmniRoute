@@ -340,6 +340,12 @@ bands — Haiku, Sonnet, Opus, and Fable — with pricing-structure pools undern
 general-access top band; GPT-5.6 Sol is a separate explicit-access special model and is never
 implicitly selected.
 
+The utilization expansion is provider-scoped. NIMStats data is retained only for NVIDIA NIM
+model identities (for example, Nemotron Super at composite score 73); equivalent model names
+served by OpenRouter or OpenCode do not inherit that score. Additional recurring routes that
+passed live catalog/probe checks are placed into Sonnet or Haiku pools according to observed
+tool behavior and benchmark evidence.
+
 Terra intentionally places the free pool after protocol-capable Antigravity and
 credits targets. A live replay showed the first free Tencent target returning only
 thinking content for a tool request, so making free the first Terra target would

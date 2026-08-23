@@ -304,6 +304,10 @@ Never broadly delete /home/ubuntu/.omniroute.
   subscription, credits, and API represented as child pricing pools. Fable and GPT-5.6 Terra
   share the normalized general-access top band; GPT-5.6 Sol is explicit-access and never
   selected implicitly.
+- Utilization policy now admits more recurring healthy routes into the performance pools:
+  OpenCode Mimo, Cloudflare Qwen Coder, Gemini 3 Flash, Mistral Devstral, and recurring
+  Nemotron fallbacks. NIMStats scores are recorded as NVIDIA-only evidence; they are not
+  copied onto OpenRouter, OpenCode, or other providers.
 - Source URLs and deterministic scoring are recorded in `src/lib/combos/tierEvidence.ts`;
   replay with `node scripts/ops/replay-tier-evidence.mjs snapshot.json`.
 - Focused regression coverage is in `tests/unit/tier-evidence-replay.test.ts`.

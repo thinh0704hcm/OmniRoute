@@ -6,6 +6,8 @@ import {
   rankTierEvidence,
   validateTierEvidence,
   validateClaudeTierEvidence,
+  NIM_BENCHMARK_EVIDENCE,
+  validateProviderBenchmarkEvidence,
 } from "../../src/lib/combos/tierEvidence";
 import {
   getCanonicalComboManifest,
@@ -38,6 +40,14 @@ test("Claude uses four performance tiers with pricing pools as a separate axis",
   assert.equal(CLAUDE_PERFORMANCE_EVIDENCE[3].performanceScore, 1);
   assert.equal(GPT56_TIER_EVIDENCE.find((entry) => entry.tier === "terra")?.performanceScore, 1);
   assert.equal(GPT56_TIER_EVIDENCE.find((entry) => entry.tier === "sol")?.performanceScore, 1.1);
+});
+
+test("NIM benchmark evidence remains provider-scoped", () => {
+  assert.deepEqual(validateProviderBenchmarkEvidence(), { ok: true, errors: [] });
+  assert.equal(NIM_BENCHMARK_EVIDENCE[0].provider, "nvidia");
+  assert.equal(NIM_BENCHMARK_EVIDENCE[0].model, "nemotron-3.5-lightning-30b-a3b");
+  assert.equal(NIM_BENCHMARK_EVIDENCE[2].compositeScore, 73);
+  assert.ok(NIM_BENCHMARK_EVIDENCE.every((entry) => entry.provider === "nvidia"));
 });
 
 test("tier replay ranks frontier capability deterministically", () => {
@@ -85,6 +95,12 @@ test("canonical pools map GPT-5.6 aliases to performance-specific pools", () => 
   assert.equal(
     sonnetFree?.models.some(
       (step) => step.kind === "model" && step.model === "nous-research/meituan/longcat-2.0:free"
+    ),
+    true
+  );
+  assert.equal(
+    sonnetFree?.models.some(
+      (step) => step.kind === "model" && step.model === "nvidia/nvidia/nemotron-3-super-120b-a12b"
     ),
     true
   );
