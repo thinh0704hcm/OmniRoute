@@ -1,11 +1,11 @@
 /**
- * HailuoWebExecutor — Hailuo AI (MiniMax) web chat via www.hailuo.ai.
+ * HailuoWebExecutor — Hailuo AI (MiniMax) web chat via chat.minimax.io.
  *
  * Distinct from the paid API-key `minimax`/`minimax-cn` providers
  * (open-sse/config/providers/registry/minimax/) — this targets the free
- * consumer chat product at hailuo.ai / chat.minimax.io.
+ * consumer chat product at chat.minimax.io.
  *
- * Endpoint: POST https://www.hailuo.ai/v4/api/chat/msg?<fingerprint query>
+ * Endpoint: POST https://chat.minimax.io/v4/api/chat/msg?<fingerprint query>
  * Auth:     `token` header — value read from the site's `_token` localStorage
  *           entry, plus a per-request `yy` signature header.
  * Body:     multipart/form-data — characterID, msgContent, chatID, searchMode.

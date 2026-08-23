@@ -24,3 +24,16 @@ test("every OPENCODE_ZEN_GO_SHARED_MODELS entry is present, unmodified, exactly 
 test("OPENCODE_ZEN_GO_SHARED_MODELS is frozen (no accidental cross-registry mutation)", () => {
   assert.ok(Object.isFrozen(OPENCODE_ZEN_GO_SHARED_MODELS));
 });
+
+test("referenced non-shared model ids remain present", () => {
+  const goIds = new Set(opencode_goProvider.models.map((m) => m.id));
+  const zenIds = new Set(opencode_zenProvider.models.map((m) => m.id));
+  for (const id of ["minimax-m3", "glm-5.1"]) {
+    assert.ok(goIds.has(id) || zenIds.has(id), `expected ${id} in go or zen`);
+  }
+});
+
+test("models[0] is the intended dashboard default", () => {
+  assert.equal(opencode_goProvider.models[0].id, "glm-5.2");
+  assert.equal(opencode_zenProvider.models[0].id, "big-pickle");
+});

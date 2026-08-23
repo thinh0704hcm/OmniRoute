@@ -2218,6 +2218,10 @@
     "fullAccess": "Acesso total",
     "keyManagement": "Gerenciamento de chaves de API",
     "keyManagementDesc": "Crie e gerencie chaves de API para autenticar solicitações em seu endpoint",
+    "requestFlowAria": "Your app sends requests through an API key to OmniRoute",
+    "requestFlowYourApp": "Your app",
+    "requestFlowApiKey": "API key",
+    "requestFlowOmniRoute": "OmniRoute",
     "totalKeys": "Total de chaves",
     "restricted": "Restrito",
     "totalRequests": "Total de solicitações",
@@ -13845,5 +13849,12 @@
     "toolsMismatch": "Provider does not support tool calling",
     "structuredOutputMismatch": "Provider does not support structured output",
     "contextWindowMismatch": "Request exceeds provider context window"
+  },
+  "cheaperInferenceSponsorBanner": {
+    "title": "A Cheaper Inference é uma Amiga do Código Aberto do OmniRoute",
+    "description": "Um gateway com custo ordenado que revende dezenas de modelos de fronteira num único endpoint compatível com OpenAI — roteando cada requisição ao provedor elegível mais barato, nunca acima do preço de tabela.",
+    "cta": "Obter uma Chave de API",
+    "partnerLinkNote": "Link de parceiro",
+    "dismissAriaLabel": "Dispensar"
   }
 }

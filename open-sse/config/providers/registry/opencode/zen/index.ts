@@ -16,8 +16,6 @@ export const opencode_zenProvider: RegistryEntry = {
   // from the live API response so new models work without a code deploy.
   passthroughModels: true,
   models: [
-    ...OPENCODE_ZEN_GO_SHARED_MODELS,
-
     // ── Chat / Coding ──────────────────────────────────────────
     // #2900: big-pickle's upstream runs DeepSeek thinking mode — declare the
     // interleaved reasoning_content contract so follow-up/tool-use turns replay
@@ -28,6 +26,10 @@ export const opencode_zenProvider: RegistryEntry = {
       supportsReasoning: true,
       interleavedField: "reasoning_content",
     },
+
+    ...OPENCODE_ZEN_GO_SHARED_MODELS,
+    // models[0] (big-pickle) is the dashboard default; SHARED spread kept after it.
+
     { id: "gpt-5.6-sol", name: "GPT 5.6 Sol" },
     { id: "gpt-5.6-terra", name: "GPT 5.6 Terra" },
     { id: "gpt-5.6-luna", name: "GPT 5.6 Luna" },
@@ -67,6 +69,8 @@ export const opencode_zenProvider: RegistryEntry = {
       supportsReasoning: true,
       targetFormat: "openai-responses",
     },
+    // Explicit wire-format overlay of the base opencode provider's muse-spark entry
+    // (targetFormat: openai-responses). Keep in sync with base on catalog syncs.
     {
       id: "muse-spark-1.2-contributor-free",
       name: "Muse Spark 1.2 Contributor Free",

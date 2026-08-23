@@ -533,7 +533,7 @@ function getStrategyBadgeClass(strategy) {
   return "bg-blue-500/15 text-blue-600 dark:text-blue-400";
 }
 
-function getI18nOrFallback(t, key, fallback, values) {
+function getI18nOrFallback(t, key, fallback, values = undefined) {
   try {
     if (typeof t.has === "function" && t.has(key)) return t(key, values);
   } catch {}
@@ -3896,15 +3896,6 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, combo
                           )}
                         </option>
                       </select>
-                      {config.reasoningTransportFallback !== "skip" && (
-                        <p className="text-[10px] text-amber-600 dark:text-amber-300 mt-1">
-                          {getI18nOrFallback(
-                            t,
-                            "reasoningTransportFallbackDropWarning",
-                            "May lose continuation context or cause tool-call continuations to fail."
-                          )}
-                        </p>
-                      )}
                     </div>
                     <div>
                       <FieldLabelWithHelp

@@ -110,7 +110,11 @@ test("T40: OpenCode config document uses current provider schema", () => {
     configDocument.provider.omniroute.models["gg/gemini-2.5-pro"].name,
     "Gemini 2.5 Pro"
   );
-  assert.equal(configDocument.providers, undefined);
+  // v2 provider schema is dual-written alongside the v1 block.
+  assert.equal(
+    configDocument.providers.omniroute.package,
+    "@opencode-ai/ai/providers/openai-compatible"
+  );
 });
 
 test("T40: OpenCode explicit multi-model selection overrides fallback defaults", () => {

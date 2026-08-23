@@ -96,6 +96,7 @@ export default function AddApiKeyModal({
   const isLocalSelfHostedProvider = !!localProviderMetadata;
   const isGooglePse = provider === "google-pse-search";
   const isChatGptWebCodex = provider === "chatgpt-web-codex";
+  const isAwsPolly = provider === "aws-polly";
   const webSessionCredential = getWebSessionCredentialRequirement(provider);
   const isNoAuthWebSessionCredential = webSessionCredential?.kind === "none";
   const isWebSessionCredential = !!webSessionCredential && webSessionCredential.kind !== "none";
@@ -118,6 +119,8 @@ export default function AddApiKeyModal({
     baseUrl: initialBaseUrl || defaultBaseUrl,
     cx: "",
     region: showsRegion ? defaultRegion : "",
+    awsAccessKeyId: "",
+    awsSessionToken: "",
     apiRegion: "international",
     validationModelId: defaultValidationModelIdForProvider(provider), // #5446 item 4 — Modal probe model pre-fill
     routingTags: "",
@@ -178,13 +181,15 @@ export default function AddApiKeyModal({
   const [bulkWarnings, setBulkWarnings] = useState<string[]>([]);
   const apiCredentialLabel = isModal
     ? providerText(t, "modalTokenIdLabel", "Token ID")
-    : isQoder
-      ? t("personalAccessTokenLabel")
-      : webSessionCredential
-        ? getWebSessionCredentialLabel(t, webSessionCredential, apiKeyOptional)
-        : apiKeyOptional
-          ? `${t("apiKeyLabel")} (${t("optional").toLowerCase()})`
-          : t("apiKeyLabel");
+    : isAwsPolly
+      ? providerText(t, "awsPollySecretAccessKeyLabel", "AWS Secret Access Key")
+      : isQoder
+        ? t("personalAccessTokenLabel")
+        : webSessionCredential
+          ? getWebSessionCredentialLabel(t, webSessionCredential, apiKeyOptional)
+          : apiKeyOptional
+            ? `${t("apiKeyLabel")} (${t("optional").toLowerCase()})`
+            : t("apiKeyLabel");
   const apiCredentialPlaceholder = isModal
     ? "ak-xxxxxxxxxxxxxxxx"
     : isVertex
@@ -247,7 +252,13 @@ export default function AddApiKeyModal({
           validationModelId: formData.validationModelId || undefined,
           customUserAgent: formData.customUserAgent.trim() || undefined,
           baseUrl: formData.baseUrl.trim() || undefined,
-          region: showsRegion ? formData.region.trim() || defaultRegion : undefined,
+          region: isAwsPolly
+            ? formData.region.trim() || "us-east-1"
+            : showsRegion
+              ? formData.region.trim() || defaultRegion
+              : undefined,
+          accessKeyId: isAwsPolly ? formData.awsAccessKeyId.trim() || undefined : undefined,
+          sessionToken: isAwsPolly ? formData.awsSessionToken.trim() || undefined : undefined,
           cx: formData.cx.trim() || undefined,
           runtimeKey: isChatGptWebCodex ? formData.runtimeKey.trim() || undefined : undefined,
           tunnelId: isChatGptWebCodex ? formData.tunnelId.trim() || undefined : undefined,
@@ -284,7 +295,12 @@ export default function AddApiKeyModal({
 
   const handleSubmit = async () => {
     const credentialInput = resolveCredentialInput();
-    if (!provider || (!isCompatible && !apiKeyOptional && !credentialInput)) return;
+    if (
+      !provider ||
+      (!isCompatible && !apiKeyOptional && !credentialInput) ||
+      (isAwsPolly && !formData.awsAccessKeyId.trim())
+    )
+      return;
 
     setSaving(true);
     setSaveError(null);
@@ -321,7 +337,13 @@ export default function AddApiKeyModal({
               validationModelId: formData.validationModelId || undefined,
               customUserAgent: formData.customUserAgent.trim() || undefined,
               baseUrl: formData.baseUrl.trim() || undefined,
-              region: showsRegion ? formData.region.trim() || defaultRegion : undefined,
+              region: isAwsPolly
+                ? formData.region.trim() || "us-east-1"
+                : showsRegion
+                  ? formData.region.trim() || defaultRegion
+                  : undefined,
+              accessKeyId: isAwsPolly ? formData.awsAccessKeyId.trim() || undefined : undefined,
+              sessionToken: isAwsPolly ? formData.awsSessionToken.trim() || undefined : undefined,
               cx: formData.cx.trim() || undefined,
               runtimeKey: isChatGptWebCodex ? formData.runtimeKey.trim() || undefined : undefined,
               tunnelId: isChatGptWebCodex ? formData.tunnelId.trim() || undefined : undefined,
@@ -757,46 +779,48 @@ export default function AddApiKeyModal({
                 onImport={(apiKey) => setFormData({ ...formData, apiKey })}
               />
             )}
-            {!isNoAuthWebSessionCredential && (
-              <div className="flex gap-2">
-                <Input
-                  label={apiCredentialLabel}
-                  type="password"
-                  value={formData.apiKey}
-                  onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !validating && !saving) {
-                      e.preventDefault();
-                      handleValidate();
-                    }
-                  }}
-                  className="flex-1"
-                  placeholder={apiCredentialPlaceholder}
-                  hint={apiCredentialHint}
-                  autoComplete="off"
-                  spellCheck={false}
-                  autoCapitalize="off"
-                />
-                <div className="pt-6">
-                  <Button
-                    onClick={handleValidate}
-                    disabled={
-                      (!isCompatible && !apiKeyOptional && !formData.apiKey) ||
-                      (isGooglePse && !formData.cx.trim()) ||
-                      validating ||
-                      saving
-                    }
-                    variant="secondary"
-                  >
-                    {validating
-                      ? t("checking")
-                      : webSessionCredential
-                        ? getWebSessionCredentialCheckLabel(t, webSessionCredential)
-                        : t("check")}
-                  </Button>
+            {!isNoAuthWebSessionCredential && (() => {
+              const isCheckDisabled =
+                (!isCompatible && !apiKeyOptional && !formData.apiKey) ||
+                (isGooglePse && !formData.cx.trim()) ||
+                validating ||
+                saving;
+              return (
+                <div className="flex gap-2">
+                  <Input
+                    label={apiCredentialLabel}
+                    type="password"
+                    value={formData.apiKey}
+                    onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !isCheckDisabled) {
+                        e.preventDefault();
+                        handleValidate();
+                      }
+                    }}
+                    className="flex-1"
+                    placeholder={apiCredentialPlaceholder}
+                    hint={apiCredentialHint}
+                    autoComplete="off"
+                    spellCheck={false}
+                    autoCapitalize="off"
+                  />
+                  <div className="pt-6">
+                    <Button
+                      onClick={handleValidate}
+                      disabled={isCheckDisabled}
+                      variant="secondary"
+                    >
+                      {validating
+                        ? t("checking")
+                        : webSessionCredential
+                          ? getWebSessionCredentialCheckLabel(t, webSessionCredential)
+                          : t("check")}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
             {isChatGptWebCodex && (
               <div className="space-y-3 rounded-lg border border-border bg-surface/40 p-3">
                 <div>
@@ -848,6 +872,25 @@ export default function AddApiKeyModal({
                     </div>
                   </div>
                 )}
+                <div className="pt-6">
+                  <Button
+                    onClick={handleValidate}
+                    disabled={
+                      (!isCompatible && !apiKeyOptional && !formData.apiKey) ||
+                      (isAwsPolly && !formData.awsAccessKeyId.trim()) ||
+                      (isGooglePse && !formData.cx.trim()) ||
+                      validating ||
+                      saving
+                    }
+                    variant="secondary"
+                  >
+                    {validating
+                      ? t("checking")
+                      : webSessionCredential
+                        ? getWebSessionCredentialCheckLabel(t, webSessionCredential)
+                        : t("check")}
+                  </Button>
+                </div>
               </div>
             )}
             {isModal && (
@@ -866,6 +909,56 @@ export default function AddApiKeyModal({
                 spellCheck={false}
                 autoCapitalize="off"
               />
+            )}
+            {isAwsPolly && (
+              <>
+                <Input
+                  label={providerText(t, "awsPollyAccessKeyIdLabel", "AWS Access Key ID")}
+                  value={formData.awsAccessKeyId}
+                  onChange={(e) => setFormData({ ...formData, awsAccessKeyId: e.target.value })}
+                  placeholder="AKIA..."
+                  hint={providerText(
+                    t,
+                    "awsPollyAccessKeyIdHint",
+                    "Used with the secret access key to sign Amazon Polly requests."
+                  )}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+                <Input
+                  label={providerText(t, "awsPollyRegionLabel", "AWS Region")}
+                  value={formData.region}
+                  onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+                  placeholder="us-east-1"
+                  hint={providerText(
+                    t,
+                    "awsPollyRegionHint",
+                    "Defaults to us-east-1 when left blank."
+                  )}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+                <Input
+                  label={providerText(
+                    t,
+                    "awsPollySessionTokenLabel",
+                    "AWS Session Token (optional)"
+                  )}
+                  type="password"
+                  value={formData.awsSessionToken}
+                  onChange={(e) => setFormData({ ...formData, awsSessionToken: e.target.value })}
+                  hint={providerText(
+                    t,
+                    "awsPollySessionTokenHint",
+                    "Required only for temporary AWS credentials."
+                  )}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+              </>
             )}
             {isGooglePse && (
               <Input

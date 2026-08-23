@@ -1,11 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { format } from "prettier";
+
 import {
   DOCUMENTED_MODEL_EXCLUSIONS,
   getCanonicalComboManifest,
 } from "../../src/lib/combos/canonicalEconomicPools.ts";
 import { PROVIDER_CATALOG_SELECTION_EVIDENCE } from "../../src/lib/combos/tierEvidence.ts";
+import prettierConfig from "../../prettier.config.mjs";
 
 const TIERS = ["haiku", "sonnet", "opus", "fable"];
 const PRICING = ["free", "subscription", "credits", "api", "unknown"];
@@ -97,7 +100,7 @@ function renderReport() {
   return output;
 }
 
-const report = renderReport();
+const report = await format(renderReport(), { ...prettierConfig, parser: "markdown" });
 if (process.argv.includes("--check")) {
   const current = fs.existsSync(REPORT_PATH) ? fs.readFileSync(REPORT_PATH, "utf8") : "";
   if (current !== report) {

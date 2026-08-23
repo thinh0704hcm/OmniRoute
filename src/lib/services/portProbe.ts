@@ -168,11 +168,24 @@ export function parseSsPid(stdout: string): number | null {
 export function parseNetstatPid(stdout: string, port: number): number | null {
   for (const line of stdout.split("\n")) {
     const columns = line.trim().split(/\s+/);
-    // proto recv-q send-q local-address foreign-address state pid/program
+    // Linux: proto recv-q send-q local-address foreign-address state pid/program
     if (columns.length < 7 || columns[5] !== "LISTEN") continue;
-    if (!columns[3].endsWith(`:${port}`)) continue;
-    const parsed = Number.parseInt(columns[6], 10);
-    if (Number.isFinite(parsed)) return parsed;
+    const linuxAddress = columns[3].endsWith(`:${port}`);
+    const macAddress = columns[3].endsWith(`.${port}`);
+    if (!linuxAddress && !macAddress) continue;
+
+    if (linuxAddress) {
+      const linuxPid = Number.parseInt(columns[6], 10);
+      if (Number.isFinite(linuxPid)) return linuxPid;
+    }
+
+    // macOS `netstat -anv -p tcp` appends a `process:pid` column after
+    // the socket counters. Process names may contain spaces, so scan instead
+    // of relying on one fixed column index.
+    for (const column of columns.slice(6)) {
+      const match = /:(\d+)$/.exec(column);
+      if (match) return Number.parseInt(match[1], 10);
+    }
   }
   return null;
 }
@@ -197,7 +210,11 @@ const PID_PROBES: ReadonlyArray<{
     args: (port) => ["-tlnp", `sport = :${port}`],
     parse: (stdout) => parseSsPid(stdout),
   },
-  { command: "netstat", args: () => ["-tlnp"], parse: parseNetstatPid },
+  {
+    command: "netstat",
+    args: () => (process.platform === "darwin" ? ["-anv", "-p", "tcp"] : ["-tlnp"]),
+    parse: parseNetstatPid,
+  },
 ];
 
 /** Run one probe, resolving null on a missing binary, a non-match or a timeout. */

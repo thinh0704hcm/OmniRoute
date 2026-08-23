@@ -98,7 +98,7 @@ export function formatQuotaLabel(name: string) {
     return `Weekly ${toTitleCaseWords(weeklyModelMatch[1])}`;
   }
 
-  return trimmed;
+  return toTitleCaseWords(trimmed.replace(/_/g, " "));
 }
 
 /**

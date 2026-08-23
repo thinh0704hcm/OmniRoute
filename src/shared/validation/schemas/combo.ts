@@ -321,7 +321,7 @@ export const createComboSchema = z
   .object({
     name: comboNameSchema,
     description: z.string().max(2000).optional(),
-    models: z.array(comboModelEntry).optional().default([]),
+    models: z.array(comboModelEntry).min(1, "a combo requires at least one model"),
     strategy: comboStrategySchema.optional().default("priority"),
     config: comboRuntimeConfigSchema.optional(),
     allowedProviders: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
@@ -380,8 +380,9 @@ export const updateComboSchema = z
   .object({
     name: comboNameSchema.optional(),
     description: z.string().max(2000).optional().nullable(),
-    // Creation may leave `models` empty (`omniroute combo create` drafts one
-    // that way); an update may not, or a working combo loses every target.
+    // An update may not remove every model from a combo, or a working combo
+    // loses every target. Creation refuses an empty list too: since the CLI
+    // gained --models (#10954), an empty draft has no remaining legitimate path.
     models: z
       .array(comboModelEntry)
       .min(1, "an update cannot remove every model from a combo")

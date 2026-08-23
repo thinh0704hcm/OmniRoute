@@ -17,7 +17,8 @@
  *     category on the dashboard
  *   - allowed to skip API key validation (providerAllowsOptionalApiKey)
  *   - has provider metadata (name/website/free-tier note) in the apikey
- *     gateway catalog
+ *     gateway catalog (hasFree flipped false by #10071 — anonymous tier now
+ *     requires proof-of-work credits; a g4f.dev member key is required)
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -96,7 +97,10 @@ for (const [id, subPath] of Object.entries(SUB_PATHS)) {
     assert.ok(meta, `${id} should have an APIKEY_PROVIDERS metadata entry`);
     assert.equal(meta.id, id);
     assert.equal(meta.website, "https://g4f.space");
-    assert.equal(meta.hasFree, true);
+    // hasFree was true at #6650 time; the anonymous tier was walled behind proof-of-work
+    // credits in 2026 (#10071), so the flag is now false. Registry wiring above is unchanged:
+    // the provider still works with a g4f.dev member key, hence authType stays "optional".
+    assert.equal(meta.hasFree, false);
     assert.equal(typeof meta.freeNote, "string");
     assert.ok((meta.freeNote as string).length > 0);
   });

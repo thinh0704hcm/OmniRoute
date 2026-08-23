@@ -30,4 +30,16 @@ describe("webhook catalogue", () => {
     const { notifyWebhookEvent } = await import("../../src/lib/webhookDispatcher.ts");
     assert.equal(typeof notifyWebhookEvent, "function");
   });
+
+  it("every builder accepts every value in WEBHOOK_EVENT_VALUES without throwing", async () => {
+    const { buildDiscordPayload } = await import("../../src/lib/webhooks/integrations/discord.ts");
+    const { buildSlackPayload } = await import("../../src/lib/webhooks/integrations/slack.ts");
+    const { buildTelegramPayload } =
+      await import("../../src/lib/webhooks/integrations/telegram.ts");
+    for (const event of WEBHOOK_EVENT_VALUES) {
+      assert.doesNotThrow(() => buildDiscordPayload(event, {}));
+      assert.doesNotThrow(() => buildSlackPayload(event, {}));
+      assert.doesNotThrow(() => buildTelegramPayload(event, {}, "99999"));
+    }
+  });
 });

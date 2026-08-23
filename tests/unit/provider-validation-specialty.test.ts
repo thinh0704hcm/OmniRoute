@@ -341,6 +341,18 @@ test("AWS Polly specialty validator requires an access key id", async () => {
   assert.equal(result.error, "Missing AWS accessKeyId");
 });
 
+test("AWS Polly specialty validator identifies invalid AWS credentials", async () => {
+  globalThis.fetch = async () => new Response("forbidden", { status: 403 });
+
+  const result = await validateProviderApiKey({
+    provider: "aws-polly",
+    apiKey: "aws-secret",
+    providerSpecificData: { accessKeyId: "AKIA_POLLY" },
+  });
+
+  assert.equal(result.error, "Invalid AWS credentials");
+});
+
 test("embedding and rerank specialty validators surface auth failures for Voyage AI and Jina AI", async () => {
   globalThis.fetch = async (url) => {
     const target = String(url);

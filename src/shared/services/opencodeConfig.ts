@@ -84,10 +84,28 @@ export const buildOpenCodeProviderConfig = ({
   };
 };
 
+export const buildOpenCodeV2ProviderConfig = (
+  input: OpenCodeConfigInput
+): Record<string, any> => {
+  const v1Config = buildOpenCodeProviderConfig(input);
+  return {
+    name: v1Config.name,
+    package: "@opencode-ai/ai/providers/openai-compatible",
+    settings: {
+      baseURL: v1Config.options.baseURL,
+      apiKey: v1Config.options.apiKey,
+    },
+    models: v1Config.models,
+  };
+};
+
 export const buildOpenCodeConfigDocument = (input: OpenCodeConfigInput) => ({
   $schema: "https://opencode.ai/config.json",
   provider: {
     omniroute: buildOpenCodeProviderConfig(input),
+  },
+  providers: {
+    omniroute: buildOpenCodeV2ProviderConfig(input),
   },
 });
 
@@ -100,16 +118,16 @@ export const mergeOpenCodeConfig = (
       ? existingConfig
       : {};
 
-  // Same guard as the root above, one level down. Spreading a non-object here
-  // does not throw, it splays the value into index keys: an existing
-  // `"provider": ["a", "b"]` merged to `{"0": "a", "1": "b", omniroute: ... }`
-  // and a string was exploded one character per key. mergeOpenCodeConfigText
-  // refuses the same input outright, so the two disagreed on what to do with a
-  // malformed config.
   const existingProvider = (safeConfig as Record<string, unknown>).provider;
   const safeProvider =
     existingProvider && typeof existingProvider === "object" && !Array.isArray(existingProvider)
       ? (existingProvider as Record<string, unknown>)
+      : {};
+
+  const existingProviders = (safeConfig as Record<string, unknown>).providers;
+  const safeProviders =
+    existingProviders && typeof existingProviders === "object" && !Array.isArray(existingProviders)
+      ? (existingProviders as Record<string, unknown>)
       : {};
 
   return {
@@ -119,6 +137,10 @@ export const mergeOpenCodeConfig = (
       ...safeProvider,
       omniroute: buildOpenCodeProviderConfig(input),
     },
+    providers: {
+      ...safeProviders,
+      omniroute: buildOpenCodeV2ProviderConfig(input),
+    },
   };
 };
 
@@ -127,6 +149,7 @@ export const mergeOpenCodeConfigText = (
   input: OpenCodeConfigInput
 ) => {
   const providerConfig = buildOpenCodeProviderConfig(input);
+  const v2ProviderConfig = buildOpenCodeV2ProviderConfig(input);
   const content = typeof existingText === "string" ? existingText : "";
   const trimmedContent = content.trim();
 
@@ -161,6 +184,11 @@ export const mergeOpenCodeConfigText = (
   const providerEdits = modify(nextText, ["provider", "omniroute"], providerConfig, {
     formattingOptions: { insertSpaces: true, tabSize: 2 },
   });
+  nextText = applyEdits(nextText, providerEdits);
 
-  return applyEdits(nextText, providerEdits);
+  const v2ProviderEdits = modify(nextText, ["providers", "omniroute"], v2ProviderConfig, {
+    formattingOptions: { insertSpaces: true, tabSize: 2 },
+  });
+
+  return applyEdits(nextText, v2ProviderEdits);
 };

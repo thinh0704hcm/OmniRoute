@@ -47,21 +47,18 @@ test("primary providers keep the short alias; web variants use their own id", ()
   assert.equal(PROVIDER_ID_TO_ALIAS["qwen-web"], "qwen-web");
   assert.equal(PROVIDER_ID_TO_ALIAS.kimi, "kimi");
   assert.equal(PROVIDER_ID_TO_ALIAS["kimi-web"], "kimi-web");
-  assert.equal(PROVIDER_ID_TO_ALIAS.hackclub, "hc");
   assert.equal(PROVIDER_ID_TO_ALIAS.huggingchat, "huggingchat");
 });
 
 test("src/shared providers map resolves the same aliases unambiguously", () => {
   // alias → id
   assert.equal(resolveProviderId("kimi"), "kimi");
-  assert.equal(resolveProviderId("hc"), "hackclub");
   // id used as alias for the secondary variants
   assert.equal(resolveProviderId("qwen-web"), "qwen-web");
   assert.equal(resolveProviderId("kimi-web"), "kimi-web");
   assert.equal(resolveProviderId("huggingchat"), "huggingchat");
   // id → alias
   assert.equal(getProviderAlias("kimi"), "kimi");
-  assert.equal(getProviderAlias("hackclub"), "hc");
 });
 
 // #6673: hailuo-web must not collide with the paid API-key minimax/minimax-cn

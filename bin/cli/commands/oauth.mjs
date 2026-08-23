@@ -228,20 +228,38 @@ async function runSocialFlow(def, opts) {
 
 async function runDeviceFlow(def, opts) {
   const providerKey = resolveBackendKey(def.id);
-  const startRes = await apiFetch(`/api/providers/${providerKey}/auth/start`, {
-    ...targetApiOptions(opts),
-    method: "POST",
-  });
+  let startRes = await apiFetch(`/api/oauth/${providerKey}/device-code`, targetApiOptions(opts));
+  if (!startRes.ok) {
+    startRes = await apiFetch(`/api/providers/${providerKey}/auth/start`, {
+      ...targetApiOptions(opts),
+      method: "POST",
+    });
+  }
   if (!startRes.ok) {
     process.stderr.write(`Failed to start device flow: ${startRes.status}\n`);
     process.exit(1);
   }
   const start = await startRes.json();
-  process.stdout.write(
-    `\nDevice code: ${start.userCode ?? start.user_code ?? ""}\nVisit: ${start.verificationUri ?? start.verification_uri}\n\n`
-  );
-  if (opts.browser !== false)
-    await openBrowser(start.verificationUri ?? start.verification_uri ?? "");
+  const userCode = start.userCode ?? start.user_code ?? "";
+  const verificationUri =
+    start.verificationUriComplete ??
+    start.verification_uri_complete ??
+    start.verificationUri ??
+    start.verification_uri ??
+    start.authUrl ??
+    start.url ??
+    "";
+
+  if (userCode) {
+    process.stdout.write(`\nDevice code: ${userCode}\nVisit: ${verificationUri}\n\n`);
+  } else if (verificationUri) {
+    process.stdout.write(`\nVisit: ${verificationUri}\n\n`);
+  } else {
+    process.stdout.write(`\nAuthorization URL not available\n\n`);
+  }
+
+  if (opts.browser !== false && verificationUri)
+    await openBrowser(verificationUri);
   process.stderr.write("Waiting for device authorization...\n");
   const deadline = Date.now() + (opts.timeout ?? 300000);
   const intervalMs = (start.intervalMs ?? start.interval ?? 5) * 1000;

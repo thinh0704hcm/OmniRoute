@@ -31,18 +31,11 @@ const memorySettings = await import("../../src/lib/memory/settings.ts");
 
 // ── Route imports ──
 const qdrantSettingsRoute = await import("../../src/app/api/settings/qdrant/route.ts");
-const qdrantHealthRoute = await import(
-  "../../src/app/api/settings/qdrant/health/route.ts"
-);
-const qdrantSearchRoute = await import(
-  "../../src/app/api/settings/qdrant/search/route.ts"
-);
-const qdrantCleanupRoute = await import(
-  "../../src/app/api/settings/qdrant/cleanup/route.ts"
-);
-const qdrantEmbeddingModelsRoute = await import(
-  "../../src/app/api/settings/qdrant/embedding-models/route.ts"
-);
+const qdrantHealthRoute = await import("../../src/app/api/settings/qdrant/health/route.ts");
+const qdrantSearchRoute = await import("../../src/app/api/settings/qdrant/search/route.ts");
+const qdrantCleanupRoute = await import("../../src/app/api/settings/qdrant/cleanup/route.ts");
+const qdrantEmbeddingModelsRoute =
+  await import("../../src/app/api/settings/qdrant/embedding-models/route.ts");
 
 // ── Helpers ──
 
@@ -55,11 +48,7 @@ async function resetStorage() {
   memorySettings.invalidateMemorySettingsCache();
 }
 
-async function makeAuthRequest(
-  method: "GET" | "POST" | "PUT",
-  url: string,
-  body?: unknown
-) {
+async function makeAuthRequest(method: "GET" | "POST" | "PUT", url: string, body?: unknown) {
   return makeManagementSessionRequest(url, { method, body });
 }
 
@@ -276,6 +265,45 @@ test("GET /api/settings/qdrant/health — returns health result shape (qdrant di
   assert.strictEqual(typeof body.latencyMs, "number", "latencyMs should be number");
   // When qdrant is disabled/unconfigured, ok=false with error "not_configured"
   assert.strictEqual(body.ok, false, "ok should be false when qdrant not configured");
+});
+
+test("GET /api/settings/qdrant/health — reports named collection vector metadata", async () => {
+  await localDb.updateSettings({
+    qdrantEnabled: true,
+    qdrantHost: "http://qdrant.test",
+    qdrantCollection: "omniroute_memory",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/readyz")) return new Response("ready", { status: 200 });
+    if (String(url).endsWith("/collections/omniroute_memory")) {
+      return Response.json({
+        result: {
+          config: {
+            params: {
+              vectors: { omniao: { size: 2048, distance: "Cosine" } },
+            },
+          },
+        },
+      });
+    }
+    return new Response("not found", { status: 404 });
+  };
+
+  try {
+    const req = await makeAuthRequest("GET", "http://localhost/api/settings/qdrant/health");
+    const res = await qdrantHealthRoute.GET(req as any);
+    const body = await res.json();
+
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(body.collection, {
+      exists: true,
+      vectorSize: 2048,
+      vectorName: "omniao",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("GET /api/settings/qdrant/health — 401 without auth", async () => {

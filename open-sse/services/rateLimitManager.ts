@@ -756,7 +756,7 @@ export function updateFromHeaders(provider, connectionId, headers, status, model
         );
       } else if (remaining > limit * 0.5) {
         // Plenty of headroom — relax the limiter
-        updates.minTime = 0;
+        updates.minTime = resolveMinTime(currentRequestQueueSettings.minTimeBetweenRequestsMs);
         updates.reservoir = null;
         updates.reservoirRefreshAmount = null;
         updates.reservoirRefreshInterval = null;

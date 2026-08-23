@@ -2223,6 +2223,10 @@
     "fullAccess": "Acesso Total",
     "keyManagement": "Gerenciamento de Chaves de API",
     "keyManagementDesc": "Crie e gerencie chaves de API para autenticar requisições ao seu endpoint",
+    "requestFlowAria": "Your app sends requests through an API key to OmniRoute",
+    "requestFlowYourApp": "Your app",
+    "requestFlowApiKey": "API key",
+    "requestFlowOmniRoute": "OmniRoute",
     "totalKeys": "Total de Chaves",
     "restricted": "Restrita",
     "totalRequests": "Total de Requisições",
@@ -4922,7 +4926,9 @@
     "multiProvider": "Multi-Provedor",
     "usageTracking": "Rastreamento de Uso",
     "securityDesc": "Defina uma senha para proteger seu painel, ou pule por enquanto.",
+    "securityDescSkipWarning": "⚠️ Sem uma senha, você não poderá adicionar provedores durante a configuração. Você poderá adicioná-los depois pelo painel, após definir uma senha.",
     "providerDesc": "Conecte seu primeiro provedor de IA. Você pode adicionar mais depois.",
+    "providerRequiresPassword": "Você precisa definir uma senha primeiro para adicionar provedores. Volte à etapa de segurança e defina uma senha, ou adicione provedores depois pelo painel.",
     "apiKeyRequired": "Chave de API (obrigatório)",
     "customUrlOptional": "URL personalizada (opcional)",
     "testDesc": "Vamos verificar se a conexão com seu provedor funciona.",
@@ -4979,9 +4985,7 @@
         "skipped": "já configurado",
         "failed": "falhou"
       }
-    },
-    "securityDescSkipWarning": "⚠️ Sem uma senha, você não poderá adicionar provedores durante a configuração. Você pode adicioná-los depois no painel após definir uma senha.",
-    "providerRequiresPassword": "Você precisa definir uma senha primeiro para adicionar provedores. Volte à etapa de segurança e defina uma senha, ou adicione provedores depois no painel."
+    }
   },
   "providers": {
     "title": "Provedores",
@@ -6269,6 +6273,20 @@
     "webSessionGuideStep3": "Copie a credencial necessária do próprio domínio do provedor. Para cookies, copie apenas o valor do cabeçalho Cookie e omita Cookie:.",
     "webSessionGuideStep3Manual": "Caminho manual: abra as ferramentas do desenvolvedor do navegador (F12 → Network), atualize a página, abra uma requisição autenticada e copie o valor do cabeçalho Cookie em Request Headers — omita o prefixo Cookie:.",
     "webSessionGuideStep4": "Cole aqui e verifique a conexão. Se parar de funcionar, faça login novamente e substitua-o por um novo valor.",
+    "harImportButtonLabel": "Importar arquivo .har",
+    "harImportButtonBusy": "Importando…",
+    "harImportButtonHint": "Exporte pela aba Rede das Ferramentas do Desenvolvedor após enviar pelo menos uma mensagem no chat.",
+    "harImportStatusValid": "Importado — válido por cerca de {minutes} min.",
+    "harImportStatusExpiringSoon": "Importado — válido por apenas mais cerca de {minutes} min.",
+    "harImportStatusExpired": "Importado, mas este token expirou há {minutes} min — exporte um HAR novo.",
+    "harImportStatusUnknownExpiry": "Importado. Não foi possível ler a expiração.",
+    "harImportErrorNotJson": "Esse arquivo não é um JSON válido — ele é realmente uma exportação .har?",
+    "harImportErrorNoEntries": "Este HAR não contém entradas de rede.",
+    "harImportErrorNoChathubUrl": "Nenhuma conexão de chat do Copilot foi encontrada neste HAR. Envie pelo menos uma mensagem em m365.cloud.microsoft antes de exportar.",
+    "harImportErrorUnparsableUrl": "A conexão de chat foi encontrada, mas não foi possível ler a URL.",
+    "harImportErrorMissingFields": "A conexão de chat foi encontrada, mas o token estava ausente.",
+    "harImportErrorReadFailed": "Não foi possível ler esse arquivo.",
+    "harImportErrorUnknown": "Não foi possível extrair uma credencial desse arquivo HAR.",
     "webSessionSecurityHint": "Trate isso como uma senha: ela poderá acessar sua conta da web conectada até que ela expire ou seja revogada.",
     "webNoAuthGuideTitle": "Nenhuma credencial necessária",
     "webNoAuthGuideBody": "{provider} não precisa de chave de API ou cookie. Salve a conexão para usar seu endpoint web gratuito.",
@@ -13855,5 +13873,12 @@
     "toolsMismatch": "O provedor nao suporta chamada de ferramentas",
     "structuredOutputMismatch": "O provedor nao suporta saida estruturada",
     "contextWindowMismatch": "A requisicao excede a janela de contexto do provedor"
+  },
+  "cheaperInferenceSponsorBanner": {
+    "title": "Cheaper Inference é um Amigo Open Source do OmniRoute",
+    "description": "Um gateway ordenado por custo que revende dezenas de modelos de fronteira atrás de um único endpoint compatível com OpenAI, roteando cada requisição para o provedor elegível mais barato, nunca acima do preço de tabela.",
+    "cta": "Obter uma chave de API",
+    "partnerLinkNote": "Link de parceiro",
+    "dismissAriaLabel": "Dispensar"
   }
 }

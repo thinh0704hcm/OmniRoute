@@ -337,6 +337,7 @@ function createOpenAIReducer(fallbackModel?: string | null): SummaryReducer {
       // same-name tool_calls) into its own separate tool_calls entries.
       const finalToolCalls: ToolCall[] = [];
       let nextIndex = 0;
+      // Normalize tool_call indexes to contiguous 0-based (OpenAI contract).
       for (const tc of mergedToolCalls) {
         const splitArgs = splitConcatenatedToolCallArguments(tc.function.arguments);
         if (!splitArgs) {

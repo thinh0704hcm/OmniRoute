@@ -21,6 +21,10 @@ import {
   parseThinkingBudgetMax,
 } from "../services/learnedThinkingCaps.ts";
 import {
+  recordLearnedReasoningEffort,
+  parseReasoningEffortEnum,
+} from "../services/learnedReasoningEffortCaps.ts";
+import {
   getParamFilterConfig,
   addParamToBlocklist,
   isAutoLearnGloballyEnabled,
@@ -826,6 +830,9 @@ export class BaseExecutor {
     // loop. The learned cap is also recorded process-wide via
     // recordLearnedThinkingCap so future requests skip the 400 entirely.
     let thinkingBudgetClampedMax: number | null = null;
+    // Set by the reasoning_effort 4xx clamp-and-retry below — guards the same
+    // "fires at most once per URL" invariant as thinkingBudgetClampedMax above.
+    let reasoningEffortClamped = false;
 
     for (let urlIndex = 0; urlIndex < fallbackCount; urlIndex++) {
       const requestCredentials = withForcedResponsesUpstream(
@@ -1523,6 +1530,49 @@ export class BaseExecutor {
               log?.info?.(
                 "THINKING_BUDGET",
                 `Upstream 400 rejected thinking_budget on ${url} — clamped to ${upstreamMax} and retrying (learned for ${this.provider}/${model})`
+              );
+              response = await fetchWithStartTimeout(url, { ...fetchOptions, body: retryBody });
+            }
+          }
+        }
+
+        // Reasoning-effort enum 4xx clamp-and-retry (any provider/model without a
+        // declared reasoning_effort capability — custom OpenAI-compatible
+        // connections, or a registered provider the registry hasn't caught up
+        // with). Mirrors the thinking_budget clamp-and-retry above: parse the
+        // upstream-advertised accepted values, record them process-wide (so
+        // FUTURE requests clamp proactively via sanitizeReasoningEffortForProvider
+        // → getLearnedReasoningEffort), clamp the live transformedBody by
+        // re-running the sanitizer, and retry the same URL once.
+        if (
+          (response.status === HTTP_STATUS.BAD_REQUEST ||
+            response.status === HTTP_STATUS.UNPROCESSABLE_ENTITY) &&
+          !reasoningEffortClamped &&
+          transformedBody &&
+          typeof transformedBody === "object"
+        ) {
+          const errText = await response
+            .clone()
+            .text()
+            .catch(() => "");
+          const acceptedValues = parseReasoningEffortEnum(errText);
+          if (acceptedValues) {
+            reasoningEffortClamped = true;
+            const learned = recordLearnedReasoningEffort(this.provider, model, acceptedValues);
+            if (learned) {
+              transformedBody = sanitizeReasoningEffortForProvider(
+                transformedBody,
+                this.provider,
+                model,
+                log
+              );
+              let retryBody = JSON.stringify(transformedBody);
+              if (usesClaudeCodeProtocol || this.provider === "claude") {
+                retryBody = await signRequestBody(retryBody);
+              }
+              log?.info?.(
+                "REASONING_SANITIZE",
+                `Upstream ${response.status} rejected reasoning_effort on ${url} — clamped to ${learned} and retrying (learned for ${this.provider}/${model})`
               );
               response = await fetchWithStartTimeout(url, { ...fetchOptions, body: retryBody });
             }

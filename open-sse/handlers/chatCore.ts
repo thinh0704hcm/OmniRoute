@@ -30,7 +30,10 @@ import { assembleStreamingResponseHeaders } from "./chatCore/streamingResponseHe
 import { storeStreamingSemanticCacheResponse } from "./chatCore/streamingSemanticCacheStore.ts";
 import { assembleStreamingPipeline } from "./chatCore/streamingPipeline.ts";
 import { sanitizeChatRequestBody } from "./chatCore/sanitization.ts";
-import { applyReasoningInputPolicy } from "../services/reasoningInputPolicy.ts";
+import {
+  applyReasoningInputPolicy,
+  resolveIncompatibleReasoningAction,
+} from "../services/reasoningInputPolicy.ts";
 import {
   createRoutingEvent,
   emitRoutingEvent,
@@ -517,7 +520,7 @@ export async function handleChatCore({
   conversationId = null,
   modelPinned = false,
   skipResourcePressureGuard = false,
-  reasoningTransportFallback = "skip",
+  reasoningTransportFallback = "drop",
   managedLease = null,
 }) {
   let { provider, model, extendedContext } = modelInfo;
@@ -1214,7 +1217,11 @@ export async function handleChatCore({
         provider,
         preserveEncryptedReasoning:
           credentials?.providerSpecificData?.preserveEncryptedReasoning === true,
-        onIncompatibleReasoning: reasoningTransportFallback === "drop" ? "drop" : "reject",
+        onIncompatibleReasoning: resolveIncompatibleReasoningAction({
+          reasoningTransportFallback,
+          isComboStep: Boolean(comboStepId || comboExecutionKey),
+          headers: clientRawRequest?.headers ?? null,
+        }),
       }
     );
     if (policy.incompatibleReasoning) {

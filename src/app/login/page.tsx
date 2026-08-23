@@ -38,8 +38,7 @@ export default function LoginPage() {
           if (data.nodeVersion) setNodeVersion(data.nodeVersion);
           if (data.nodeCompatible === false) setNodeCompatible(false);
           if (data.authenticated === true || data.requireLogin === false) {
-            router.push("/dashboard");
-            router.refresh();
+            window.location.href = "/dashboard";
             return;
           }
           setHasPassword(!!data.hasPassword);
@@ -77,13 +76,12 @@ export default function LoginPage() {
 
       if (res.ok) {
         sessionStorage.setItem("omniroute_login_time", String(Date.now()));
-        router.push("/dashboard");
-        router.refresh();
+        window.location.href = "/dashboard";
       } else {
         const data = await res.json();
         // (#521) If no password is set, redirect to onboarding instead of showing an error
         if (data.needsSetup) {
-          router.push("/dashboard/onboarding");
+          window.location.href = "/dashboard/onboarding";
           return;
         }
         setError(data.error || t("invalidPassword"));

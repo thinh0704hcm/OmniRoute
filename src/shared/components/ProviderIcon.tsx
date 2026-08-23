@@ -263,6 +263,7 @@ const KNOWN_PNGS = new Set([
   "linkup-search",
   "llamafile",
   "llamagate",
+  "logfare",
   "maritalk",
   "nanobot",
   "nanogpt",

@@ -805,6 +805,13 @@
     "batchConceptBenefit50pct": "50% discount on input + output tokens",
     "batchConceptAsync24h": "Async with a 24h completion window",
     "batchConceptUseCases": "Best for bulk classification, evaluations, and embeddings",
+    "batchHeaderSubtitle": "Run many requests as one job",
+    "batchStep1": "1 · Upload JSONL",
+    "batchStep1Desc": "Add requests",
+    "batchStep2": "2 · Create batch",
+    "batchStep2Desc": "Run job",
+    "batchStep3": "3 · Get results",
+    "batchStep3Desc": "Download output",
     "filesConceptTitle": "Batch files",
     "filesConceptSubtitle": "JSONL files used by batches: input requests, results, and errors.",
     "filesConceptInput": "Input — your JSONL with one request per line",
@@ -1012,7 +1019,7 @@
     "apiManager": "API Keys",
     "apiManagerSubtitle": "Manage API keys and access",
     "embeddedServices": "Embedded Services",
-    "embeddedServicesSubtitle": "Manage local proxy services",
+    "embeddedServicesSubtitle": "Optional local services",
     "logs": "Logs",
     "webhooks": "Webhooks",
     "webhooksSubtitle": "Get notified of events",
@@ -1214,6 +1221,12 @@
     "consoleLogsSubtitle": "Console output",
     "logsActivitySubtitle": "User activity log",
     "healthSubtitle": "System health check",
+    "healthVerdictReady": "OmniRoute is ready",
+    "healthVerdictActionRequired": "Action required to restore full operation",
+    "healthVerdictCoolingDown": "Cooling down after recent changes",
+    "advancedDiagnosticsTitle": "Advanced diagnostics",
+    "hide": "Hide",
+    "show": "Show",
     "costsPricingSubtitle": "Per-model pricing rules",
     "costsBudgetSubtitle": "Budget limits",
     "costsQuotaShareSubtitle": "Share provider quotas across keys",
@@ -2223,6 +2236,10 @@
     "fullAccess": "Full Access",
     "keyManagement": "API Key Management",
     "keyManagementDesc": "Create and manage API keys for authenticating requests to your endpoint",
+    "requestFlowAria": "Your app sends requests through an API key to OmniRoute",
+    "requestFlowYourApp": "Your app",
+    "requestFlowApiKey": "API key",
+    "requestFlowOmniRoute": "OmniRoute",
     "totalKeys": "Total Keys",
     "restricted": "Restricted",
     "totalRequests": "Total Requests",
@@ -3827,6 +3844,9 @@
   },
   "endpoint": {
     "title": "API Endpoint",
+    "subtitle": "Use the OpenAI-compatible endpoint with most SDKs and tools.",
+    "testEndpoint": "Test endpoint →",
+    "advancedProtocols": "Advanced protocols",
     "available": "Available Endpoints",
     "cloudProxy": "Cloud Proxy",
     "disableConfirm": "Are you sure you want to disable cloud proxy?",
@@ -5692,8 +5712,8 @@
     "aggregatorsGateways": "Aggregators Gateways",
     "enterpriseCloud": "Enterprise & Cloud",
     "apiFormatLabel": "Api Format Label",
-    "apiKeyOptionalHint": "Api Key Optional Hint",
-    "apiKeyOptionalLabel": "Api Key Optional Label",
+    "apiKeyOptionalHint": "Leave empty if your local setup or provider does not require authentication.",
+    "apiKeyOptionalLabel": "API Key (optional)",
     "apiRegionChina": "Api Region China",
     "apiRegionHint": "Api Region Hint",
     "apiRegionInternational": "Api Region International",
@@ -8677,7 +8697,7 @@
   },
   "embeddedServices": {
     "title": "Embedded Services",
-    "description": "Local engines managed on demand — CLIProxyAPI, 9Router, Mux, and Bifrost. Accessible on loopback only.",
+    "description": "Optional helpers that run on your machine. Most users can start without them — install one only when an integration needs it.",
     "stateRunning": "Running",
     "stateStopped": "Stopped",
     "stateStarting": "Starting",
@@ -12029,7 +12049,8 @@
       },
       "acp": {
         "title": "ACP Agents",
-        "phrase": "CLIs that OmniRoute spawns as execution backend (reverse flow)",
+        "phrase": "Run complex, long-running logic in the backend",
+        "warning": "Most users can ignore this — use only when an integration requires it.",
         "flow": "Client → OmniRoute → spawn CLI (stdio/ACP) → response",
         "seeOther": "See →"
       }
@@ -13337,6 +13358,13 @@
   },
   "resilienceConnections": {
     "title": "Connection Resilience",
+    "reassuranceTitle": "Your connections recover automatically",
+    "reassuranceDetail": "Usually no action is needed. OmniRoute temporarily rests a connection after failures, then safely tries it again.",
+    "plainStates": {
+      "healthy": "Requests can be sent",
+      "coolingDown": "Trying again soon",
+      "lockedOut": "Needs your attention"
+    },
     "table": {
       "status": "Status",
       "provider": "Provider",
@@ -13869,5 +13897,12 @@
     "toolsMismatch": "Provider does not support tool calling",
     "structuredOutputMismatch": "Provider does not support structured output",
     "contextWindowMismatch": "Request exceeds provider context window"
+  },
+  "cheaperInferenceSponsorBanner": {
+    "title": "Cheaper Inference is an OmniRoute Open Source Friend",
+    "description": "A cost-ranked gateway reselling dozens of frontier models behind one OpenAI-compatible endpoint — routing each request to the cheapest eligible provider, never above list price.",
+    "cta": "Get an API Key",
+    "partnerLinkNote": "Partner link",
+    "dismissAriaLabel": "Dismiss"
   }
 }

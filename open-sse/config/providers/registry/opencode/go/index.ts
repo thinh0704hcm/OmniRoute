@@ -14,8 +14,6 @@ export const opencode_goProvider: RegistryEntry = {
   authPrefix: "Bearer",
   defaultContextLength: 200000,
   models: [
-    ...OPENCODE_ZEN_GO_SHARED_MODELS,
-
     // Port from decolua/9router 8efacc11: align with official Go endpoints —
     // glm-5.2 is now advertised and Kimi chat traffic must route through
     // `kimi-k2.7-code` (the live API rejects the plain `kimi-k2.7` alias for
@@ -26,6 +24,10 @@ export const opencode_goProvider: RegistryEntry = {
     { id: "glm-5.2", name: "GLM-5.2", supportsReasoning: true },
     { id: "glm-5.2-high", name: "GLM-5.2 (high effort)", supportsReasoning: true },
     { id: "glm-5.2-max", name: "GLM-5.2 (max effort)", supportsReasoning: true },
+
+    ...OPENCODE_ZEN_GO_SHARED_MODELS,
+    // models[0] (glm-5.2) is the dashboard default (LlmChatCard/ProviderTestSlideOver take models[0]).
+
     { id: "glm-5.1", name: "GLM-5.1" },
     { id: "glm-5", name: "GLM-5" },
     // kimi-k2.7-code declared identically on opencode-zen — see OPENCODE_ZEN_GO_SHARED_MODELS.

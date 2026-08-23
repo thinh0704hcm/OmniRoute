@@ -224,7 +224,10 @@ export function createSyncDriverFactory(load: DriverLoader, betterSqliteProbe?: 
         const bunOptions: Record<string, unknown> = {};
         if (options?.readonly === true) bunOptions.readonly = true;
         if (options?.create === false && filePath !== ":memory:") bunOptions.create = false;
-        const db = new Database(filePath, bunOptions);
+        const db =
+          Object.keys(bunOptions).length > 0
+            ? new Database(filePath, bunOptions)
+            : new Database(filePath);
         return createBunSqliteAdapter(db, filePath);
       } catch (err) {
         logSwallowedDriverError("bun:sqlite", err);

@@ -1210,13 +1210,8 @@ test("provider models route reports CC compatible providers do not support model
     { params: { id: connection.id } }
   );
 
-  assert.ok(
-    response.status === 400 || response.status === 200,
-    `CC-compatible models route should 400 (unsupported) or 200 (listed), got ${response.status}`
-  );
-  if (response.status === 400) {
-    assert.deepEqual(await response.json(), {
-      error: "Provider anthropic-compatible-cc-test does not support models listing",
-    });
-  }
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    error: "Provider anthropic-compatible-cc-test does not support models listing",
+  });
 });

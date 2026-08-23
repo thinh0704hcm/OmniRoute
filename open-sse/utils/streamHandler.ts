@@ -683,13 +683,15 @@ export function createDisconnectAwareStream(transformStream, streamController) {
     if (clientTerminalSeen) return;
 
     terminalTail += terminalDecoder.decode(chunk, { stream: true });
-    if (terminalTail.length > 4096) {
-      terminalTail = terminalTail.slice(-4096);
-    }
+    // Scan before bounding retained state: a compaction terminal frame can
+    // exceed the tail budget because encrypted_content is carried inline.
     clientTerminalSeen = hasClientTerminalSseMarker(
       terminalTail,
       streamController.clientResponseFormat
     );
+    if (terminalTail.length > 4096) {
+      terminalTail = terminalTail.slice(-4096);
+    }
     if (clientTerminalSeen) {
       streamController.markClientTerminalSeen?.();
     }

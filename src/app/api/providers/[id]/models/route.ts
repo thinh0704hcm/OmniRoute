@@ -1909,18 +1909,21 @@ export async function GET(
     }
 
     if (isAnthropicCompatibleProvider(provider)) {
-      const cachedResponse = maybeReturnCachedDiscovery();
-      if (cachedResponse) return cachedResponse;
-
-      const autoFetchDisabledResponse = maybeReturnAutoFetchDisabled();
-      if (autoFetchDisabledResponse) return autoFetchDisabledResponse;
-
+      // CC providers never support models listing — this check must precede
+      // the cached-discovery / auto-fetch fallbacks, which would otherwise
+      // return a misleading 200 "no models" for a CC node (#10828 ordering).
       if (isClaudeCodeCompatibleProvider(provider)) {
         return NextResponse.json(
           { error: `Provider ${provider} does not support models listing` },
           { status: 400 }
         );
       }
+
+      const cachedResponse = maybeReturnCachedDiscovery();
+      if (cachedResponse) return cachedResponse;
+
+      const autoFetchDisabledResponse = maybeReturnAutoFetchDisabled();
+      if (autoFetchDisabledResponse) return autoFetchDisabledResponse;
 
       let baseUrl = getProviderBaseUrl(connection.providerSpecificData);
       if (!baseUrl) {

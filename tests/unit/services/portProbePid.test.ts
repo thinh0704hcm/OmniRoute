@@ -64,6 +64,12 @@ test("parseNetstatPid matches on the local address, not the foreign one", () => 
   assert.equal(parseNetstatPid(stdout, 20128), 596922);
 });
 
+test("parseNetstatPid reads macOS process:pid output", () => {
+  const stdout =
+    "tcp4 0 0 127.0.0.1.20128 *.* LISTEN 0 0 131072 131072 node:596922 00100\n";
+  assert.equal(parseNetstatPid(stdout, 20128), 596922);
+});
+
 test("parseNetstatPid ignores non-listening rows and unknown ports", () => {
   const stdout =
     "tcp        0      0 127.0.0.1:20128         1.2.3.4:5555            ESTABLISHED 596922/node\n";
