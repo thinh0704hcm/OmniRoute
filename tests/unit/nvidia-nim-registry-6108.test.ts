@@ -16,6 +16,11 @@ test("#6108: NVIDIA NIM registry contains the refreshed live models", () => {
     modelIds.has("nvidia/nemotron-3-ultra-550b-a55b"),
     "nvidia/nemotron-3-ultra-550b-a55b must be present"
   );
+  assert.ok(
+    modelIds.has("nvidia/nemotron-3.5-lightning-30b-a3b"),
+    "nvidia/nemotron-3.5-lightning-30b-a3b must be present"
+  );
+  assert.ok(modelIds.has("thinkingmachines/inkling"), "thinkingmachines/inkling must be present");
 });
 
 test("#6108: NVIDIA NIM registry no longer lists EOL z-ai/glm-5.1", () => {

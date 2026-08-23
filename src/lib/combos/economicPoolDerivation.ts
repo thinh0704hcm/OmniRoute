@@ -134,7 +134,7 @@ export function assignPerformanceBands(
     const entry = sorted[index];
     const sameScore = previousScore !== null && entry.score === previousScore;
     const quartile = Math.min(3, Math.floor((index * 4) / sorted.length));
-    const band = sameScore ? previousBand : PERFORMANCE_BANDS[3 - quartile];
+    const band: PerformanceBand = sameScore ? previousBand : PERFORMANCE_BANDS[3 - quartile];
     result.set(entry.model, band);
     previousScore = entry.score;
     previousBand = band;

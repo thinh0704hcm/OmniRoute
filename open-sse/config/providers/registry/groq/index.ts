@@ -21,5 +21,8 @@ export const groqProvider: RegistryEntry = {
     { id: "qwen/qwen3-32b", name: "Qwen3 32B" },
     { id: "qwen/qwen3.6-27b", name: "Qwen3.6 27B" },
     { id: "openai/gpt-oss-safeguard-20b", name: "GPT-OSS Safeguard 20B" },
+    // Compound executes Groq-hosted tools but does not accept caller-supplied tools.
+    { id: "groq/compound", name: "Groq Compound", toolCalling: false },
+    { id: "groq/compound-mini", name: "Groq Compound Mini", toolCalling: false },
   ],
 };

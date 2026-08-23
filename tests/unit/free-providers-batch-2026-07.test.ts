@@ -56,6 +56,20 @@ test("nara is a single shared 5M/day pool, counted once", () => {
   assert.ok(rows.every((m) => m.freeType === "recurring-daily"));
 });
 
+test("nara registry includes the researched free performance candidate", async () => {
+  const { naraProvider } = await import("../../open-sse/config/providers/registry/nara/index.ts");
+  const model = naraProvider.models.find((entry) => entry.id === "qwen-3.8-max-free");
+  assert.equal(model?.contextLength, 1_000_000);
+  assert.equal(
+    naraProvider.models.some((entry) => entry.id === "stepfun-3.7-flash"),
+    true
+  );
+  assert.equal(
+    naraProvider.models.some((entry) => entry.id === "laguna-s-2.1"),
+    true
+  );
+});
+
 test("every catalog provider id still resolves to a canonical provider", () => {
   const unknown = [...new Set(FREE_MODEL_BUDGETS.map((m) => m.provider))].filter(
     (id) => !AI_PROVIDERS[id]

@@ -52,6 +52,13 @@ export const opencodeProvider: RegistryEntry = {
     { id: "mimo-v2.5-free", name: "MiMo V2.5 Free", contextLength: 131000 },
     { id: "hy3-free", name: "HY3 Free", contextLength: 131000 },
     { id: "nemotron-3-ultra-free", name: "Nemotron 3 Ultra Free", contextLength: 1000000 },
+    {
+      id: "nemotron-3.5-lightning-free",
+      name: "Nemotron 3.5 Lightning Free",
+      contextLength: 1000000,
+    },
+    { id: "laguna-s-2.1-free", name: "Laguna S 2.1 Free", contextLength: 262144 },
+    { id: "x-preview-f-free", name: "GLM 5.5 Preview Free", contextLength: 1000000 },
     { id: "north-mini-code-free", name: "North Mini Code Free", contextLength: 131000 },
   ],
 };

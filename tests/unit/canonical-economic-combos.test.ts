@@ -99,6 +99,8 @@ test("canonical manifest locks exact aliases, economic tiers, and forbidden excl
     ["gpt-5.6-terra", "pool-terra"],
     ["gpt-5.6-sol", "pool-sol-codex"],
     ["claude-haiku-4-5-20251001", "pool-haiku"],
+    ["claude-sonnet-4-6", "pool-sonnet"],
+    ["claude-opus-4-8", "pool-opus"],
     ["claude-sonnet-5", "pool-sonnet"],
     ["claude-opus-5", "pool-opus"],
     ["claude-fable-5", "pool-fable"],
@@ -121,14 +123,16 @@ test("canonical manifest locks exact aliases, economic tiers, and forbidden excl
     "pool-sonnet-credits",
   ]);
   assert.deepEqual(comboReferences(findCombo(combos, "pool-opus")), [
+    "pool-opus-free",
     "pool-opus-antigravity",
-    "pool-opus-credits",
     "pool-opus-codex",
+    "pool-opus-credits",
   ]);
   assert.deepEqual(comboReferences(findCombo(combos, "pool-fable")), [
+    "pool-fable-codex",
     "pool-fable-antigravity",
     "pool-fable-credits",
-    "pool-fable-codex",
+    "pool-fable-reserve-credits",
   ]);
 
   const expectedLeaves = new Map<string, { strategy: string; models: string[] }>([
@@ -137,20 +141,36 @@ test("canonical manifest locks exact aliases, economic tiers, and forbidden excl
       {
         strategy: "reset-aware",
         models: [
+          "opencode-zen/nemotron-3.5-lightning-free",
+          "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b",
+          "nvidia/openai/gpt-oss-20b",
+          "nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+          "cloudflare-ai/@cf/qwen/qwen3-30b-a3b-fp8",
+          "cloudflare-ai/@cf/zai-org/glm-4.7-flash",
+          "cloudflare-ai/@cf/openai/gpt-oss-20b",
+          "llm7/gemini-3.1-flash-lite",
+          "ollama-cloud/nemotron-3-nano:30b",
+          "ollama-cloud/gpt-oss:20b",
+          "ollama-cloud/gemma4:31b",
           "gemini/gemini-3.5-flash-lite",
+          "gemini/gemini-3.1-flash-lite",
+          "gemini/gemma-4-31b-it",
+          "gemini/gemma-4-26b-a4b-it",
           "groq/qwen/qwen3.6-27b",
           "nous-research/stepfun/step-3.7-flash:free",
           "openrouter/nvidia/nemotron-3.5-lightning:free",
           "cloudflare-ai/@cf/google/gemma-4-26b-a4b-it",
           "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
-          "groq/openai/gpt-oss-120b",
           "nous-research/poolside/laguna-xs-2.1:free",
           "openrouter/poolside/laguna-xs-2.1:free",
+          "openrouter/thinkingmachines/inkling-small:free",
+          "openrouter/nvidia/nemotron-3-nano-30b-a3b:free",
           "groq/openai/gpt-oss-20b",
-          "openrouter/openai/gpt-oss-20b:free",
           "opencode/nemotron-3-ultra-free",
           "opencode/nemotron-3.5-lightning-free",
           "gemini/gemini-2.5-flash-lite",
+          "nara/stepfun-3.7-flash",
+          "af/gpt-oss-20b",
         ],
       },
     ],
@@ -163,16 +183,57 @@ test("canonical manifest locks exact aliases, economic tiers, and forbidden excl
       {
         strategy: "reset-aware",
         models: [
+          "opencode-zen/nemotron-3-ultra-free",
+          "opencode-zen/x-preview-f-free",
+          "opencode-zen/mimo-v2.5-free",
+          "opencode-zen/hy3-free",
+          "opencode-zen/laguna-s-2.1-free",
+          "ollama-cloud/minimax-m3",
+          "ollama-cloud/nemotron-3-ultra",
+          "ollama-cloud/nemotron-3-super",
+          "llm7/DeepSeek-V4-Flash-0731",
           "nous-research/meituan/longcat-2.0:free",
-          "nvidia/z-ai/glm-5.2",
+          "cloudflare-ai/@cf/openai/gpt-oss-120b",
+          "cloudflare-ai/@cf/nvidia/nemotron-3-120b-a12b",
+          "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+          "openrouter/thinkingmachines/inkling:free",
+          "openrouter/poolside/laguna-s-2.1:free",
+          "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+          "openrouter/z-ai/glm-5.2:free",
+          "openrouter/cohere/north-mini-code:free",
+          "groq/openai/gpt-oss-120b",
+          "groq/groq/compound",
+          "groq/groq/compound-mini",
+          "gemini/gemini-3.7-flash",
+          "gemini/gemini-3.6-flash",
+          "gemini/gemini-3.5-flash",
+          "gemini/gemini-3-flash",
+          "nvidia/thinkingmachines/inkling",
+          "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
           "nvidia/nvidia/nemotron-3-super-120b-a12b",
           "nous-research/tencent/hy3:free",
           "nous-research/upstage/solar-pro4:free",
           "nous-research/poolside/laguna-s-2.1:free",
+          "command-code/stealth/ox-alpha",
+          "command-code/poolside/laguna-s-2.1-free",
+          "opencode/x-preview-f-free",
           "opencode/mimo-v2.5-free",
-          "cloudflare-ai/@cf/qwen/qwen2.5-coder-32b-instruct",
+          "opencode/hy3-free",
+          "opencode/laguna-s-2.1-free",
           "gemini/gemini-3-flash-preview",
           "mistral/devstral-latest",
+          "af/mistral-large-latest",
+        ],
+      },
+    ],
+    [
+      "pool-opus-free",
+      {
+        strategy: "reset-aware",
+        models: [
+          "opencode-zen/muse-spark-1.2-contributor-free",
+          "opencode/muse-spark-1.2-contributor-free",
+          "nara/qwen-3.8-max-free",
         ],
       },
     ],
@@ -185,33 +246,53 @@ test("canonical manifest locks exact aliases, economic tiers, and forbidden excl
     ],
     [
       "pool-sonnet-credits",
-      { strategy: "reset-aware", models: ["command-code/poolside/laguna-s-2.1-free"] },
+      {
+        strategy: "reset-aware",
+        models: [
+          "longcat/LongCat-2.0",
+          "mistral/mistral-medium-latest",
+          "mistral/mistral-large-latest",
+          "mistral/zai-glm-5-2",
+        ],
+      },
     ],
     [
       "pool-opus-antigravity",
       {
         strategy: "reset-aware",
-        models: ["antigravity/gemini-3.7-flash-tiered", "antigravity/claude-opus-4-6-thinking"],
+        models: ["antigravity/gemini-3.7-flash-high", "antigravity/claude-opus-4-6-thinking"],
       },
     ],
-    ["pool-opus-credits", { strategy: "reset-aware", models: ["agentrouter/claude-opus-5"] }],
-    ["pool-opus-codex", { strategy: "priority", models: ["codex/gpt-5.6-luna"] }],
+    [
+      "pool-opus-credits",
+      {
+        strategy: "reset-aware",
+        models: ["agentrouter/claude-opus-4-8"],
+      },
+    ],
+    ["pool-opus-codex", { strategy: "priority", models: ["codex/gpt-5.6-sol"] }],
     [
       "pool-fable-antigravity",
       {
         strategy: "reset-aware",
-        models: ["antigravity/gemini-3.7-flash-tiered", "antigravity/claude-opus-4-6-thinking"],
+        models: ["antigravity/gemini-3.7-flash-high", "antigravity/claude-opus-4-6-thinking"],
       },
     ],
     [
       "pool-fable-credits",
       {
         strategy: "reset-aware",
-        models: ["agentrouter/claude-opus-5", "command-code/meta/muse-spark-1.2-contributor"],
+        models: ["command-code/meta/muse-spark-1.2-contributor"],
       },
     ],
-    ["pool-fable-codex", { strategy: "priority", models: ["codex/gpt-5.6-terra"] }],
-    ["pool-fable-premium", { strategy: "priority", models: ["codex/gpt-5.6-sol"] }],
+    [
+      "pool-fable-reserve-credits",
+      {
+        strategy: "reset-aware",
+        models: ["agentrouter/gpt-5.6-sol", "agentrouter/claude-opus-5"],
+      },
+    ],
+    ["pool-fable-codex", { strategy: "priority", models: ["codex/gpt-5.6-sol-max"] }],
   ]);
   for (const [name, expected] of expectedLeaves) {
     const combo = findCombo(combos, name);
@@ -221,14 +302,19 @@ test("canonical manifest locks exact aliases, economic tiers, and forbidden excl
   assert.deepEqual(manifest.obsoleteNames, [
     "pool-haiku-paid",
     "pool-sonnet-paid",
-    "pool-opus-free",
+    "pool-sonnet-reserve-credits",
     "pool-opus-paid",
     "pool-fable-free",
     "pool-fable-paid",
+    "pool-fable-premium",
   ]);
-  assert.equal(
-    combos.some((combo) => modelNames(combo).some((model) => /x-preview/i.test(model))),
-    false
+  assert.deepEqual(
+    [
+      ...new Set(
+        combos.flatMap((combo) => modelNames(combo)).filter((model) => /x-preview/i.test(model))
+      ),
+    ],
+    ["opencode-zen/x-preview-f-free", "opencode/x-preview-f-free"]
   );
   assert.equal(
     modelNames(findCombo(combos, "pool-haiku-free")).includes(
@@ -295,8 +381,50 @@ test("planner requires reviewed adoption, preserves unrelated fields, and become
   assert.equal(second.drift, false);
 });
 
+test("canonical performance entrypoints and their leaves remain visible", () => {
+  const plan = planCanonicalComboReconciliation([], {
+    adopt: true,
+    now: "2026-08-23T00:00:00.000Z",
+  });
+  const created = plan.operations
+    .filter((operation) => operation.action === "create")
+    .map((operation) => operation.combo);
+  assert.deepEqual(
+    created.filter((combo) => combo.isHidden === false).map((combo) => combo.name),
+    [
+      "pool-haiku-free",
+      "pool-haiku-antigravity",
+      "pool-sonnet-free",
+      "pool-sonnet-antigravity",
+      "pool-sonnet-credits",
+      "pool-opus-free",
+      "pool-opus-antigravity",
+      "pool-opus-credits",
+      "pool-opus-codex",
+      "pool-fable-antigravity",
+      "pool-fable-credits",
+      "pool-fable-reserve-credits",
+      "pool-fable-codex",
+      "pool-haiku",
+      "pool-sonnet",
+      "pool-opus",
+      "pool-fable",
+    ]
+  );
+  const visibleNames = new Set(
+    created.filter((combo) => combo.isHidden === false).map((combo) => combo.name)
+  );
+  assert.ok(
+    created
+      .filter((combo) => !visibleNames.has(combo.name))
+      .every((combo) => combo.isHidden === true)
+  );
+});
+
 test("nested alias executes the child reset-aware strategy instead of flattening it", async () => {
   const combos = manifestCombos();
+  const parent = findCombo(combos, "pool-opus");
+  parent.models = parent.models.filter((step) => step.comboName === "pool-opus-antigravity");
   const child = findCombo(combos, "pool-opus-antigravity");
   child.models = child.models.map((step, index) => ({
     ...step,
@@ -330,7 +458,7 @@ test("nested alias executes the child reset-aware strategy instead of flattening
   ]);
 });
 
-test("canonical parent exhausts one tier, succeeds in the next, and never reaches tier three", async () => {
+test("Fable parent tries genuine evidence before fallback leaves", async () => {
   const combos = manifestCombos();
   const antigravity = findCombo(combos, "pool-fable-antigravity");
   antigravity.models = antigravity.models.slice(0, 1);
@@ -347,23 +475,29 @@ test("canonical parent exhausts one tier, succeeds in the next, and never reache
     log: makeLog(),
     handleSingleModel: async (_body, model) => {
       calls.push(model);
-      if (antigravityModels.has(model)) return errorResponse();
+      if (codexModels.has(model) || antigravityModels.has(model)) return errorResponse();
       return okResponse(model);
     },
   });
 
   assert.equal(response.status, 200);
   const firstCreditIndex = calls.findIndex((model) => creditsModels.has(model));
-  assert.equal(firstCreditIndex, antigravityModels.size);
+  assert.equal(firstCreditIndex, codexModels.size + antigravityModels.size);
   assert.equal(
-    calls.slice(0, firstCreditIndex).every((model) => antigravityModels.has(model)),
+    calls
+      .slice(0, firstCreditIndex)
+      .every((model) => codexModels.has(model) || antigravityModels.has(model)),
     true
   );
   assert.equal(
-    calls.some((model) => codexModels.has(model)),
-    false
+    calls.some((model) => antigravityModels.has(model)),
+    true
   );
-  assert.equal(calls.length, antigravityModels.size + 1, "maxRetries=0 must avoid wrapper retries");
+  assert.equal(
+    calls.length,
+    codexModels.size + antigravityModels.size + 1,
+    "maxRetries=0 must avoid wrapper retries"
+  );
 });
 
 test("CLI is dry-run by default, backs up reviewed apply, and passes the drift gate", () => {
@@ -457,7 +591,7 @@ test("CLI is dry-run by default, backs up reviewed apply, and passes the drift g
   assert.equal(rows.length, getCanonicalComboManifest().combos.length);
   assert.equal(
     rows.some((row) => row.name === "pool-opus-free"),
-    false
+    true
   );
   const storedOpus = JSON.parse(rows.find((row) => row.name === "pool-opus")?.data || "null") as {
     id: string;

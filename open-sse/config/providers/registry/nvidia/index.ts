@@ -38,6 +38,12 @@ export const nvidiaProvider: RegistryEntry = {
     { id: "openai/gpt-oss-20b", name: "GPT OSS 20B", toolCalling: false },
     { id: "nvidia/nemotron-3-super-120b-a12b", name: "Nemotron 3 Super 120B A12B" },
     { id: "nvidia/nemotron-3-ultra-550b-a55b", name: "Nemotron 3 Ultra 550B" },
+    { id: "thinkingmachines/inkling", name: "Inkling", supportsReasoning: true },
+    {
+      id: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      name: "Nemotron 3.5 Lightning 30B A3B",
+      supportsReasoning: true,
+    },
     // Port of decolua/9router#2373 ("fix(nvidia): expand NIM chat model catalog"):
     // additional live-catalog models observed to serve /v1/chat/completions.
     // `minimaxai/minimax-m3` from that PR is intentionally NOT re-added — it stays

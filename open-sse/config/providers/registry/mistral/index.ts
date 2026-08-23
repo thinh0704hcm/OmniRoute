@@ -11,8 +11,11 @@ export const mistralProvider: RegistryEntry = {
   models: [
     { id: "mistral-large-latest", name: "Mistral Large 3" },
     { id: "mistral-medium-3-5", name: "Mistral Medium 3.5" },
+    { id: "mistral-medium-latest", name: "Mistral Medium 3.5 (Latest)" },
     { id: "mistral-small-latest", name: "Mistral Small 4" },
     { id: "devstral-latest", name: "Devstral 2" },
     { id: "codestral-latest", name: "Codestral" },
+    { id: "zai-glm-5-2", name: "GLM 5.2" },
+    { id: "labs-leanstral-2603", name: "Leanstral 2603", toolCalling: false },
   ],
 };

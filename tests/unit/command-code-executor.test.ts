@@ -17,6 +17,8 @@ const originalFetch = globalThis.fetch;
 type FetchCall = { url: string; init: Record<string, unknown>; body?: Record<string, unknown> };
 
 const PINNED_COMMAND_CODE_MODELS = [
+  "stealth/ox-alpha",
+  "poolside/laguna-s-2.1-free",
   "claude-opus-4-7",
   "claude-opus-4-6",
   "claude-sonnet-4-6",
@@ -254,7 +256,9 @@ test("Command Code executor passes the upstream OpenAI JSON through untouched (n
     id: "chatcmpl-1",
     object: "chat.completion",
     model: "gpt-5.4-mini",
-    choices: [{ index: 0, message: { role: "assistant", content: "Hello" }, finish_reason: "stop" }],
+    choices: [
+      { index: 0, message: { role: "assistant", content: "Hello" }, finish_reason: "stop" },
+    ],
     usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
   };
   let capturedStreamFlag: unknown = null;
@@ -278,7 +282,8 @@ test("Command Code executor passes the upstream OpenAI JSON through untouched (n
 });
 
 test("Command Code executor surfaces upstream errors", async () => {
-  globalThis.fetch = async () => new Response("bad key", { status: 401, statusText: "Unauthorized" });
+  globalThis.fetch = async () =>
+    new Response("bad key", { status: 401, statusText: "Unauthorized" });
   const upstreamFailure = await getExecutor("command-code").execute({
     model: "gpt-5.4-mini",
     stream: false,

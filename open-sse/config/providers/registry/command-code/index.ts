@@ -23,6 +23,19 @@ export const command_codeProvider: RegistryEntry = {
   defaultContextLength: 200000,
   models: [
     {
+      id: "stealth/ox-alpha",
+      name: "Ox Alpha (Free)",
+      supportsReasoning: true,
+      supportsVision: true,
+      contextLength: 1048576,
+    },
+    {
+      id: "poolside/laguna-s-2.1-free",
+      name: "Laguna S 2.1 (Free)",
+      supportsReasoning: true,
+      contextLength: 262144,
+    },
+    {
       id: "claude-opus-4-7",
       name: "Claude Opus 4.7 (CC)",
       supportsReasoning: true,
