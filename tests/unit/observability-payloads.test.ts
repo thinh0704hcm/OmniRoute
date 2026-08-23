@@ -212,6 +212,25 @@ test("buildHealthPayload keeps legacy aliases and adds session/quota observabili
       },
     ],
     activeSessionsByKey: { key1: 1 },
+    chatAdmission: {
+      activeHeavy: 1,
+      activeHealthyHeadroom: 0,
+      queuedBytes: 1024,
+      waiting: 2,
+      maxHeavyInFlight: 1,
+      maxQueuedBytes: 4 * 1024 * 1024,
+      queueMs: 2000,
+      rejections: {
+        total: 3,
+        byStage: {
+          byte_hard_limit: 1,
+          byte_queue_timeout: 2,
+          structure_message_limit: 0,
+          structure_queue_timeout: 0,
+        },
+      },
+      lastRejection: null,
+    },
   });
 
   assert.equal(payload.version, "1.2.3");
@@ -227,6 +246,8 @@ test("buildHealthPayload keeps legacy aliases and adds session/quota observabili
   assert.equal(payload.quotaMonitor.monitors[0].provider, "codex");
   assert.equal(payload.setupComplete, true);
   assert.equal(payload.adaptiveAdmission, null);
+  assert.equal(payload.chatAdmission.waiting, 2);
+  assert.equal(payload.chatAdmission.rejections.byStage.byte_queue_timeout, 2);
 });
 
 test("buildHealthPayload projects allowlisted adaptiveAdmission aggregates only", () => {

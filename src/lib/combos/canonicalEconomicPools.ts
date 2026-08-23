@@ -5,7 +5,8 @@
  * deployment gates, and the operator CLI all consume one typed manifest and safety policy.
  */
 
-import type { ClaudePerformanceTier, PricingStructure } from "./tierEvidence";
+import type { ClaudePerformanceTier, PricingStructure } from "./tierEvidence.ts";
+import type { EconomicPool } from "./economicPoolDerivation.ts";
 
 export const CANONICAL_COMBO_MANAGER = "canonical-economic-pools";
 export const CANONICAL_COMBO_VERSION = 4;
@@ -38,6 +39,7 @@ type CanonicalComboConfig = Record<string, unknown> & {
   performanceTier?: ClaudePerformanceTier;
   relativePerformanceBand?: ClaudePerformanceTier | "special";
   pricingStructure?: PricingStructure;
+  economicPool?: EconomicPool;
   accessPolicy?: "open" | "explicit";
   compositeTiers?: {
     defaultTier: string;
@@ -187,6 +189,7 @@ function leafCombo(
     performanceTier?: ClaudePerformanceTier;
     relativePerformanceBand?: ClaudePerformanceTier | "special";
     pricingStructure?: PricingStructure;
+    economicPool?: EconomicPool;
     accessPolicy?: "open" | "explicit";
   } = {}
 ): CanonicalComboSpec {
@@ -241,66 +244,99 @@ const CANONICAL_COMBOS: CanonicalComboSpec[] = [
   leafCombo("pool-haiku-free", "reset-aware", HAIKU_FREE_MODELS, {
     performanceTier: "haiku",
     pricingStructure: "free",
+    economicPool: "free",
   }),
   leafCombo("pool-haiku-antigravity", "reset-aware", ["antigravity/gemini-2.5-flash"], {
     performanceTier: "haiku",
     pricingStructure: "subscription",
+    economicPool: "cheap_subscription",
   }),
-  leafCombo("pool-luna-free", "reset-aware", HAIKU_FREE_MODELS),
-  leafCombo("pool-luna-antigravity", "reset-aware", ["antigravity/gemini-2.5-flash"]),
-  leafCombo("pool-luna-credits", "reset-aware", ["command-code/poolside/laguna-s-2.1-free"]),
-  leafCombo("pool-luna-codex", "priority", ["codex/gpt-5.6-luna"]),
+  leafCombo("pool-luna-free", "reset-aware", HAIKU_FREE_MODELS, {
+    economicPool: "free",
+  }),
+  leafCombo("pool-luna-antigravity", "reset-aware", ["antigravity/gemini-2.5-flash"], {
+    economicPool: "cheap_subscription",
+  }),
+  leafCombo("pool-luna-credits", "reset-aware", ["command-code/poolside/laguna-s-2.1-free"], {
+    economicPool: "raw_credits",
+  }),
+  leafCombo("pool-luna-codex", "priority", ["codex/gpt-5.6-luna"], {
+    economicPool: "raw_credits",
+  }),
   leafCombo("pool-sonnet-free", "reset-aware", SONNET_FREE_MODELS, {
     performanceTier: "sonnet",
     pricingStructure: "free",
+    economicPool: "free",
   }),
   leafCombo(
     "pool-sonnet-antigravity",
     "reset-aware",
     ["antigravity/gemini-3.6-flash-medium", "antigravity/claude-sonnet-4-6"],
-    { performanceTier: "sonnet", pricingStructure: "subscription" }
+    {
+      performanceTier: "sonnet",
+      pricingStructure: "subscription",
+      economicPool: "cheap_subscription",
+    }
   ),
   leafCombo("pool-sonnet-credits", "reset-aware", ["command-code/poolside/laguna-s-2.1-free"], {
     performanceTier: "sonnet",
     pricingStructure: "credits",
+    economicPool: "raw_credits",
   }),
   leafCombo(
     "pool-opus-antigravity",
     "reset-aware",
     ["antigravity/gemini-3.7-flash-tiered", "antigravity/claude-opus-4-6-thinking"],
-    { performanceTier: "opus", pricingStructure: "subscription" }
+    {
+      performanceTier: "opus",
+      pricingStructure: "subscription",
+      economicPool: "expensive_subscription",
+    }
   ),
   leafCombo("pool-opus-credits", "reset-aware", ["agentrouter/claude-opus-5"], {
     performanceTier: "opus",
     pricingStructure: "credits",
+    economicPool: "raw_credits",
   }),
   leafCombo("pool-opus-codex", "priority", ["codex/gpt-5.6-luna"], {
     performanceTier: "opus",
     pricingStructure: "api",
+    economicPool: "raw_credits",
   }),
   leafCombo(
     "pool-fable-antigravity",
     "reset-aware",
     ["antigravity/gemini-3.7-flash-tiered", "antigravity/claude-opus-4-6-thinking"],
-    { performanceTier: "fable", pricingStructure: "subscription" }
+    {
+      performanceTier: "fable",
+      pricingStructure: "subscription",
+      economicPool: "expensive_subscription",
+    }
   ),
   leafCombo(
     "pool-fable-credits",
     "reset-aware",
     ["agentrouter/claude-opus-5", "command-code/meta/muse-spark-1.2-contributor"],
-    { performanceTier: "fable", pricingStructure: "credits" }
+    { performanceTier: "fable", pricingStructure: "credits", economicPool: "raw_credits" }
   ),
   leafCombo("pool-fable-codex", "priority", ["codex/gpt-5.6-terra"], {
     performanceTier: "fable",
     pricingStructure: "api",
+    economicPool: "raw_credits",
   }),
   leafCombo("pool-fable-premium", "priority", ["codex/gpt-5.6-sol"], {
     relativePerformanceBand: "special",
     pricingStructure: "api",
+    economicPool: "raw_credits",
     accessPolicy: "explicit",
   }),
-  leafCombo("pool-sol-codex", "priority", ["codex/gpt-5.6-sol"], { accessPolicy: "explicit" }),
-  leafCombo("pool-terra-codex", "priority", ["codex/gpt-5.6-terra"]),
+  leafCombo("pool-sol-codex", "priority", ["codex/gpt-5.6-sol"], {
+    economicPool: "raw_credits",
+    accessPolicy: "explicit",
+  }),
+  leafCombo("pool-terra-codex", "priority", ["codex/gpt-5.6-terra"], {
+    economicPool: "raw_credits",
+  }),
   parentCombo(
     "pool-haiku",
     [

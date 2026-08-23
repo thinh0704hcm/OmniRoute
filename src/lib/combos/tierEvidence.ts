@@ -1,5 +1,11 @@
 /** Source-backed performance, price, and availability policy for managed pools. */
 
+import {
+  assignPerformanceBands,
+  type ModelPerformanceEvidence,
+  type PerformanceBand,
+} from "./economicPoolDerivation.ts";
+
 export type TierEvidence = {
   tier: "luna" | "terra" | "sol";
   description: string;
@@ -217,17 +223,16 @@ export type ProviderAvailability = {
   quotaRemainingFraction?: number;
 };
 
-/** Deterministic score used by the replay tool; it never reads the live DB. */
+/**
+ * Deterministic performance score used by the replay tool; it never reads the
+ * live DB. Availability is intentionally not folded into this score: runtime
+ * availability is a later pool-selection axis.
+ */
 export function scoreTierAvailability(
   evidence: TierEvidence,
-  availability: ProviderAvailability[]
+  _availability: ProviderAvailability[]
 ): number {
-  const capacity = availability.reduce(
-    (sum, item) =>
-      sum + Math.max(0, item.activeConnections) * Math.max(0, item.quotaRemainingFraction ?? 1),
-    0
-  );
-  return evidence.performanceScore * evidence.availabilityWeight * Math.max(1, capacity);
+  return evidence.performanceScore;
 }
 
 export function rankTierEvidence(availability: ProviderAvailability[] = []): TierEvidence[] {
@@ -255,4 +260,58 @@ export function validateTierEvidence(entries: readonly TierEvidence[] = GPT56_TI
     }
   }
   return { ok: errors.length === 0, errors };
+}
+
+/**
+ * The small, checked-in seed used before an external benchmark catalog is
+ * available.  It is intentionally model-scoped; tier-level pricing metadata
+ * must never be treated as evidence for every provider/model variant.
+ */
+const SEEDED_MODEL_BENCHMARKS: readonly ModelPerformanceEvidence[] = Object.freeze([
+  ...GPT56_TIER_EVIDENCE.map((entry) => ({
+    model: `gpt-5.6-${entry.tier}`,
+    benchmarkScore: entry.performanceScore,
+    benchmarkConfidence: 0.5,
+  })),
+  ...CLAUDE_PERFORMANCE_EVIDENCE.map((entry) => ({
+    model: entry.model,
+    benchmarkScore: entry.performanceScore,
+    benchmarkConfidence: 0.5,
+  })),
+  ...NIM_BENCHMARK_EVIDENCE.map((entry) => ({
+    provider: entry.provider,
+    model: entry.model,
+    benchmarkScore: Math.min(1, entry.compositeScore / 100),
+    benchmarkConfidence: Math.min(1, entry.runs / 50),
+  })),
+]);
+
+const SEEDED_MODEL_BANDS = assignPerformanceBands(
+  SEEDED_MODEL_BENCHMARKS.map((entry) => ({
+    model: entry.model,
+    score: entry.benchmarkScore ?? 0.5,
+    confidence: entry.benchmarkConfidence,
+    source: "seeded-evidence",
+  }))
+);
+
+function modelMatches(candidate: string, requested: string): boolean {
+  const left = candidate.toLowerCase();
+  const right = requested.toLowerCase();
+  return left === right || right.endsWith(`/${left}`) || right.includes(left);
+}
+
+/** Return model-scoped benchmark evidence for runtime performance-first routing. */
+export function getSeededModelPerformanceEvidence(
+  provider: string,
+  model: string
+): ModelPerformanceEvidence | null {
+  const entry = SEEDED_MODEL_BENCHMARKS.find(
+    (candidate) =>
+      modelMatches(candidate.model, model) &&
+      (!candidate.provider || candidate.provider.toLowerCase() === provider.toLowerCase())
+  );
+  if (!entry) return null;
+  const band: PerformanceBand = SEEDED_MODEL_BANDS.get(entry.model) ?? "economy";
+  return { ...entry, band };
 }

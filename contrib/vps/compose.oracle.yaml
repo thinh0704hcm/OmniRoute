@@ -31,6 +31,11 @@ services:
       LIVE_WS_PORT: "20133"
       OMNIROUTE_MEMORY_MB: "4096"
       NODE_OPTIONS: --max-old-space-size=4096
+      # Oracle mitigation for long Anthropic agent bursts: serialize heavyweight
+      # work while allowing the next request to wait for the active lease.
+      OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT: "1"
+      OMNIROUTE_CHAT_ADMISSION_QUEUE_MS: "30000"
+      OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES: "4194304"
       OMNIROUTE_BASE_URL: http://omniroute-parallel:20130
       REDIS_URL: redis://omniroute-parallel-redis:6379
       OMNIROUTE_BUILD_SHA: ${OMNIROUTE_BUILD_SHA:?required}

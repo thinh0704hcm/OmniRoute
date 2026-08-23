@@ -3,6 +3,7 @@ import {
   getCodexParentAccountDiagnostic,
 } from "@omniroute/open-sse/services/codexAccount/index.ts";
 import type { AdaptiveAdmissionPublicSnapshot } from "@omniroute/open-sse/services/admission/runtime.ts";
+import type { ChatAdmissionDiagnostics } from "@/shared/middleware/chatBodyAdmission";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -160,6 +161,45 @@ interface BuildHealthPayloadOptions {
   };
   /** Optional injected public adaptive-admission snapshot; projected, never raw-spread. */
   adaptiveAdmission?: AdaptiveAdmissionPublicSnapshot | null;
+  /** Process-local heavyweight chat admission occupancy and rejection counters. */
+  chatAdmission?: ChatAdmissionDiagnostics | null;
+}
+
+function projectChatAdmissionDiagnostics(
+  diagnostics: ChatAdmissionDiagnostics | null | undefined
+): ChatAdmissionDiagnostics | null {
+  if (!diagnostics || typeof diagnostics !== "object") return null;
+  const last = diagnostics.lastRejection;
+  return {
+    activeHeavy: diagnostics.activeHeavy,
+    activeHealthyHeadroom: diagnostics.activeHealthyHeadroom,
+    queuedBytes: diagnostics.queuedBytes,
+    waiting: diagnostics.waiting,
+    maxHeavyInFlight: diagnostics.maxHeavyInFlight,
+    maxQueuedBytes: diagnostics.maxQueuedBytes,
+    queueMs: diagnostics.queueMs,
+    rejections: {
+      total: diagnostics.rejections.total,
+      byStage: {
+        byte_hard_limit: diagnostics.rejections.byStage.byte_hard_limit,
+        byte_queue_timeout: diagnostics.rejections.byStage.byte_queue_timeout,
+        structure_message_limit: diagnostics.rejections.byStage.structure_message_limit,
+        structure_queue_timeout: diagnostics.rejections.byStage.structure_queue_timeout,
+      },
+    },
+    lastRejection: last
+      ? {
+          at: last.at,
+          stage: last.stage,
+          requestBytes: last.requestBytes,
+          queueWaitMs: last.queueWaitMs,
+          activeHeavy: last.activeHeavy,
+          activeHealthyHeadroom: last.activeHealthyHeadroom,
+          queuedBytes: last.queuedBytes,
+          waiting: last.waiting,
+        }
+      : null,
+  };
 }
 
 function limitMonitors(monitors: QuotaMonitorSnapshot[], maxItems = 8): QuotaMonitorSnapshot[] {
@@ -347,6 +387,7 @@ export function buildHealthPayload({
   activeSessionsByKey = {},
   credentialHealth,
   adaptiveAdmission = null,
+  chatAdmission = null,
   buildSha = null,
 }: BuildHealthPayloadOptions) {
   const timestamp = new Date().toISOString();
@@ -449,6 +490,7 @@ export function buildHealthPayload({
     sessions: buildSessionsSummary({ activeSessions, activeSessionsByKey }),
     credentialHealth, // may be undefined if credentialHealth module not loaded
     adaptiveAdmission: projectAdaptiveAdmissionSummary(adaptiveAdmission),
+    chatAdmission: projectChatAdmissionDiagnostics(chatAdmission),
     dedup: {
       inflightRequests,
     },

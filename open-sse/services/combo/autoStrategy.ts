@@ -38,6 +38,7 @@ import {
   type ScoringWeights,
 } from "../autoCombo/scoring.ts";
 import type { RoutingHint } from "../manifestAdapter";
+import { comparePerformanceFirst } from "../../../src/lib/combos/economicPoolDerivation";
 import { getCachedProviderConnections } from "../../../src/lib/db/readCache";
 import {
   getSyncedAvailableModels,
@@ -404,10 +405,34 @@ export function scoreAutoTargets(
       return {
         target,
         score,
+        performanceBand: candidate.performanceBand,
+        benchmarkScore: candidate.benchmarkScore,
+        quality: candidate.quality,
+        provider: candidate.provider,
+        model: candidate.model,
       };
     })
-    .filter((entry): entry is { target: ResolvedComboTarget; score: number } => entry !== null)
-    .sort((a, b) => b.score - a.score);
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .sort((left, right) =>
+      comparePerformanceFirst(
+        {
+          performanceBand: left.performanceBand,
+          benchmarkScore: left.benchmarkScore,
+          quality: left.quality,
+          score: left.score,
+          provider: left.provider,
+          model: left.model,
+        },
+        {
+          performanceBand: right.performanceBand,
+          benchmarkScore: right.benchmarkScore,
+          quality: right.quality,
+          score: right.score,
+          provider: right.provider,
+          model: right.model,
+        }
+      )
+    );
 }
 
 /**

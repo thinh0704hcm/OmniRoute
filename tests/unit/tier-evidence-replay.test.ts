@@ -50,15 +50,22 @@ test("NIM benchmark evidence remains provider-scoped", () => {
   assert.ok(NIM_BENCHMARK_EVIDENCE.every((entry) => entry.provider === "nvidia"));
 });
 
-test("tier replay ranks frontier capability deterministically", () => {
+test("tier replay keeps performance ahead of availability", () => {
   const ranked = rankTierEvidence([
-    { provider: "codex", activeConnections: 3, quotaRemainingFraction: 0.8 },
-    { provider: "antigravity", activeConnections: 4, quotaRemainingFraction: 0.5 },
+    { provider: "codex", activeConnections: 1, quotaRemainingFraction: 0.01 },
+    { provider: "antigravity", activeConnections: 100, quotaRemainingFraction: 1 },
   ]);
   assert.deepEqual(
     ranked.map((entry) => entry.tier),
     ["sol", "terra", "luna"]
   );
+});
+
+test("canonical performance pools carry an explicit economic classification", () => {
+  const combos = new Map(getCanonicalComboManifest().combos.map((combo) => [combo.name, combo]));
+  assert.equal(combos.get("pool-haiku-free")?.config.economicPool, "free");
+  assert.equal(combos.get("pool-luna-antigravity")?.config.economicPool, "cheap_subscription");
+  assert.equal(combos.get("pool-sol-codex")?.config.economicPool, "raw_credits");
 });
 
 test("canonical pools map GPT-5.6 aliases to performance-specific pools", () => {

@@ -53,7 +53,7 @@ Common problems and solutions for OmniRoute.
 ```bash
 export OMNIROUTE_ROTATE_ON_400=true           # hop to another model/provider on 400/401 (skips broken passthrough models)
 export OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT=4   # raise the heavyweight admission ceiling (default 1) so long-context bursts are not rejected
-export OMNIROUTE_CHAT_ADMISSION_QUEUE_MS=5000 # longer bounded wait for heavyweight capacity instead of an immediate retryable 503
+export OMNIROUTE_CHAT_ADMISSION_QUEUE_MS=2000 # longer bounded wait for heavyweight capacity instead of an immediate retryable 503
 ```
 
 Set these in the OmniRoute process environment (the daemon, e.g. via the LaunchAgent plist or `systemctl edit`), then restart OmniRoute. The rotation flag is the single highest-leverage lever: it converts a hard failure into a transparent retry against a healthy provider in the pool.
@@ -62,7 +62,7 @@ Set these in the OmniRoute process environment (the daemon, e.g. via the LaunchA
 
 **How to verify it worked**: run your agent/cron twice in quick succession and confirm both succeed. Before the fix, the second run typically throws `429`/`401`. After the fix, failures (if any) are retried transparently and the call completes. You can also `curl /monitoring/health` and watch the `rateLimitedUntil` field on the provider connections and the `circuitBreakers.providerBreakers[].state` for the affected providers — the state is one of `CLOSED`, `DEGRADED`, `OPEN`, or `HALF_OPEN` (see `src/shared/utils/circuitBreaker.ts`), and a provider that keeps failing will flip `CLOSED → DEGRADED → OPEN` before the reset window lets a probe through (`HALF_OPEN`).
 
-**If you still see 429**: the active account for that provider has genuinely exhausted its *quota* (not just rate). Add a second account for the same provider in the OmniRoute dashboard → Providers → Accounts, or mix in another free provider (e.g. `routeway`, `auggie`). Rotation only helps with transient rate/400/401; a hard quota exhaustion requires a second credential or a different provider.
+**If you still see 429**: the active account for that provider has genuinely exhausted its _quota_ (not just rate). Add a second account for the same provider in the OmniRoute dashboard → Providers → Accounts, or mix in another free provider (e.g. `routeway`, `auggie`). Rotation only helps with transient rate/400/401; a hard quota exhaustion requires a second credential or a different provider.
 
 **If you see 403 on vision models (`auto/vision`, `bazaarlink/*`)**: the connected account lacks a paid plan that includes vision, or the API key has insufficient permissions. Verify in the provider dashboard that the key scope includes vision/multimodal, or connect a paid tier account and keep it as the vision target.
 
@@ -568,19 +568,21 @@ and parsing a large request body. A heavyweight lease remains held for the lifet
 response.
 
 When capacity is busy, a heavyweight request first waits up to
-`OMNIROUTE_CHAT_ADMISSION_QUEUE_MS` (default `5000`, `0` disables the wait) for a slot to free up
+`OMNIROUTE_CHAT_ADMISSION_QUEUE_MS` (default `2000`, `0` disables the wait) for a slot to free up
 before answering the retryable `503`. The bounded wait exists so agent-style clients
 (OpenCode, Claude Code, Cursor) that fan out heavy sub-requests concurrently serialize the burst
 instead of burning their whole retry budget on immediate rejections and dying mid-task.
-Current heavyweight lease occupancy is not surfaced in the dashboard.
+Authenticated health diagnostics expose current heavyweight occupancy, queued bytes, waiter count,
+and sanitized rejection counters under `chatAdmission`; request contents and credentials are never
+included. The source default for `OMNIROUTE_CHAT_ADMISSION_QUEUE_MS` is `2000` ms.
 Settings → Resilience → Request Queue → Concurrent Requests does not control this; that setting
 governs a separate provider request-queue mechanism.
 
 **Fix:**
 
 1. Retry first. Clients should honor `Retry-After` and use backoff rather than immediately
-   repeating the request. Note that with the default `OMNIROUTE_CHAT_ADMISSION_QUEUE_MS=5000`
-   a heavy request already waited up to 5 seconds before the `503`, so a client retry loop should
+   repeating the request. Note that with the default `OMNIROUTE_CHAT_ADMISSION_QUEUE_MS=2000`
+   a heavy request already waited up to 2 seconds before the `503`, so a client retry loop should
    back off beyond that instead of hammering.
 2. If normal deployment traffic repeatedly exhausts the guard, you can cautiously raise
    `OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT` from its default of `1`. Increase it one step at a time,

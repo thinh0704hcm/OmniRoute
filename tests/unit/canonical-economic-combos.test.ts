@@ -95,9 +95,9 @@ test("canonical manifest locks exact aliases, economic tiers, and forbidden excl
   const combos = manifest.combos as CanonicalCombo[];
   const expectedAliases = new Map([
     ["gpt-5.4-mini", "pool-haiku"],
-    ["gpt-5.6-luna", "pool-opus"],
-    ["gpt-5.6-terra", "pool-fable"],
-    ["gpt-5.6-sol", "pool-fable-premium"],
+    ["gpt-5.6-luna", "pool-luna"],
+    ["gpt-5.6-terra", "pool-terra"],
+    ["gpt-5.6-sol", "pool-sol-codex"],
     ["claude-haiku-4-5-20251001", "pool-haiku"],
     ["claude-sonnet-5", "pool-sonnet"],
     ["claude-opus-5", "pool-opus"],
@@ -139,17 +139,18 @@ test("canonical manifest locks exact aliases, economic tiers, and forbidden excl
         models: [
           "gemini/gemini-3.5-flash-lite",
           "groq/qwen/qwen3.6-27b",
-          "nous-research/meituan/longcat-2.0:free",
           "nous-research/stepfun/step-3.7-flash:free",
           "openrouter/nvidia/nemotron-3.5-lightning:free",
           "cloudflare-ai/@cf/google/gemma-4-26b-a4b-it",
-          "nvidia/nvidia/nemotron-3-super-120b-a12b",
           "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
           "groq/openai/gpt-oss-120b",
           "nous-research/poolside/laguna-xs-2.1:free",
           "openrouter/poolside/laguna-xs-2.1:free",
           "groq/openai/gpt-oss-20b",
           "openrouter/openai/gpt-oss-20b:free",
+          "opencode/nemotron-3-ultra-free",
+          "opencode/nemotron-3.5-lightning-free",
+          "gemini/gemini-2.5-flash-lite",
         ],
       },
     ],
@@ -162,10 +163,16 @@ test("canonical manifest locks exact aliases, economic tiers, and forbidden excl
       {
         strategy: "reset-aware",
         models: [
+          "nous-research/meituan/longcat-2.0:free",
           "nvidia/z-ai/glm-5.2",
+          "nvidia/nvidia/nemotron-3-super-120b-a12b",
           "nous-research/tencent/hy3:free",
           "nous-research/upstage/solar-pro4:free",
           "nous-research/poolside/laguna-s-2.1:free",
+          "opencode/mimo-v2.5-free",
+          "cloudflare-ai/@cf/qwen/qwen2.5-coder-32b-instruct",
+          "gemini/gemini-3-flash-preview",
+          "mistral/devstral-latest",
         ],
       },
     ],
@@ -306,8 +313,8 @@ test("nested alias executes the child reset-aware strategy instead of flattening
 
   const calls: Array<{ model: string; connectionId: string | null }> = [];
   const response = await handleComboChat({
-    body: { model: "gpt-5.6-luna", messages: [{ role: "user", content: "test" }] },
-    combo: findCombo(combos, "gpt-5.6-luna"),
+    body: { model: "claude-opus-5", messages: [{ role: "user", content: "test" }] },
+    combo: findCombo(combos, "claude-opus-5"),
     allCombos: combos,
     settings: {},
     log: makeLog(),
@@ -333,8 +340,8 @@ test("canonical parent exhausts one tier, succeeds in the next, and never reache
   const calls: string[] = [];
 
   const response = await handleComboChat({
-    body: { model: "gpt-5.6-terra", messages: [{ role: "user", content: "test" }] },
-    combo: findCombo(combos, "gpt-5.6-terra"),
+    body: { model: "claude-fable-5", messages: [{ role: "user", content: "test" }] },
+    combo: findCombo(combos, "claude-fable-5"),
     allCombos: combos,
     settings: {},
     log: makeLog(),

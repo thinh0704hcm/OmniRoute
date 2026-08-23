@@ -14,6 +14,7 @@ const {
   releaseChatAdmissionAfterHandler,
   releaseChatAdmissionWhenDone,
   resolveSelfLoopBearer,
+  getChatAdmissionDiagnostics,
 } = admissionModule;
 const { withEarlyStreamKeepalive } = await import("../../open-sse/utils/earlyStreamKeepalive.ts");
 
@@ -341,6 +342,32 @@ test("heavyweight admission is atomic and returns retryable 503 at capacity", as
   first.lease?.release();
   first.lease?.release();
   assert.equal(controller.activeHeavy, 0, "release must be idempotent");
+});
+
+test("admission diagnostics record sanitized rejection stage and live occupancy", async () => {
+  const controller = new ChatAdmissionController(1);
+  const held = controller.tryAcquireHeavy();
+  assert.ok(held);
+  const before = getChatAdmissionDiagnostics();
+  const result = await admitChatRequest(chatRequest("x".repeat(40)), {
+    controller,
+    largeBodyBytes: 32,
+    hardMaxBytes: 1024,
+    queueMs: 0,
+  });
+  assert.equal(result.admit, false);
+  const after = getChatAdmissionDiagnostics();
+  assert.equal(after.activeHeavy, before.activeHeavy);
+  assert.equal(after.lastRejection?.stage, "byte_queue_timeout");
+  assert.equal(after.lastRejection?.requestBytes, 40);
+  assert.equal(after.lastRejection?.queuedBytes, 0);
+  assert.equal(after.lastRejection?.waiting, 0);
+  assert.equal(after.rejections.total, before.rejections.total + 1);
+  assert.equal(
+    after.rejections.byStage.byte_queue_timeout,
+    before.rejections.byStage.byte_queue_timeout + 1
+  );
+  held.release();
 });
 
 test("small unknown-length bodies do not consume heavyweight capacity", async () => {

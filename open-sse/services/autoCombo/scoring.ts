@@ -7,6 +7,7 @@
 import type { RoutingHint } from "../manifestAdapter";
 import { clamp01 } from "../../utils/number";
 import { classifyTier } from "../tierResolver";
+import type { EconomicPool, PerformanceBand } from "../../../src/lib/combos/economicPoolDerivation";
 
 export interface ScoringFactors {
   quota: number;
@@ -125,6 +126,12 @@ export interface ProviderCandidate {
    * candidates default to a neutral 1.0 in calculateFactors.
    */
   quality?: number;
+  /** Evidence-first hard performance band. Unknown candidates use economy. */
+  performanceBand?: PerformanceBand;
+  /** Normalized benchmark score used before runtime availability. */
+  benchmarkScore?: number;
+  /** Economic access class for explainability and pool derivation. */
+  economicPool?: EconomicPool;
   connectionPoolSize?: number;
   connectionId?: string;
 }

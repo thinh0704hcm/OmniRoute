@@ -74,6 +74,7 @@ export async function GET(request: Request) {
       credentialHealthModule,
       localHealthModule,
       adaptiveAdmissionModule,
+      chatAdmissionModule,
       settingsResult,
       connectionsResult,
     ] = await Promise.allSettled([
@@ -86,6 +87,7 @@ export async function GET(request: Request) {
       import("@/lib/credentialHealth/cache"),
       import("@/lib/localHealthCheck"),
       import("@omniroute/open-sse/services/admission/runtime.ts"),
+      import("@/shared/middleware/chatBodyAdmission"),
       getCachedSettings(),
       getProviderConnections(),
     ]);
@@ -172,6 +174,14 @@ export async function GET(request: Request) {
             null
           )
         : null;
+    const chatAdmission =
+      chatAdmissionModule.status === "fulfilled"
+        ? readHealthValue(
+            "chat admission",
+            () => chatAdmissionModule.value.getChatAdmissionDiagnostics(),
+            null
+          )
+        : null;
 
     const payload = buildHealthPayload({
       appVersion: APP_CONFIG.version,
@@ -200,6 +210,7 @@ export async function GET(request: Request) {
       activeSessionsByKey,
       credentialHealth,
       adaptiveAdmission,
+      chatAdmission,
     });
 
     healthPayloadCache = { payload, expiresAt: Date.now() + HEALTH_PAYLOAD_TTL_MS };
@@ -218,6 +229,7 @@ export async function GET(request: Request) {
       quotaMonitor: { ...fallbackQuotaMonitorSummary, monitors: [] },
       sessions: { activeCount: 0, stickyBoundCount: 0, byApiKey: {}, top: [] },
       adaptiveAdmission: null,
+      chatAdmission: null,
       dedup: { inflightRequests: 0 },
     });
   }

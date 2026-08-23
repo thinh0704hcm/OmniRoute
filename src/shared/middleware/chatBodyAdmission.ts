@@ -69,6 +69,63 @@ export const CHAT_ADMISSION_MAX_QUEUED_BYTES = parsePositiveInt(
   4 * 1024 * 1024
 );
 
+export type ChatAdmissionRejectionStage =
+  "byte_hard_limit" | "byte_queue_timeout" | "structure_message_limit" | "structure_queue_timeout";
+
+export interface ChatAdmissionDiagnostics {
+  activeHeavy: number;
+  activeHealthyHeadroom: number;
+  queuedBytes: number;
+  waiting: number;
+  maxHeavyInFlight: number;
+  maxQueuedBytes: number;
+  queueMs: number;
+  rejections: {
+    total: number;
+    byStage: Record<ChatAdmissionRejectionStage, number>;
+  };
+  lastRejection: {
+    at: string;
+    stage: ChatAdmissionRejectionStage;
+    requestBytes: number;
+    queueWaitMs: number;
+    activeHeavy: number;
+    activeHealthyHeadroom: number;
+    queuedBytes: number;
+    waiting: number;
+  } | null;
+}
+
+const admissionRejectionCounts: Record<ChatAdmissionRejectionStage, number> = {
+  byte_hard_limit: 0,
+  byte_queue_timeout: 0,
+  structure_message_limit: 0,
+  structure_queue_timeout: 0,
+};
+let lastAdmissionRejection: ChatAdmissionDiagnostics["lastRejection"] = null;
+
+function recordAdmissionRejection(
+  stage: ChatAdmissionRejectionStage,
+  controller: ChatAdmissionController,
+  requestBytes: number,
+  queueWaitMs: number
+): void {
+  const safeRequestBytes =
+    Number.isSafeInteger(requestBytes) && requestBytes >= 0 ? requestBytes : 0;
+  const safeQueueWaitMs = Number.isSafeInteger(queueWaitMs) && queueWaitMs >= 0 ? queueWaitMs : 0;
+  admissionRejectionCounts[stage] += 1;
+  lastAdmissionRejection = {
+    at: new Date().toISOString(),
+    stage,
+    requestBytes: safeRequestBytes,
+    queueWaitMs: safeQueueWaitMs,
+    activeHeavy: controller.activeHeavy,
+    activeHealthyHeadroom: controller.activeHealthyHeadroom,
+    queuedBytes: controller.queuedBytes,
+    waiting: controller.waitingCount,
+  };
+}
+
 export const CHAT_HEAVY_MESSAGE_COUNT = parsePositiveInt(
   process.env.OMNIROUTE_CHAT_HEAVY_MESSAGE_COUNT,
   200
@@ -497,12 +554,14 @@ export class PerConnectionAdmissionController {
    */
   snapshot(): {
     activeHeavy: number;
+    activeHealthyHeadroom: number;
     queuedBytes: number;
     waiting: number;
     lanes: ReadonlyArray<{ key: string; waiting: number }>;
   } {
     return {
       activeHeavy: this.#controller.activeHeavy,
+      activeHealthyHeadroom: this.#controller.activeHealthyHeadroom,
       queuedBytes: this.#controller.queuedBytes,
       waiting: this.#controller.waitingCount,
       lanes: this.#controller.waitersByKey,
@@ -511,6 +570,10 @@ export class PerConnectionAdmissionController {
 
   get activeHeavy(): number {
     return this.#controller.activeHeavy;
+  }
+
+  get activeHealthyHeadroom(): number {
+    return this.#controller.activeHealthyHeadroom;
   }
 
   get queuedBytes(): number {
@@ -530,6 +593,28 @@ export class PerConnectionAdmissionController {
 export const perConnectionAdmissionController = new PerConnectionAdmissionController(
   CHAT_MAX_HEAVY_IN_FLIGHT
 );
+
+/**
+ * Authenticated health diagnostics for the process-wide byte admission budget.
+ * This allowlisted projection contains no request headers, credentials, or body data.
+ */
+export function getChatAdmissionDiagnostics(): ChatAdmissionDiagnostics {
+  const snapshot = perConnectionAdmissionController.snapshot();
+  return {
+    activeHeavy: snapshot.activeHeavy,
+    activeHealthyHeadroom: snapshot.activeHealthyHeadroom,
+    queuedBytes: snapshot.queuedBytes,
+    waiting: snapshot.waiting,
+    maxHeavyInFlight: CHAT_MAX_HEAVY_IN_FLIGHT,
+    maxQueuedBytes: CHAT_ADMISSION_MAX_QUEUED_BYTES,
+    queueMs: CHAT_ADMISSION_QUEUE_MAX_MS,
+    rejections: {
+      total: Object.values(admissionRejectionCounts).reduce((total, count) => total + count, 0),
+      byStage: { ...admissionRejectionCounts },
+    },
+    lastRejection: lastAdmissionRejection ? { ...lastAdmissionRejection } : null,
+  };
+}
 
 export type ChatRequestAdmission =
   | { admit: true; request: Request; lease: ChatAdmissionLease | null }
@@ -659,9 +744,15 @@ export async function admitChatStructure(
   const messages = [record.messages, record.input].flat().filter((item) => item != null);
   const tools = Array.isArray(record.tools) ? record.tools : [];
   const maxMessages = options.maxMessages ?? CHAT_HARD_MAX_MESSAGES;
+  const diagnosticsController =
+    options.controller ??
+    (options.sessionId
+      ? perConnectionAdmissionController.getController(options.sessionId)
+      : defaultAdmissionController);
   // Opt-in only: `0`/unset means no history cap, so oversized conversations reach the
   // compression pipeline and the bounded heavyweight path instead of a terminal 413.
   if (maxMessages > 0 && messages.length > maxMessages) {
+    recordAdmissionRejection("structure_message_limit", diagnosticsController, 0, 0);
     return { admit: false, response: structuralRejectionResponse(413, maxMessages) };
   }
 
@@ -719,15 +810,16 @@ export async function admitChatStructure(
   // Structural-only waits happen on byte-light bodies (a byte-heavy body already
   // holds the byte-stage lease), so the conservative 256KB weight bounds the
   // parsed JSON the waiter keeps resident while parked.
+  const queueStartedAt = Date.now();
   const acquired = await controller.acquireHeavyWithin(
     options.queueMs ?? 0,
     options.signal,
     CHAT_LARGE_BODY_BYTES,
     options.sessionId
   );
-  return acquired
-    ? { admit: true, lease: acquired }
-    : { admit: false, response: structuralRejectionResponse(503, maxMessages) };
+  if (acquired) return { admit: true, lease: acquired };
+  recordAdmissionRejection("structure_queue_timeout", controller, 0, Date.now() - queueStartedAt);
+  return { admit: false, response: structuralRejectionResponse(503, maxMessages) };
 }
 
 function parseContentLength(header: string | null): number | null {
@@ -891,13 +983,18 @@ export async function admitChatRequest(
   }
 
   if (contentLength !== null && contentLength > hardMaxBytes) {
+    recordAdmissionRejection("byte_hard_limit", controller, contentLength, 0);
     return { admit: false, response: rejectionResponse(413, hardMaxBytes) };
   }
 
   let lease: ChatAdmissionLease | null = null;
   const reserve = async (bytes = 0): Promise<boolean> => {
     if (lease) return true;
+    const startedAt = Date.now();
     lease = await controller.acquireHeavyWithin(queueMs, request.signal, bytes, sessionId);
+    if (!lease) {
+      recordAdmissionRejection("byte_queue_timeout", controller, bytes, Date.now() - startedAt);
+    }
     return lease !== null;
   };
 
@@ -924,6 +1021,7 @@ export async function admitChatRequest(
       if (totalBytes > hardMaxBytes) {
         await reader.cancel("chat request exceeds hard body limit").catch(() => undefined);
         lease?.release();
+        recordAdmissionRejection("byte_hard_limit", controller, totalBytes, 0);
         return { admit: false, response: rejectionResponse(413, hardMaxBytes) };
       }
       if (totalBytes >= largeBodyBytes && !(await reserve(totalBytes))) {
