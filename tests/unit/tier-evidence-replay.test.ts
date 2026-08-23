@@ -81,4 +81,18 @@ test("canonical pools map GPT-5.6 aliases to performance-specific pools", () => 
     terra?.models.map((step) => (step as { label?: string }).label),
     ["antigravity", "credits", "free", "codex"]
   );
+  const sonnetFree = combos.get("pool-sonnet-free");
+  assert.equal(
+    sonnetFree?.models.some(
+      (step) => step.kind === "model" && step.model === "nous-research/meituan/longcat-2.0:free"
+    ),
+    true
+  );
+  const haikuFree = combos.get("pool-haiku-free");
+  assert.equal(
+    haikuFree?.models.some(
+      (step) => step.kind === "model" && step.model === "nous-research/meituan/longcat-2.0:free"
+    ),
+    false
+  );
 });

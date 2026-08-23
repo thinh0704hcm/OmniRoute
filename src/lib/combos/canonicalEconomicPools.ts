@@ -127,7 +127,6 @@ const OBSOLETE_MANAGED_NAMES = Object.freeze([
 const HAIKU_FREE_MODELS = Object.freeze([
   "gemini/gemini-3.5-flash-lite",
   "groq/qwen/qwen3.6-27b",
-  "nous-research/meituan/longcat-2.0:free",
   "nous-research/stepfun/step-3.7-flash:free",
   "openrouter/nvidia/nemotron-3.5-lightning:free",
   "cloudflare-ai/@cf/google/gemma-4-26b-a4b-it",
@@ -138,6 +137,16 @@ const HAIKU_FREE_MODELS = Object.freeze([
   "openrouter/poolside/laguna-xs-2.1:free",
   "groq/openai/gpt-oss-20b",
   "openrouter/openai/gpt-oss-20b:free",
+]);
+
+// LongCat 2.0 is promoted to the Sonnet band: the live :free route emitted a native
+// tool call, and its published profile targets coding, repository edits, and agentic work.
+const SONNET_FREE_MODELS = Object.freeze([
+  "nous-research/meituan/longcat-2.0:free",
+  "nvidia/z-ai/glm-5.2",
+  "nous-research/tencent/hy3:free",
+  "nous-research/upstage/solar-pro4:free",
+  "nous-research/poolside/laguna-s-2.1:free",
 ]);
 
 function modelStep(comboName: string, model: string, index: number): CanonicalComboStep {
@@ -233,17 +242,10 @@ const CANONICAL_COMBOS: CanonicalComboSpec[] = [
   leafCombo("pool-luna-antigravity", "reset-aware", ["antigravity/gemini-2.5-flash"]),
   leafCombo("pool-luna-credits", "reset-aware", ["command-code/poolside/laguna-s-2.1-free"]),
   leafCombo("pool-luna-codex", "priority", ["codex/gpt-5.6-luna"]),
-  leafCombo(
-    "pool-sonnet-free",
-    "reset-aware",
-    [
-      "nvidia/z-ai/glm-5.2",
-      "nous-research/tencent/hy3:free",
-      "nous-research/upstage/solar-pro4:free",
-      "nous-research/poolside/laguna-s-2.1:free",
-    ],
-    { performanceTier: "sonnet", pricingStructure: "free" }
-  ),
+  leafCombo("pool-sonnet-free", "reset-aware", SONNET_FREE_MODELS, {
+    performanceTier: "sonnet",
+    pricingStructure: "free",
+  }),
   leafCombo(
     "pool-sonnet-antigravity",
     "reset-aware",
