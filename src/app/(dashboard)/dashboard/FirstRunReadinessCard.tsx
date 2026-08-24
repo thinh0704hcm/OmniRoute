@@ -19,15 +19,18 @@ export default function FirstRunReadinessCard({ setupComplete }: FirstRunReadine
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (setupComplete) {
-      setVisible(false);
-      return;
-    }
-    try {
-      setVisible(!localStorage.getItem(DISMISS_STORAGE_KEY));
-    } catch {
-      setVisible(true);
-    }
+    const timer = window.setTimeout(() => {
+      if (setupComplete) {
+        setVisible(false);
+        return;
+      }
+      try {
+        setVisible(!localStorage.getItem(DISMISS_STORAGE_KEY));
+      } catch {
+        setVisible(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [setupComplete]);
 
   if (!visible || setupComplete) return null;

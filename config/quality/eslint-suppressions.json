@@ -3445,7 +3445,7 @@
   },
   "tests/integration/qdrant-routes.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 19
+      "count": 3
     }
   },
   "tests/integration/quota-pools-usage.test.ts": {
@@ -4029,10 +4029,10 @@
   },
   "tests/unit/cli-combo-suggest-commands.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 16
+      "count": 14
     },
     "@typescript-eslint/no-unused-vars": {
-      "count": 2
+      "count": 1
     }
   },
   "tests/unit/cli-completion-dynamic.test.ts": {
@@ -4042,7 +4042,7 @@
   },
   "tests/unit/cli-compression-commands.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 32
+      "count": 20
     }
   },
   "tests/unit/cli-context-eng-commands.test.ts": {
@@ -4099,7 +4099,7 @@
   },
   "tests/unit/cli-mcp-call-commands.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 16
+      "count": 10
     }
   },
   "tests/unit/cli-memory-commands.test.ts": {
@@ -4130,7 +4130,7 @@
   },
   "tests/unit/cli-oneproxy-commands.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 22
+      "count": 14
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -4203,9 +4203,6 @@
   "tests/unit/cli-resilience-commands.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 16
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
     }
   },
   "tests/unit/cli-runtime-extended.test.ts": {
@@ -4238,7 +4235,7 @@
   },
   "tests/unit/cli-skills-commands.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 22
+      "count": 16
     }
   },
   "tests/unit/cli-stop-supervisor-respawn-9455.test.ts": {

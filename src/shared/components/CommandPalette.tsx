@@ -156,7 +156,7 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
           ];
         });
       }),
-    [hiddenItems, radarAdminUrl, safeTranslate]
+    [activePreset, hiddenItems, radarAdminUrl, safeTranslate]
   );
 
   const filtered = useMemo(() => {

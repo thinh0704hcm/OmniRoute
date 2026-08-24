@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import Link from "next/link";
 import { Card, Button, Input, Modal, CardSkeleton, SegmentedControl } from "@/shared/components";
 import Toggle from "@/shared/components/Toggle";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
@@ -138,7 +137,6 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
   // Endpoints / models state
   const [allModels, setAllModels] = useState([]);
   const [modelsLoading, setModelsLoading] = useState(true);
-  const [expandedEndpoint, setExpandedEndpoint] = useState(null);
 
   // Cloud sync state
   const [cloudEnabled, setCloudEnabled] = useState(false);
@@ -151,8 +149,8 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
   const [selectedProvider, setSelectedProvider] = useState(null); // for provider models popup
   const [cloudBaseUrl, setCloudBaseUrl] = useState(BUILD_TIME_CLOUD_URL); // dynamic cloud URL from API response
   const [cloudConfigured, setCloudConfigured] = useState(Boolean(BUILD_TIME_CLOUD_URL));
-  const [mcpStatus, setMcpStatus] = useState<any>(null);
-  const [a2aStatus, setA2aStatus] = useState<any>(null);
+  const [, setMcpStatus] = useState<any>(null);
+  const [, setA2aStatus] = useState<any>(null);
   const [searchProviders, setSearchProviders] = useState<any[]>([]);
   const [cloudflaredStatus, setCloudflaredStatus] = useState<CloudflaredTunnelStatus | null>(null);
   const [cloudflaredBusy, setCloudflaredBusy] = useState(false);
@@ -1132,10 +1130,6 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
     showNgrokTunnel && ngrokStatus?.running,
   ].filter(Boolean).length;
 
-  const mcpOnline = Boolean(mcpStatus?.online);
-  const a2aOnline = a2aStatus?.status === "ok";
-  const mcpToolCount = Number(mcpStatus?.heartbeat?.toolCount || 0);
-  const a2aActiveStreams = Number(a2aStatus?.tasks?.activeStreams || 0);
   const cloudflaredPhase = cloudflaredStatus?.phase || "not_installed";
   const cloudflaredPhaseMeta: Record<CloudflaredTunnelPhase, { label: string; className: string }> =
     {
@@ -1169,10 +1163,6 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
     : cloudflaredStatus?.installed
       ? translateOrFallback("cloudflaredEnable", "Enable Tunnel")
       : translateOrFallback("cloudflaredInstallAndEnable", "Install & Enable");
-  const cloudflaredUrlNotice = translateOrFallback(
-    "cloudflaredUrlNotice",
-    "Creates a temporary Cloudflare Quick Tunnel. The URL changes after every restart."
-  );
   const tailscalePhase = tailscaleStatus?.phase || "not_installed";
   const tailscalePhaseMeta: Record<TailscaleTunnelPhase, { label: string; className: string }> = {
     running: {
@@ -2632,3 +2622,6 @@ function EndpointSection({
     </div>
   );
 }
+
+// Retained for compatibility with the legacy expandable endpoint layout.
+void EndpointSection;
