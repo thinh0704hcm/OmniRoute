@@ -4,6 +4,7 @@ import { CLAUDE_OAUTH_TOOL_PREFIX } from "../request/openai-to-claude.ts";
 import { hasToolCallShim, applyToolCallShimToBuffer } from "../helpers/toolCallShim.ts";
 import { appendToolCallArgumentDelta } from "../../utils/toolCallArguments.ts";
 import { isAbortFinishReason } from "../../utils/finishReason.ts";
+import { sanitizeErrorMessage } from "../../utils/error.ts";
 import {
   isInternalReasoningPlaceholder,
   stripInternalReasoningPlaceholder,
@@ -443,10 +444,9 @@ export function openaiToClaudeResponse(chunk, state) {
           toolInfo.shimmed = hasToolCallShim(incomingName);
         }
 
-        // Emit content_block_start once we have a name. If arguments arrive before
-        // any name was ever seen, start the block anyway with the (empty) name so
-        // the input_json_delta stays well-formed.
-        if (!toolInfo.startEmitted && (toolInfo.name || tc.function?.arguments != null)) {
+        // Claude cannot patch a tool_use name after content_block_start. Keep both
+        // the id and any early argument fragments buffered until a real name arrives.
+        if (!toolInfo.startEmitted && toolInfo.name?.trim()) {
           toolInfo.startEmitted = true;
           results.push({
             type: "content_block_start",
@@ -454,10 +454,19 @@ export function openaiToClaudeResponse(chunk, state) {
             content_block: {
               type: "tool_use",
               id: toolInfo.id,
-              name: toolInfo.name || "",
+              name: toolInfo.name,
               input: {},
             },
           });
+
+          if (!toolInfo.shimmed && toolInfo.argBuffer) {
+            results.push({
+              type: "content_block_delta",
+              index: toolInfo.blockIndex,
+              delta: { type: "input_json_delta", partial_json: toolInfo.argBuffer },
+            });
+            toolInfo.emittedArgLength = toolInfo.argBuffer.length;
+          }
         }
       }
 
@@ -467,13 +476,16 @@ export function openaiToClaudeResponse(chunk, state) {
           // corrected JSON at stop time.
           const existingArgs = toolInfo.argBuffer || "";
           const nextArgs = appendToolCallArgumentDelta(existingArgs, tc.function.arguments);
-          let deltaStr = nextArgs.slice(existingArgs.length);
           toolInfo.argBuffer = nextArgs;
+          const emittedArgLength = toolInfo.emittedArgLength || 0;
+          const deltaStr = nextArgs.slice(emittedArgLength);
 
-          if (toolInfo.shimmed || !deltaStr) {
+          if (toolInfo.shimmed || !toolInfo.startEmitted || !deltaStr) {
             // Suppress passthrough for shimmed tools; emit one corrective delta at finish.
             continue;
           }
+
+          toolInfo.emittedArgLength = nextArgs.length;
 
           // NOTE: The regex-based "Fix #1852" strip that previously ran here was
           // removed in #4951. That strip matched patterns like `"key":""` and
@@ -505,28 +517,20 @@ export function openaiToClaudeResponse(chunk, state) {
   // guard therefore misfired and silently dropped the terminal message_delta/message_stop
   // for Responses→Claude streams (#5828 regression).
   if (choice.finish_reason && !state.claudeFinishEmitted) {
+    const namelessToolCall = Array.from(state.toolCalls.values()).find(
+      (toolInfo: { name?: string }) => !toolInfo.name?.trim()
+    );
+    if (namelessToolCall) {
+      throw new Error(
+        sanitizeErrorMessage("Upstream protocol error: streamed tool call without a name")
+      );
+    }
+
     state.claudeFinishEmitted = true;
     stopThinkingBlock(state, results);
     stopTextBlock(state, results);
 
     for (const [, toolInfo] of state.toolCalls) {
-      // A tool call whose name/args never arrived (only an id chunk was seen)
-      // still has a reserved block index but no content_block_start. Emit it now
-      // so the terminal content_block_stop is not orphaned (#2077 edge case).
-      if (!toolInfo.startEmitted) {
-        toolInfo.startEmitted = true;
-        results.push({
-          type: "content_block_start",
-          index: toolInfo.blockIndex,
-          content_block: {
-            type: "tool_use",
-            id: toolInfo.id,
-            name: toolInfo.name || "",
-            input: {},
-          },
-        });
-      }
-
       // For shimmed tools, emit one corrective input_json_delta with the
       // fully patched JSON before closing the block.
       if (toolInfo.shimmed) {

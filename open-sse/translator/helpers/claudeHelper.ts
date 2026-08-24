@@ -419,16 +419,32 @@ export function prepareClaudeRequest(
       }
     }
 
-    // Pass 1.4: Filter out tool_use blocks with empty names (causes Claude 400 error)
-    // Apply to ALL roles (assistant tool_use + any user messages that may carry tool_use)
-    // Also filter tool_result blocks with missing tool_use_id
+    // Pass 1.4: Drop nameless tool_use blocks and their matching tool_result blocks.
+    // Never infer a name from arguments: schemas can overlap, and attaching a result
+    // to the wrong declaration is worse than omitting the invalid historical pair.
+    const namelessToolUseIds = new Set<string>();
+    for (const msg of filtered) {
+      if (!Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        if (
+          block.type === "tool_use" &&
+          !(typeof block.name === "string" && block.name.trim()) &&
+          typeof block.id === "string" &&
+          block.id
+        ) {
+          namelessToolUseIds.add(block.id);
+        }
+      }
+    }
+
     for (const msg of filtered) {
       if (Array.isArray(msg.content)) {
         msg.content = msg.content.filter(
-          (block) => block.type !== "tool_use" || (block.name && block.name?.trim())
-        );
-        msg.content = msg.content.filter(
-          (block) => block.type !== "tool_result" || block.tool_use_id
+          (block) =>
+            (block.type !== "tool_use" ||
+              (typeof block.name === "string" && Boolean(block.name.trim()))) &&
+            (block.type !== "tool_result" ||
+              (Boolean(block.tool_use_id) && !namelessToolUseIds.has(String(block.tool_use_id))))
         );
         // Anthropic-shape upstreams enforce `^[a-zA-Z0-9_-]+$` on tool ids. Client
         // histories can carry ids with `.`/`:`/`#` (e.g. replayed from another

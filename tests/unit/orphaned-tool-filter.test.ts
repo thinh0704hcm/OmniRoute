@@ -6,6 +6,9 @@ const { openaiResponsesToOpenAIRequest, openaiToOpenAIResponsesRequest } =
 
 const { openaiToClaudeRequest } =
   await import("../../open-sse/translator/request/openai-to-claude.ts");
+const { prepareClaudeRequest } = await import("../../open-sse/translator/helpers/claudeHelper.ts");
+const { claudeToGeminiRequest } =
+  await import("../../open-sse/translator/request/claude-to-gemini.ts");
 
 test("openaiResponsesToOpenAIRequest: filters orphaned tool messages", () => {
   const body = {
@@ -168,4 +171,75 @@ test("openaiToClaudeRequest: preserves valid tool pairs unchanged", () => {
     }
   }
   assert.equal(toolResults.length, 2, "both valid tool_results should be preserved");
+});
+
+test("prepareClaudeRequest removes nameless historical calls and their matching results", () => {
+  const body = {
+    messages: [
+      { role: "user", content: [{ type: "text", text: "start" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "keeping text" },
+          { type: "tool_use", id: "bad_call", name: "", input: { command: "pwd" } },
+          { type: "tool_use", id: "good_call", name: "Bash", input: { command: "ls" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "bad_call", content: "bad result" },
+          { type: "tool_result", tool_use_id: "good_call", content: "good result" },
+        ],
+      },
+    ],
+  };
+  const prepared = prepareClaudeRequest(body);
+  const blocks = prepared.messages?.flatMap((message) =>
+    Array.isArray(message.content) ? message.content : []
+  );
+  assert.equal(
+    blocks?.some((block) => block.type === "tool_use" && block.id === "bad_call"),
+    false
+  );
+  assert.equal(
+    blocks?.some((block) => block.type === "tool_result" && block.tool_use_id === "bad_call"),
+    false
+  );
+  assert.equal(
+    blocks?.some((block) => block.type === "text" && block.text === "keeping text"),
+    true
+  );
+  assert.equal(
+    blocks?.some((block) => block.type === "tool_use" && block.id === "good_call"),
+    true
+  );
+  assert.equal(
+    blocks?.some((block) => block.type === "tool_result" && block.tool_use_id === "good_call"),
+    true
+  );
+
+  const antigravity = claudeToGeminiRequest("gemini-2.5-pro", prepared, true, {
+    _provider: "antigravity",
+  });
+  const serialized = JSON.stringify(antigravity.contents);
+  assert.doesNotMatch(serialized, /bad_call|bad result/);
+  assert.doesNotMatch(serialized, /"name":""|"name":"tool"/);
+});
+
+test("prepareClaudeRequest preserves all declared tools", () => {
+  const tools = Array.from({ length: 41 }, (_, index) => ({
+    name: `Tool${index}`,
+    description: `Tool ${index}`,
+    input_schema: { type: "object", properties: {} },
+  }));
+  const prepared = prepareClaudeRequest({
+    messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+    tools,
+  });
+  assert.equal(prepared.tools?.length, 41);
+  assert.deepEqual(
+    prepared.tools?.map((tool) => tool.name),
+    tools.map((tool) => tool.name)
+  );
 });
