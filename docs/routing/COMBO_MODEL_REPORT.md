@@ -1,3 +1,7 @@
+---
+title: Combo-ready provider and model report
+---
+
 # Combo-ready provider and model report
 
 Last consolidated: 2026-08-23. This report is generated directly from the typed evidence ledger and canonical combo manifest.
