@@ -94,6 +94,16 @@ function readRemoteJson(host, action, values = []) {
   return JSON.parse(runRemote(host, action, values));
 }
 
+async function waitForComboLogEvidence(host, databasePath, sinceTimestamp) {
+  let evidence = { comboRows: 0, xPreviewRows: 0 };
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    evidence = readRemoteJson(host, "combo-log-evidence", [databasePath, sinceTimestamp]);
+    if (evidence.comboRows > 0) return evidence;
+    await sleep(500);
+  }
+  return evidence;
+}
+
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -319,7 +329,7 @@ async function qualify(host, input, models) {
         runTrafficProbes(baseUrl, models)
       );
       const after = runRemote(host, "call-log-max", [databasePath]);
-      const comboEvidence = readRemoteJson(host, "combo-log-evidence", [databasePath, before]);
+      const comboEvidence = await waitForComboLogEvidence(host, databasePath, before);
       const runtime = readRemoteJson(host, "inspect-canary");
       const gate = {
         healthy: runtime.status === "running" && runtime.health === "healthy",
@@ -387,7 +397,7 @@ async function promote(host, candidate, models) {
         runTrafficProbes(baseUrl, models)
       );
       const after = runRemote(host, "call-log-max");
-      const comboEvidence = readRemoteJson(host, "combo-log-evidence", ["", logBefore]);
+      const comboEvidence = await waitForComboLogEvidence(host, "", logBefore);
       const runtime = readRemoteJson(host, "inspect-prod");
       const image = readRemoteJson(host, "inspect-image", [candidate.imageRef]);
       return {
