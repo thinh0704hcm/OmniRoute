@@ -265,10 +265,6 @@ async function buildUnifiedModelsResponseCore(
     // try would let a crash here propagate as an unhandled rejection instead
     // (catalogCache.ts's in-flight coalescing does not fully consume rejections).
     const hiddenModelsByProvider = getHiddenModelsByProvider();
-    const isModelHiddenBulk = (providerId: string, modelId: string): boolean => {
-      const hiddenSet = hiddenModelsByProvider.get(providerId);
-      return hiddenSet ? hiddenSet.has(modelId) : false;
-    };
     let settings: Record<string, any> = {};
     try {
       settings = await getSettings();
@@ -376,6 +372,35 @@ async function buildUnifiedModelsResponseCore(
     // configured prefix there, and only there.
     const resolvePublicOwnerId = (providerId: string, canonicalProviderId: string): string =>
       providerIdToPrefix[providerId] || canonicalProviderId;
+
+    // #11300: the visibility toggle on a provider's dashboard page persists the
+    // hidden-model row under whatever key the route's `[id]` param happened to be
+    // (a node UUID, an alias like `cc`/`gh`/`cx`, or a canonical provider id) —
+    // see `PATCH /api/provider-models`. The catalog loops below each key their own
+    // lookup differently (raw connection provider, canonical id, or alias), so a
+    // single-key lookup missed the override whenever the write key and the read key
+    // diverged. Check every key a model could plausibly have been hidden under:
+    // the raw key passed in, its resolved canonical provider id, that canonical id's
+    // alias, and the compatible-provider-node prefix for either.
+    const isModelHiddenBulk = (
+      providerKey: string | null | undefined,
+      modelId: string,
+      canonicalProviderId?: string | null
+    ): boolean => {
+      if (!providerKey || !modelId) return false;
+      const canonical = canonicalProviderId || resolveCanonicalProviderId(providerKey);
+      const alias =
+        providerIdToAlias[canonical] || providerIdToAlias[providerKey] || undefined;
+      const nodePrefix = providerIdToPrefix[providerKey] || providerIdToPrefix[canonical];
+      const keysToCheck = [providerKey, canonical, alias, nodePrefix].filter(
+        (k): k is string => Boolean(k)
+      );
+      for (const key of keysToCheck) {
+        const hiddenSet = hiddenModelsByProvider.get(key);
+        if (hiddenSet?.has(modelId)) return true;
+      }
+      return false;
+    };
 
     // Get combos
     let combos = [];
@@ -955,7 +980,7 @@ async function buildUnifiedModelsResponseCore(
         if (!isModelSelectable(canonicalProviderId, model.id)) continue;
         if (!providerSupportsModel(canonicalProviderId, model.id)) continue;
         const aliasId = `${alias}/${model.id}`;
-        if (isModelHiddenBulk(canonicalProviderId, model.id)) continue;
+        if (isModelHiddenBulk(alias, model.id, canonicalProviderId)) continue;
         if (isExcludedByProviderConnections(canonicalProviderId, model.id)) continue;
         if (shouldHidePaid(canonicalProviderId, model.id, (model as { pricing?: unknown }).pricing))
           continue;
@@ -1018,7 +1043,15 @@ async function buildUnifiedModelsResponseCore(
 
     for (const modelId of CODEX_NATIVE_UNPREFIXED_MODELS) {
       if (!providerSupportsModel("codex", modelId)) continue;
-      if (isModelHiddenBulk("codex", modelId)) continue;
+      // #11300: a codex-native unprefixed model can also be hidden via the
+      // `openai` provider page (codex runs on the openai-compatible connection)
+      // or via the `cx` alias — check all three so a hide from any of them
+      // suppresses the bare model id here.
+      if (
+        isModelHiddenBulk("codex", modelId) ||
+        isModelHiddenBulk("openai", modelId)
+      )
+        continue;
 
       const alias = providerIdToAlias.codex || "cx";
       const aliasId = `${alias}/${modelId}`;
@@ -1079,7 +1112,7 @@ async function buildUnifiedModelsResponseCore(
           if (canonicalProviderId === "codex" && isCodexDiscoveryModelExcluded(sm)) {
             continue;
           }
-          if (isModelHiddenBulk(providerId, sm.id)) continue;
+          if (isModelHiddenBulk(providerId, sm.id, canonicalProviderId)) continue;
           if (isExcludedByProviderConnections(canonicalProviderId, sm.id)) continue;
           // #6457: some upstream discovery catalogs (e.g. HuggingFace's live
           // `/v1/models`) return image/diffusion models with no modality info,
@@ -1498,7 +1531,7 @@ async function buildUnifiedModelsResponseCore(
           if (!isUnifiedChatSourceModelSelectable(canonicalProviderId, { ...model, id: modelId }))
             continue;
           if (model.isHidden === true) continue;
-          if (isModelHiddenBulk(canonicalProviderId, modelId)) continue;
+          if (isModelHiddenBulk(providerId, modelId, canonicalProviderId)) continue;
           if (isExcludedByProviderConnections(canonicalProviderId, modelId)) continue;
           // #6328: apply hidePaidModels to user-defined custom rows too.
           // Custom entries do not carry pricing, so shouldHidePaid() decides
@@ -1682,7 +1715,7 @@ async function buildUnifiedModelsResponseCore(
           continue;
         }
 
-        if (isModelHiddenBulk(canonicalProviderId, modelId)) continue;
+        if (isModelHiddenBulk(providerKey, modelId, canonicalProviderId)) continue;
         if (isExcludedByProviderConnections(canonicalProviderId, modelId)) continue;
         // #6328: apply hidePaidModels to alias-backed rows too. Alias mappings
         // point at providerKey/modelId with no pricing, so shouldHidePaid()
@@ -1756,7 +1789,7 @@ async function buildUnifiedModelsResponseCore(
       for (const model of fallbackModels) {
         const modelId = typeof model.id === "string" ? model.id : null;
         if (!modelId) continue;
-        if (isModelHiddenBulk(canonicalProviderId, modelId)) continue;
+        if (isModelHiddenBulk(providerId, modelId, canonicalProviderId)) continue;
         if (isExcludedByProviderConnections(canonicalProviderId, modelId)) continue;
         // #6328: apply hidePaidModels to managed-fallback rows too. Compatible
         // provider fallbacks lack pricing; shouldHidePaid() decides via the

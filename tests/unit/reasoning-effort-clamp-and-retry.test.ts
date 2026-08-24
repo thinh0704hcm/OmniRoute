@@ -108,7 +108,7 @@ test("a second request for the same provider+model sends the learned value on th
   }
 });
 
-test("400 please use low, high, or max clamps and retries once", async () => {
+test("400 please use low, high, or max clamps and retries once (nearest-tier: medium -> high, #11295)", async () => {
   const executor = new SimpleExecutor();
   const originalFetch = globalThis.fetch;
   const capturedBodies: Record<string, unknown>[] = [];
@@ -140,7 +140,10 @@ test("400 please use low, high, or max clamps and retries once", async () => {
     });
     assert.equal(capturedBodies.length, 2);
     assert.equal(capturedBodies[0].reasoning_effort, "medium");
-    assert.equal(capturedBodies[1].reasoning_effort, "low");
+    // #11295: nearest-tier — smallest accepted >= demand — maps medium(3) to
+    // high(4), the smallest accepted rank at or above it (was "low" under the
+    // old downgrade-only direction).
+    assert.equal(capturedBodies[1].reasoning_effort, "high");
     const learned = getLearnedReasoningEffort("openai-compatible-chat-eaff6869", "x-preview-f-free") as unknown as Set<string>;
     assert.ok(learned instanceof Set);
     assert.ok(learned.has("low"));
@@ -190,7 +193,7 @@ test("400 please use low, medium with ultra retries to medium", async () => {
   }
 });
 
-test("no-op clamp does not retry: learned {high,max} with low request stays single-fetch", async () => {
+test("sub-floor clamp now retries: learned {high,max} with low request clamps up to high (#11295)", async () => {
   const executor = new SimpleExecutor();
   const originalFetch = globalThis.fetch;
   const capturedBodies: Record<string, unknown>[] = [];
@@ -214,17 +217,20 @@ test("no-op clamp does not retry: learned {high,max} with low request stays sing
   };
 
   try {
-    // low is below the learned minimum {high,max}: downgrade-only passthrough,
-    // sanitizer leaves the body unchanged -> no identical-body retry.
+    // #11295: low is below the learned minimum {high,max}. Pre-#11295 this was
+    // a downgrade-only passthrough (no clamp, no retry, upstream stayed 400
+    // forever). Nearest-tier now clamps up to the accepted floor (high) and
+    // retries once, succeeding.
     const result = await executor.execute({
       model: "x-preview-f-free-3",
       body: { reasoning_effort: "low" },
       stream: false,
       credentials: {},
     });
-    assert.equal(capturedBodies.length, 1);
+    assert.equal(capturedBodies.length, 2);
     assert.equal(capturedBodies[0].reasoning_effort, "low");
-    assert.equal(result.response.status, 400);
+    assert.equal(capturedBodies[1].reasoning_effort, "high");
+    assert.equal(result.response.status, 200);
   } finally {
     globalThis.fetch = originalFetch;
   }

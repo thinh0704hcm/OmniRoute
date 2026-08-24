@@ -130,13 +130,18 @@ test("a later, lower accepted-list does ratchet the cap down", () => {
   assert.equal((getLearnedReasoningEffort("acme", "model-x") as unknown as Set<string>).size, 2);
 });
 
-test("clampToLearned medium→low when accepted is low,high,max", async () => {
+// #11295: nearest-tier semantics (smallest accepted >= demand) — unified with
+// the declared/static clamp. Was downgrade-only (greatest accepted <= demand,
+// medium→low) before #11295.
+test("clampToLearned medium→high when accepted is low,high,max (nearest-tier, #11295)", async () => {
   const { clampToLearned } = await import("../../open-sse/services/learnedReasoningEffortCaps.ts");
-  assert.equal(clampToLearned("medium", new Set(["low", "high", "max"])), "low");
+  assert.equal(clampToLearned("medium", new Set(["low", "high", "max"])), "high");
 });
-test("clampToLearned xhigh→high when accepted is low,high,max", async () => {
+// #11295: xhigh(rank 5) has no accepted tier >= it among {low,high,max}
+// (max=6 IS >= 5, so nearest-tier picks max) — was downgrade-only high before.
+test("clampToLearned xhigh→max when accepted is low,high,max (nearest-tier, #11295)", async () => {
   const { clampToLearned } = await import("../../open-sse/services/learnedReasoningEffortCaps.ts");
-  assert.equal(clampToLearned("xhigh", new Set(["low", "high", "max"])), "high");
+  assert.equal(clampToLearned("xhigh", new Set(["low", "high", "max"])), "max");
 });
 test("clampToLearned ultra→max when accepted is low,high,max", async () => {
   const { clampToLearned } = await import("../../open-sse/services/learnedReasoningEffortCaps.ts");
@@ -154,17 +159,25 @@ test("clampToLearned returns null when already accepted", async () => {
   const { clampToLearned } = await import("../../open-sse/services/learnedReasoningEffortCaps.ts");
   assert.equal(clampToLearned("low", new Set(["low", "high", "max"])), null);
 });
-test("clampToLearned returns null when effort < min (no upgrade)", async () => {
+// #11295: a sub-floor demand (below every accepted value) now maps to the
+// accepted floor instead of returning null. Pre-#11295 this returned null —
+// no clamp — so the too-low value passed straight through to the upstream,
+// which 400'd again on every subsequent request without ever learning a
+// lower floor.
+test("clampToLearned maps sub-floor demand to the accepted floor instead of null (#11295)", async () => {
   const { clampToLearned } = await import("../../open-sse/services/learnedReasoningEffortCaps.ts");
-  assert.equal(clampToLearned("low", new Set(["high", "max"])), null);
+  assert.equal(clampToLearned("low", new Set(["high", "max"])), "high");
 });
 test("clampToLearned returns null for turbo (not in ORDER)", async () => {
   const { clampToLearned } = await import("../../open-sse/services/learnedReasoningEffortCaps.ts");
   assert.equal(clampToLearned("turbo", new Set(["low", "high", "max"])), null);
 });
-test("clampToLearned returns null when effort is none but accepted is low,high,max", async () => {
+// #11295: none is below the learned floor {low,high,max} — nearest-tier maps
+// it to the floor (low) instead of returning null (no clamp, upstream 400s
+// again with no chance to ever learn a lower floor).
+test("clampToLearned maps none to the floor (low) when accepted is low,high,max (#11295)", async () => {
   const { clampToLearned } = await import("../../open-sse/services/learnedReasoningEffortCaps.ts");
-  assert.equal(clampToLearned("none", new Set(["low", "high", "max"])), null);
+  assert.equal(clampToLearned("none", new Set(["low", "high", "max"])), "low");
 });
 test("recordLearned stores Set and getLearned returns Set", () => {
   const s = recordLearnedReasoningEffort("acme", "m1", ["low", "high", "max"]);

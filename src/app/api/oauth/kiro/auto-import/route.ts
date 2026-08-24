@@ -439,13 +439,22 @@ type ProviderConnectionLike = {
  * whose stored `providerSpecificData.profileArn` matches the given ARN.
  * Returns null when profileArn is undefined/null or no match is found.
  *
+ * #10815 hardened `findKiroConnectionByIdentity` to require an account-level
+ * identifier (email or clientId) alongside a matching profileArn before
+ * trusting the match — distinct Builder ID accounts (Google/GitHub social
+ * login) can share the same CodeWhisperer profile ARN, and matching on ARN
+ * alone let a second social login silently overwrite the first connection.
+ * `email`/`clientId` here let a caller supply that account identifier; the
+ * real `saveAndRespond()` call sites already do (see below).
+ *
  * Exported for unit tests (#3615).
  */
 export function findKiroConnectionByProfileArn(
   connections: ProviderConnectionLike[],
-  profileArn: string | undefined
+  profileArn: string | undefined,
+  accountIdentity?: { email?: string | null; clientId?: string | null }
 ): ProviderConnectionLike | null {
-  return findKiroConnectionByIdentity(connections, { profileArn });
+  return findKiroConnectionByIdentity(connections, { profileArn, ...accountIdentity });
 }
 
 // ── Save to OmniRoute DB ──────────────────────────────────────────────────────
