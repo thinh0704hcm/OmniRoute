@@ -62,7 +62,7 @@ applied without adding response_id. New inserts fail after writing artifacts.
 - Anthropic structured blocks and Tencent XML tool arguments are normalized at
   protocol boundaries.
 - Exactly 24 canonical combos use reset-aware leaf pools and executable,
-  performance/quota-ordered tiers; x-preview and invalid Haiku routes are gone.
+  performance/quota-ordered tiers; unreviewed x-preview and invalid Haiku routes are gone.
 - Combo reconciliation is dry-run/adopt/check based and creates no-clobber,
   integrity-checked backups.
 - Canary and promotion use immutable identity, isolated data/Redis/network,
@@ -260,7 +260,7 @@ references before individual unlinks.
 ### 8. Verify and drill rollback
 
 Verify response_id/index, current advancing log timestamps, all 24 combos,
-absence of x-preview, completion/streaming for all four aliases, mixed-case
+absence of unreviewed x-preview routes, completion/streaming for all four aliases, mixed-case
 two-turn tools, exact image/manifest identity, and zero restarts. Quantify 503
 and upstream 400 rates from the repaired current window.
 

@@ -392,18 +392,23 @@ import sys
 
 connection = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
 try:
-    combo_rows, preview_rows = connection.execute(
+    combo_rows, forbidden_preview_rows = connection.execute(
         """
         SELECT
           SUM(CASE WHEN combo_name IS NOT NULL AND combo_name != '' THEN 1 ELSE 0 END),
           SUM(CASE WHEN lower(COALESCE(model, '') || ' ' || COALESCE(requested_model, ''))
-                        LIKE '%x-preview%' THEN 1 ELSE 0 END)
+                        LIKE '%x-preview%'
+                       AND lower(COALESCE(model, '')) != 'x-preview-f-free'
+                   THEN 1 ELSE 0 END)
         FROM call_logs
         WHERE timestamp > ?
         """,
         (sys.argv[2],),
     ).fetchone()
-    print(json.dumps({"comboRows": combo_rows or 0, "xPreviewRows": preview_rows or 0}))
+    print(json.dumps({
+        "comboRows": combo_rows or 0,
+        "forbiddenPreviewRows": forbidden_preview_rows or 0,
+    }))
 finally:
     connection.close()
 PY

@@ -95,7 +95,7 @@ function readRemoteJson(host, action, values = []) {
 }
 
 async function waitForComboLogEvidence(host, databasePath, sinceTimestamp) {
-  let evidence = { comboRows: 0, xPreviewRows: 0 };
+  let evidence = { comboRows: 0, forbiddenPreviewRows: 0 };
   for (let attempt = 0; attempt < 20; attempt += 1) {
     evidence = readRemoteJson(host, "combo-log-evidence", [databasePath, sinceTimestamp]);
     if (evidence.comboRows > 0) return evidence;
@@ -342,7 +342,9 @@ async function qualify(host, input, models) {
         streamingOk: probes.streamingOk,
         mixedCaseToolOk: probes.mixedCaseToolOk,
         comboOk:
-          probes.comboRequestOk && comboEvidence.comboRows > 0 && comboEvidence.xPreviewRows === 0,
+          probes.comboRequestOk &&
+          comboEvidence.comboRows > 0 &&
+          comboEvidence.forbiddenPreviewRows === 0,
         callLogAdvanced: Boolean(after) && after > before,
       };
       const verdict = evaluateRuntimeGate(gate);
@@ -411,7 +413,9 @@ async function promote(host, candidate, models) {
         streamingOk: probes.streamingOk,
         mixedCaseToolOk: probes.mixedCaseToolOk,
         comboOk:
-          probes.comboRequestOk && comboEvidence.comboRows > 0 && comboEvidence.xPreviewRows === 0,
+          probes.comboRequestOk &&
+          comboEvidence.comboRows > 0 &&
+          comboEvidence.forbiddenPreviewRows === 0,
         callLogAdvanced: Boolean(after) && after > logBefore,
       };
     },
