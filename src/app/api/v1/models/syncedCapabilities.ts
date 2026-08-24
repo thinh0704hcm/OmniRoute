@@ -27,9 +27,14 @@
 // refactors. (Confirmed convention: grep "from \"@omniroute/open-sse" src/app/api/v1/models/)
 import { getLearnedReasoningEffortForModel } from "@omniroute/open-sse/services/learnedReasoningEffortCaps.ts";
 import { isSkippedEffortProvider } from "@omniroute/open-sse/utils/syncedEffortVariants.ts";
+import {
+  getRegistryModelThinkingEfforts,
+  getRegistryThinkingEfforts,
+} from "@omniroute/open-sse/config/providerRegistry.ts";
 
 interface SyncedCapabilityFlags {
   id?: string;
+  supportsThinking?: boolean;
   supportsVision?: boolean;
   supportedThinkingEfforts?: string[];
 }
@@ -37,10 +42,23 @@ interface SyncedCapabilityFlags {
 function effectiveEffortTiers(sm: SyncedCapabilityFlags, ownedBy: string): string[] | undefined {
   if (isSkippedEffortProvider(ownedBy)) return undefined;
   const learned = sm.id ? getLearnedReasoningEffortForModel(sm.id) : null;
+  const synced =
+    Array.isArray(sm.supportedThinkingEfforts) && sm.supportedThinkingEfforts.length > 0
+      ? sm.supportedThinkingEfforts
+      : null;
+  const explicit = sm.id ? getRegistryModelThinkingEfforts(ownedBy, sm.id) : undefined;
+  if (explicit) {
+    const observed = learned ? [...learned] : synced;
+    const narrowed = observed
+      ? explicit.filter((effort) => observed.includes(effort))
+      : [...explicit];
+    return narrowed.length > 0 ? narrowed : undefined;
+  }
   if (learned) return [...learned];
-  return Array.isArray(sm.supportedThinkingEfforts) && sm.supportedThinkingEfforts.length > 0
-    ? sm.supportedThinkingEfforts
-    : undefined;
+  if (synced) return synced;
+  if (!sm.supportsThinking || !sm.id) return undefined;
+  const registryEfforts = getRegistryThinkingEfforts(ownedBy, sm.id);
+  return registryEfforts && registryEfforts.length > 0 ? [...registryEfforts] : undefined;
 }
 
 /** Build the `capabilities` object for a fresh synced-model catalog entry, or `undefined` when neither flag applies. */

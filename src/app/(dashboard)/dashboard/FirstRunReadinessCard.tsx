@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -10,39 +10,51 @@ type FirstRunReadinessCardProps = {
   setupComplete: boolean;
 };
 
+// #9985: dismissal lives in localStorage, read via useSyncExternalStore — keeps
+// the component free of setState-in-effect cascades and hydration-safe (server
+// snapshot treats the card as dismissed; the client corrects after hydration).
+const readinessListeners = new Set<() => void>();
+
+function subscribeReadiness(onStoreChange: () => void): () => void {
+  readinessListeners.add(onStoreChange);
+  window.addEventListener("storage", onStoreChange);
+  return () => {
+    readinessListeners.delete(onStoreChange);
+    window.removeEventListener("storage", onStoreChange);
+  };
+}
+
+function isReadinessDismissed(): boolean {
+  try {
+    return localStorage.getItem(DISMISS_STORAGE_KEY) === "true";
+  } catch {
+    // Storage unavailable (private mode etc.) — never show the nagging card.
+    return true;
+  }
+}
+
+function getServerSnapshot(): boolean {
+  return true;
+}
+
 /**
  * Soft entry path for first-run users. Replaces the hard redirect to
  * /dashboard/onboarding so returning users can dismiss and stay on Home.
  */
 export default function FirstRunReadinessCard({ setupComplete }: FirstRunReadinessCardProps) {
   const t = useTranslations("home");
-  const [visible, setVisible] = useState(false);
+  const dismissed = useSyncExternalStore(subscribeReadiness, isReadinessDismissed, getServerSnapshot);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (setupComplete) {
-        setVisible(false);
-        return;
-      }
-      try {
-        setVisible(!localStorage.getItem(DISMISS_STORAGE_KEY));
-      } catch {
-        setVisible(true);
-      }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [setupComplete]);
-
-  if (!visible || setupComplete) return null;
-
-  const dismiss = () => {
+  const dismiss = useCallback(() => {
     try {
       localStorage.setItem(DISMISS_STORAGE_KEY, "true");
     } catch {
       // ignore storage failures; still hide for this session
     }
-    setVisible(false);
-  };
+    for (const listener of readinessListeners) listener();
+  }, []);
+
+  if (setupComplete || dismissed) return null;
 
   const steps = [
     t("readinessStep1"),

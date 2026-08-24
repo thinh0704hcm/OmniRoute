@@ -66,6 +66,14 @@ describe("resolveSpawnArgs (#6877 — real filesystem)", () => {
     );
     assert.ok(!result.args.includes("-c"), "args must never contain the short -c flag");
   });
+  it("injects the management password without persisting it in config.yaml", async () => {
+    const { resolveSpawnArgs } =
+      await import("../../../../src/lib/services/installers/cliproxy.ts");
+    const result = resolveSpawnArgs(8317, "management-secret");
+    assert.equal(result.env.MANAGEMENT_PASSWORD, "management-secret");
+    const configPath = path.join(dataDir, "services", "cliproxy", "config.yaml");
+    assert.equal(fs.readFileSync(configPath, "utf8").includes("management-secret"), false);
+  });
 
   it("uses the .exe command name on Windows", async () => {
     // resolveSpawnArgs reads os.platform() at call time (#11236 — a

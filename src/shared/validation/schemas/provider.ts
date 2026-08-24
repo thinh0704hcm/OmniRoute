@@ -14,6 +14,10 @@ import {
 } from "@/shared/constants/upstreamHeaders";
 import { MAX_TIMER_TIMEOUT_MS } from "@/shared/utils/runtimeTimeouts";
 import { validateProviderSpecificData } from "@/shared/validation/providerSpecificData";
+import {
+  isReservedProviderPrefix,
+  reservedProviderPrefixMessage,
+} from "@/shared/constants/reservedProviderPrefixes";
 
 import {
   upstreamHeadersRecordSchema,
@@ -367,6 +371,17 @@ export const createProviderNodeSchema = z
         message: "Prefix is required",
         path: ["prefix"],
       });
+    } else if (isReservedProviderPrefix(value.prefix.trim())) {
+      // Reserved-prefix guard (tokenrouter bug): the runtime model resolver skips
+      // compatible-node lookup for built-in registry ids/aliases, so a node
+      // created with such a prefix could never be reached by it and silently
+      // routed requests to the built-in provider instead. Reject at the write
+      // path. Case-sensitive to match the runtime guard exactly.
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: reservedProviderPrefixMessage(value.prefix.trim()),
+        path: ["prefix"],
+      });
     }
     if (nodeType === "openai-compatible" && !value.apiType) {
       ctx.addIssue({
@@ -377,27 +392,40 @@ export const createProviderNodeSchema = z
     }
   });
 
-export const updateProviderNodeSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  prefix: z.string().trim().min(1, "Prefix is required"),
-  apiType: z
-    .enum([
-      "chat",
-      "responses",
-      "embeddings",
-      "audio-transcriptions",
-      "audio-speech",
-      "images-generations",
-    ])
-    .optional(),
-  baseUrl: z.string().trim().min(1, "Base URL is required"),
-  chatPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")),
-  modelsPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")),
-  // #2166: same optional remote icon URL as createProviderNodeSchema — empty string
-  // clears a previously stored custom icon.
-  iconUrl: providerNodeIconUrlSchema,
-  customHeaders: customHeadersSchema,
-});
+export const updateProviderNodeSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required"),
+    prefix: z.string().trim().min(1, "Prefix is required"),
+    apiType: z
+      .enum([
+        "chat",
+        "responses",
+        "embeddings",
+        "audio-transcriptions",
+        "audio-speech",
+        "images-generations",
+      ])
+      .optional(),
+    baseUrl: z.string().trim().min(1, "Base URL is required"),
+    chatPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")),
+    modelsPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")),
+    // #2166: same optional remote icon URL as createProviderNodeSchema — empty string
+    // clears a previously stored custom icon.
+    iconUrl: providerNodeIconUrlSchema,
+    customHeaders: customHeadersSchema,
+  })
+  .superRefine((value, ctx) => {
+    // Reserved-prefix guard (tokenrouter bug) — same rationale as the guard in
+    // createProviderNodeSchema: renaming a node's prefix onto a built-in
+    // registry id/alias would make it unreachable via that prefix.
+    if (isReservedProviderPrefix(value.prefix)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: reservedProviderPrefixMessage(value.prefix),
+        path: ["prefix"],
+      });
+    }
+  });
 
 export const providerNodeValidateSchema = z.object({
   baseUrl: z.string().trim().min(1, "Base URL and API key required"),

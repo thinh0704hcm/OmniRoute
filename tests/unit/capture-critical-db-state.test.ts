@@ -4,39 +4,33 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// Shared across all tests — the module caches DATA_DIR / SQLITE_FILE at load time,
-// so we must create the temp dir and import exactly once.
-type CoreModule = typeof import("../../src/lib/db/core.ts");
-let tempDir: string;
-let originalDataDir: string | undefined;
-let getDbInstance: CoreModule["getDbInstance"];
-let resetDbInstance: CoreModule["resetDbInstance"];
-let ensureDbInitialized: CoreModule["ensureDbInitialized"];
-let closeDbInstance: CoreModule["closeDbInstance"];
+// Single shared tempDir for all tests — DATA_DIR/SQLITE_FILE are module-level consts
+// resolved once at first import, so we must create the temp dir and set DATA_DIR
+// BEFORE importing core.ts.
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-db-test-"));
+const originalDataDir = process.env.DATA_DIR;
+process.env.DATA_DIR = tempDir;
+
+// Import resetDbInstance ONCE at the top with the same ESM specifier the tests use,
+// so cleanup() operates on the real singleton (not a stale CJS require).
+// This is the FIRST import of core.ts, so DATA_DIR resolves to our tempDir.
+import {
+  getDbInstance,
+  resetDbInstance,
+  ensureDbInitialized,
+  closeDbInstance,
+} from "../../src/lib/db/core.ts";
 
 before(async () => {
-  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-db-test-"));
-  originalDataDir = process.env.DATA_DIR;
-  process.env.DATA_DIR = tempDir;
-
-  const core = await import("../../src/lib/db/core.ts");
-  getDbInstance = core.getDbInstance;
-  resetDbInstance = core.resetDbInstance;
-  ensureDbInitialized = core.ensureDbInitialized;
-  closeDbInstance = core.closeDbInstance;
-
-  // Clear any singleton left by a previous test file in the same shard
+  // Clear any singleton left by a previous test file in the same shard.
   closeDbInstance();
-  // Create a fresh DB in the temp dir (handles async driver initialization)
+  // Create a fresh DB in the temp dir (handles async driver initialization).
   await ensureDbInitialized();
 });
 
 after(() => {
-  try {
-    resetDbInstance();
-  } catch {
-    // ignore
-  }
+  // Let reset errors surface — no silent swallowing.
+  resetDbInstance();
   if (originalDataDir !== undefined) {
     process.env.DATA_DIR = originalDataDir;
   } else {
@@ -144,6 +138,10 @@ test("resetDbInstance clears the singleton so next call creates a new DB", async
     .prepare("INSERT INTO key_value (namespace, key, value) VALUES (?, ?, ?)")
     .run("reset_ns", "marker", JSON.stringify({ v: 1 }));
 
+  // Close the previous handle explicitly before resetting, so the file descriptor
+  // is released before the next reopen (POSIX allows open fds to survive fs.rmSync,
+  // but we want honest isolation, not accidental survival).
+  closeDbInstance();
   resetDbInstance();
 
   // Re-initialize after reset — drivers may need async pre-init (sql.js WASM)

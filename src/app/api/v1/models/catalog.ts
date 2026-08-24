@@ -7,9 +7,9 @@ import {
   getSettings,
   getCachedProviderNodes,
   getModelAliases,
-  getDatabaseSettings,
   getHiddenModelsByProvider,
 } from "@/lib/localDb";
+import { getUserDatabaseSettings } from "@/lib/db/databaseSettings";
 import { createLazyConnectionView } from "@/lib/db/providers/lazyConnectionView";
 import { extractAliasBackedModels } from "./aliasBackedModels";
 import {
@@ -28,7 +28,11 @@ import { getAllAudioModels } from "@omniroute/open-sse/config/audioRegistry";
 import { getAllModerationModels } from "@omniroute/open-sse/config/moderationRegistry";
 import { getAllVideoModels } from "@omniroute/open-sse/config/videoRegistry";
 import { getAllMusicModels } from "@omniroute/open-sse/config/musicRegistry";
-import { REGISTRY } from "@omniroute/open-sse/config/providerRegistry";
+import {
+  getRegistryModelThinkingEfforts,
+  getRegistryThinkingEfforts,
+  REGISTRY,
+} from "@omniroute/open-sse/config/providerRegistry";
 import { CODEX_NATIVE_UNPREFIXED_MODELS } from "@omniroute/open-sse/services/model";
 import { isModelSelectable } from "@omniroute/open-sse/services/modelLifecycle";
 import { resolveNestedComboTargets } from "@omniroute/open-sse/services/combo";
@@ -225,7 +229,10 @@ async function buildCatalogPayload(
   // Falls back to the hardcoded default if not set or on error.
   let cacheTTL = CATALOG_CACHE_TTL_MS_DEFAULT;
   try {
-    const dbSettings = await getDatabaseSettings();
+    // Only the persisted cache section is needed here. The full database-settings
+    // view also calculates dbstat, WAL, schema and integrity diagnostics, which are
+    // synchronous and can pin the event loop after an otherwise cooperative build.
+    const dbSettings = getUserDatabaseSettings();
     cacheTTL = dbSettings.cache?.modelCatalogCacheTtlMs ?? CATALOG_CACHE_TTL_MS_DEFAULT;
   } catch {
     // Swallow — use default TTL on DB error
@@ -245,7 +252,7 @@ async function buildUnifiedModelsResponseCore(
   // event-loop yield, so a large deployment pins the single Node.js thread for the
   // whole build (reporter: 183 connections / 2000+ models → 10.1s stall that blocks the
   // dashboard WS heartbeat). Yield every `catYIELD_EVERY` items across the hot loops.
-  const catYIELD_EVERY = 20;
+  const catYIELD_EVERY = 5;
   let catYieldCount = 0;
   const maybeYieldCatalogBuild = async (): Promise<void> => {
     catYieldCount++;
@@ -389,11 +396,10 @@ async function buildUnifiedModelsResponseCore(
     ): boolean => {
       if (!providerKey || !modelId) return false;
       const canonical = canonicalProviderId || resolveCanonicalProviderId(providerKey);
-      const alias =
-        providerIdToAlias[canonical] || providerIdToAlias[providerKey] || undefined;
+      const alias = providerIdToAlias[canonical] || providerIdToAlias[providerKey] || undefined;
       const nodePrefix = providerIdToPrefix[providerKey] || providerIdToPrefix[canonical];
-      const keysToCheck = [providerKey, canonical, alias, nodePrefix].filter(
-        (k): k is string => Boolean(k)
+      const keysToCheck = [providerKey, canonical, alias, nodePrefix].filter((k): k is string =>
+        Boolean(k)
       );
       for (const key of keysToCheck) {
         const hiddenSet = hiddenModelsByProvider.get(key);
@@ -585,7 +591,9 @@ async function buildUnifiedModelsResponseCore(
               modelId,
               target,
               eligibleConnectionIds,
-              connectionCatalog || {}
+              connectionCatalog || {},
+              getRegistryModelThinkingEfforts(providerId, modelId),
+              getRegistryThinkingEfforts(providerId, modelId)
             );
       if (
         connectionEfforts === undefined &&
@@ -669,7 +677,7 @@ async function buildUnifiedModelsResponseCore(
               providerId,
               modelId,
               canonical.capabilities.supportsThinking,
-              registryModel?.supportedThinkingEfforts,
+              getRegistryThinkingEfforts(providerId, modelId),
               true
             )
           : getThinkingCapabilityFields(
@@ -824,7 +832,7 @@ async function buildUnifiedModelsResponseCore(
       try {
         const suffix = autoId.replace(/^auto\/?/, "");
         if (!preparedAutoInputs) {
-          preparedAutoInputs = await prepareBuiltinAutoComboInputs();
+          preparedAutoInputs = await prepareBuiltinAutoComboInputs(capabilityResolutionSnapshot);
           await yieldCatalogBuildTurn();
         }
         const virtualCombo = await createBuiltinAutoCombo(autoId, suffix, preparedAutoInputs);
@@ -1047,11 +1055,7 @@ async function buildUnifiedModelsResponseCore(
       // `openai` provider page (codex runs on the openai-compatible connection)
       // or via the `cx` alias — check all three so a hide from any of them
       // suppresses the bare model id here.
-      if (
-        isModelHiddenBulk("codex", modelId) ||
-        isModelHiddenBulk("openai", modelId)
-      )
-        continue;
+      if (isModelHiddenBulk("codex", modelId) || isModelHiddenBulk("openai", modelId)) continue;
 
       const alias = providerIdToAlias.codex || "cx";
       const aliasId = `${alias}/${modelId}`;
@@ -1886,7 +1890,9 @@ async function buildUnifiedModelsResponseCore(
 
       const modelId =
         model.root || (typeof model.id === "string" ? model.id.split("/").pop() : undefined);
-      return modelId ? getTokenLimit(canonicalId, modelId) : getTokenLimit(canonicalId);
+      return modelId
+        ? getTokenLimit(canonicalId, modelId, capabilityResolutionSnapshot)
+        : getTokenLimit(canonicalId, null, capabilityResolutionSnapshot);
     };
 
     let enrichmentSnapshot: CatalogEnrichmentSnapshot | undefined;
@@ -1899,7 +1905,7 @@ async function buildUnifiedModelsResponseCore(
       }
       enrichmentSnapshot = {
         modelsDevPricing,
-        capabilityResolution: capabilityResolutionSnapshot,
+        capabilityResolutionSnapshot,
         providerNodeIdsByPrefix: providerNodeIdByPrefix,
       };
       // The production profile identified pricing snapshot construction as the last

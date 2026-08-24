@@ -294,6 +294,9 @@ export default function EditConnectionModal({
       // external system on `isOpen`); remounting the 30+ field form per
       // connection id is a behavior-risking restructure out of scope here
       // (#11251 follow-up, #9985).
+      // NOTE: no react-hooks/set-state-in-effect suppression needed — the rule
+      // only fires on unconditional synchronous setState, and this one is
+      // guarded by the isOpen/connection condition above.
       setFormData({
         name: connection.name || "",
         priority: connection.priority || 1,

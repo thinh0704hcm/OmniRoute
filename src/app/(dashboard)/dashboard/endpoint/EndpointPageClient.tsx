@@ -5,8 +5,6 @@ import { Card, Button, Input, Modal, CardSkeleton, SegmentedControl } from "@/sh
 import Toggle from "@/shared/components/Toggle";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { isPublicDisplayBaseUrl, useDisplayBaseUrl } from "@/shared/hooks";
-import { AI_PROVIDERS, getProviderByAlias } from "@/shared/constants/providers";
-import { getProviderDisplayName } from "@/lib/display/names";
 import { useTranslations } from "next-intl";
 import A2ADashboardPage from "./components/A2ADashboard";
 import McpDashboardPage from "./components/MCPDashboard";
