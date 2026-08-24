@@ -383,7 +383,7 @@ Operational build decision: the effective Oracle BuildKit builder remains
 name was retained for compatibility. Cache was pruned to recover disk space.
 
 Rollback root cause fixed: the remote Compose fingerprint now removes both
-`OMNIROUTE_IMAGE` and `OMNIROUTE_BUILD_SHA` from the resolved `env_file` environment.
+**OMNIROUTE_IMAGE** and `OMNIROUTE_BUILD_SHA` from the resolved `env_file` environment.
 Previously only `OMNIROUTE_BUILD_SHA` was removed, so every image identity change
 made the effective Compose hash differ and incorrectly blocked an immediate rollback.
 The regression is covered by `tests/unit/oracle-deploy-remote.test.ts`.

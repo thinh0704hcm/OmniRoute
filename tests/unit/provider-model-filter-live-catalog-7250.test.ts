@@ -40,7 +40,7 @@ test("#7250: model filter still finds openrouter by its static 'auto' model id (
   );
 });
 
-test("#7250: model filter hides openrouter for a real upstream model name when only the static catalog is available (documents the bug's shape)", () => {
+test("#7250: model filter finds an OpenRouter upstream model without a supplied live catalog", () => {
   const entries = [makeOpenRouterEntry()];
 
   const filtered = providerPageUtils.filterConfiguredProviderEntries(
@@ -53,8 +53,8 @@ test("#7250: model filter hides openrouter for a real upstream model name when o
 
   assert.equal(
     filtered.length,
-    0,
-    "with no live catalog supplied, a real model name cannot match the single-entry static registry"
+    1,
+    "the provider's cached discovery catalog should remain searchable when no override is supplied"
   );
 });
 

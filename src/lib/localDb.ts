@@ -849,3 +849,4 @@ export type {
 export * from "./db/conductorBridge"; // OmniConductor hub mirror — SSE cursor (PRD Conductor RF1)
 export * from "./db/agenticConversations"; // Multi-turn conversation id tracking (X-ConversationId)
 export * from "./db/callLogRecovery"; // Operator-only call-log artifact summary recovery
+export * from "./db/canonicalEconomicCombos"; // Canonical combo reconciliation and persistence

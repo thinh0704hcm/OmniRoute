@@ -427,7 +427,7 @@ are separate post-promotion operations: recovery is dry-run before `--apply`, an
 only after recovery with the exact confirmed count and byte total from its dry run.
 
 The remote Compose fingerprint must exclude both mutable image identity values
-(`OMNIROUTE_IMAGE` and `OMNIROUTE_BUILD_SHA`), including when they arrive through `.env`; otherwise
+(**OMNIROUTE_IMAGE** and `OMNIROUTE_BUILD_SHA`), including when they arrive through `.env`; otherwise
 an image change falsely blocks the rollback command.
 
 Keep one canonical checkout and branch after a verified rollout. Preserve the live image, the

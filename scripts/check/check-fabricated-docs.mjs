@@ -325,6 +325,7 @@ const ENV_VAR_DENYLIST = new Set([
   "URL_GUARD_BLOCKED", // HTTP 422 guard-violation code (ARCHITECTURE.md)
   "AUTHZ_NOT_INITIALIZED", // AuthzAssertionError code (AUTHZ_GUIDE.md)
   "MODULE_NOT_FOUND", // Node runtime error code watched by service supervisor (ELECTRON_GUIDE.md)
+  "ERR_MODULE_NOT_FOUND", // Node ESM loader error code documented in local plans
   "ERR_DLOPEN_FAILED", // Node native-module load error code (ELECTRON_GUIDE.md)
   "SQLITE_FULL", // SQLite result code returned when the disk is full (DATABASE_GUIDE.md)
   // ── Code-symbol / naming-convention examples documented in prose ─────────────
