@@ -1,7 +1,13 @@
 // Pure, stateless helpers for the OpenAI Responses <-> Chat response translator.
 // Extracted verbatim from response/openai-responses.ts (no host imports, no stream state).
 
-export function normalizeToolName(value) {
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function normalizeToolName(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
@@ -14,7 +20,7 @@ const STRIPPABLE_EMPTY_ARG_TOOLS = new Set(["Read", "Subagent"]);
 
 // Deep-equal for JSON-shaped values (schema `default` comparison). Cheap and safe:
 // tool args are always JSON-serializable, so a stringify comparison is exact.
-function jsonValuesEqual(a, b) {
+function jsonValuesEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a == null || b == null) return false;
   try {
@@ -24,44 +30,51 @@ function jsonValuesEqual(a, b) {
   }
 }
 
-function hasUsableSchema(schema) {
-  return !!(schema && typeof schema === "object" && !Array.isArray(schema));
+function hasUsableSchema(schema: unknown): schema is UnknownRecord {
+  return isRecord(schema);
 }
 
-function schemaProperties(schema) {
-  return hasUsableSchema(schema) && schema.properties && typeof schema.properties === "object"
-    ? schema.properties
-    : null;
+function schemaProperties(schema: unknown): UnknownRecord | null {
+  return hasUsableSchema(schema) && isRecord(schema.properties) ? schema.properties : null;
 }
 
-function schemaRequiredSet(schema) {
-  return new Set(hasUsableSchema(schema) && Array.isArray(schema.required) ? schema.required : []);
+function schemaRequiredSet(schema: unknown): Set<string> {
+  const required = hasUsableSchema(schema) && Array.isArray(schema.required) ? schema.required : [];
+  return new Set(required.filter((entry): entry is string => typeof entry === "string"));
 }
 
-function isEmptyToolArgValue(entry) {
+function isEmptyToolArgValue(entry: unknown): boolean {
   return entry === "" || (Array.isArray(entry) && entry.length === 0);
 }
 
 // True when `entry` strictly equals the property's declared JSON Schema `default` — an
 // emitted value indistinguishable from omission, safe to drop for any tool.
-function matchesSchemaDefault(propSchema, entry) {
-  if (!propSchema || !Object.prototype.hasOwnProperty.call(propSchema, "default")) return false;
+function matchesSchemaDefault(propSchema: unknown, entry: unknown): boolean {
+  if (!isRecord(propSchema) || !Object.prototype.hasOwnProperty.call(propSchema, "default")) {
+    return false;
+  }
   return jsonValuesEqual(entry, propSchema.default);
 }
 
 // True when `entry` is empty and either the tool is on the legacy allowlist, or the
 // schema declares this property but does not mark it `required` (generalized #6951 rule).
-function isDroppableEmptyEntry(entry, propSchema, required, key, allowlisted) {
+function isDroppableEmptyEntry(
+  entry: unknown,
+  propSchema: unknown,
+  required: Set<string>,
+  key: string,
+  allowlisted: boolean
+): boolean {
   if (!isEmptyToolArgValue(entry)) return false;
   return allowlisted || (propSchema != null && !required.has(key));
 }
 
-function schemaTypeIncludes(type, wanted) {
+function schemaTypeIncludes(type: unknown, wanted: string): boolean {
   return type === wanted || (Array.isArray(type) && type.includes(wanted));
 }
 
-function hasOmissionSentinel(propSchema) {
-  if (!propSchema || typeof propSchema !== "object") return false;
+function hasOmissionSentinel(propSchema: unknown): boolean {
+  if (!isRecord(propSchema)) return false;
   if (
     typeof propSchema.description !== "string" ||
     !propSchema.description.includes("null = omit this parameter")
@@ -80,14 +93,24 @@ function hasOmissionSentinel(propSchema) {
 // injectOptionalStringOmissionSentinel. Drop the key when the model follows that idiom
 // for a non-required, schema-declared property, or when OmniRoute's marker is present
 // even after an upstream strictifies the field into `required`.
-function isDroppableNullEntry(entry, propSchema, required, key, toolName) {
+function isDroppableNullEntry(
+  entry: unknown,
+  propSchema: unknown,
+  required: Set<string>,
+  key: string,
+  toolName: string
+): boolean {
   if (entry !== null) return false;
   if (toolName === "Agent") return true;
   if (propSchema == null) return false;
   return !required.has(key) || hasOmissionSentinel(propSchema);
 }
 
-function stripEmptyOptionalToolArgsObject(value, toolName, schema) {
+function stripEmptyOptionalToolArgsObject(
+  value: UnknownRecord,
+  toolName: string,
+  schema: unknown
+): UnknownRecord {
   const properties = schemaProperties(schema);
   const required = schemaRequiredSet(schema);
   const allowlisted = STRIPPABLE_EMPTY_ARG_TOOLS.has(toolName);
@@ -116,7 +139,11 @@ function stripEmptyOptionalToolArgsObject(value, toolName, schema) {
 //     Read/Subagent allowlist above.
 // Without a schema, behavior is unchanged (allowlist + empty-only), preserving existing
 // callers that only pass (value, toolName).
-export function stripEmptyOptionalToolArgs(value, toolName, schema) {
+export function stripEmptyOptionalToolArgs(
+  value: unknown,
+  toolName: string,
+  schema?: unknown
+): unknown {
   if (value == null) return value;
 
   if (typeof value === "string") {
@@ -141,31 +168,31 @@ export function stripEmptyOptionalToolArgs(value, toolName, schema) {
     }
   }
 
-  if (Array.isArray(value) || typeof value !== "object") return value;
+  if (!isRecord(value)) return value;
 
   return stripEmptyOptionalToolArgsObject(value, toolName, schema);
 }
 
-export function normalizeOutputIndex(outputIndex) {
+export function normalizeOutputIndex(outputIndex: unknown): number {
   const normalized = Number(outputIndex);
   return Number.isInteger(normalized) && normalized >= 0 ? normalized : 0;
 }
 
-export function normalizeUpstreamFailure(data, fallbackType = "server_error") {
-  const response = data?.response && typeof data.response === "object" ? data.response : null;
-  const error =
-    response?.error && typeof response.error === "object"
-      ? response.error
-      : data?.error && typeof data.error === "object"
-        ? data.error
-        : null;
+export function normalizeUpstreamFailure(data: unknown, fallbackType = "server_error") {
+  const payload = isRecord(data) ? data : null;
+  const response = isRecord(payload?.response) ? payload.response : null;
+  const error = isRecord(response?.error)
+    ? response.error
+    : isRecord(payload?.error)
+      ? payload.error
+      : null;
 
   const code = typeof error?.code === "string" ? error.code : "";
   const message =
     typeof error?.message === "string"
       ? error.message
-      : typeof data?.message === "string"
-        ? data.message
+      : typeof payload?.message === "string"
+        ? payload.message
         : "Upstream failure";
 
   // Preserve upstream error semantics:
@@ -195,16 +222,14 @@ export function normalizeUpstreamFailure(data, fallbackType = "server_error") {
   };
 }
 
-export function extractResponsesReasoningSummaryText(item) {
-  if (!item || !Array.isArray(item.summary)) return "";
+export function extractResponsesReasoningSummaryText(item: unknown): string {
+  if (!isRecord(item) || !Array.isArray(item.summary)) return "";
   // #9500 — reasoning summary parts are discrete segments; join with "\n\n"
   // (matches extractThinkingFromContent convention). Filter empties so an
   // empty summary_text element does not produce a dangling separator.
   return item.summary
-    .map((part) =>
-      part && typeof part === "object" && typeof part.text === "string" ? part.text : ""
-    )
-    .filter((text) => text.length > 0)
+    .map((part: unknown) => (isRecord(part) && typeof part.text === "string" ? part.text : ""))
+    .filter((text: string) => text.length > 0)
     .join("\n\n");
 }
 
@@ -221,6 +246,6 @@ export function extractResponsesReasoningSummaryText(item) {
 //     would display it as if it were real reasoning. Return empty so synthetic
 //     summary events are suppressed; the reasoning item (with `encrypted_content`)
 //     still arrives on `response.output_item.done`.
-export function getVisibleResponsesReasoningSummaryText(item) {
+export function getVisibleResponsesReasoningSummaryText(item: unknown): string {
   return extractResponsesReasoningSummaryText(item);
 }
