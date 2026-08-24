@@ -152,7 +152,7 @@ test("postExchange attempts onboarding when projectId is empty and returns disco
     }
     if (u.includes("onboardUser")) {
       onboardUserCalled = true;
-      return jsonRes({ done: true });
+      return jsonRes({ done: true, cloudaicompanionProject: "new-project-456" });
     }
     return jsonRes({});
   }) as typeof fetch;

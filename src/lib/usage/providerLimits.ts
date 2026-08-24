@@ -13,7 +13,12 @@ import {
 } from "@/lib/db/providerLimits";
 import { syncToCloud } from "@/lib/cloudSync";
 import { setQuotaCache } from "@/domain/quotaCache";
-import { buildClaudeExtraUsageConnectionUpdate } from "@/lib/providers/claudeExtraUsage";
+import {
+  buildClaudeExtraUsageConnectionUpdate,
+  CLAUDE_EXTRA_USAGE_ERROR_SOURCE,
+  isClaudeExtraUsageBlockEnabled,
+  isClaudeExtraUsageQueued,
+} from "@/lib/providers/claudeExtraUsage";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import { clearRecoveredProviderState } from "@/sse/services/auth";
 import { getMachineId } from "@/shared/utils/machine";
@@ -438,6 +443,21 @@ export function hasUsableQuota(usage: JsonRecord): boolean {
   return false;
 }
 
+function windowStillExhaustedAfterRealReset(value: unknown, nowMs: number): boolean {
+  if (!isRecord(value)) return false;
+  if (value.unlimited === true) return false;
+  const remaining =
+    typeof value.remaining === "number"
+      ? value.remaining
+      : typeof value.remainingPercentage === "number"
+        ? value.remainingPercentage
+        : null;
+  if (remaining !== null && remaining > 0) return false;
+  if (value.resetAt == null) return true;
+  const resetMs = Date.parse(String(value.resetAt));
+  return Number.isNaN(resetMs) || resetMs > nowMs;
+}
+
 /**
  * Is an explicit cooldown still in the future?
  *
@@ -488,7 +508,27 @@ export async function maybeClearRecoveredQuotaState(
 ): Promise<ProviderConnectionLike> {
   if (!hasUsableQuota(usage)) return connection;
   if (isTerminalStatusForQuotaRecovery(connection.testStatus)) return connection;
-  if (hasActiveCooldown(connection)) return connection;
+  if (connection.lastErrorType === "quota_exhausted") {
+    if (
+      connection.lastErrorSource === CLAUDE_EXTRA_USAGE_ERROR_SOURCE &&
+      isClaudeExtraUsageBlockEnabled(connection.provider, connection.providerSpecificData) &&
+      isClaudeExtraUsageQueued(usage)
+    ) {
+      return connection;
+    }
+
+    const quotas = usage.quotas;
+    if (isRecord(quotas)) {
+      const anyStillBlocking = Object.values(quotas).some((value) =>
+        windowStillExhaustedAfterRealReset(value, Date.now())
+      );
+      if (anyStillBlocking) return connection;
+    } else if (hasActiveCooldown(connection)) {
+      return connection;
+    }
+  } else if (hasActiveCooldown(connection)) {
+    return connection;
+  }
 
   const hasTransientState =
     connection.testStatus === "unavailable" ||
