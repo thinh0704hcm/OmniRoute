@@ -1,17 +1,27 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { bindVolcenginePlansFromConsoleCredentials } from "@/lib/providers/volcenginePlanBinding";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
+
+const connectSchema = z.object({
+  phone: z.string().optional(),
+  timeout: z.number().optional(),
+});
 
 export async function POST(request: Request): Promise<NextResponse> {
   const auth = await requireManagementAuth(request);
   if (auth) return auth;
 
-  const body = await request.json().catch(() => ({}));
-  const timeout = typeof body.timeout === "number" ? body.timeout : undefined;
+  const parsed = connectSchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ success: false, error: "Invalid request body" }, { status: 400 });
+  }
+  const body = parsed.data;
+  const timeout = body.timeout;
 
   // Auto flow: phone present → start a session-based headless phone/SMS login.
-  if (typeof body.phone === "string" && body.phone.trim()) {
+  if (body.phone?.trim()) {
     try {
       const { volcengineConsoleAutoLoginService } =
         await import("@omniroute/open-sse/services/volcengineConsoleAutoLogin.ts");

@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { bindVolcenginePlansFromConsoleCredentials } from "@/lib/providers/volcenginePlanBinding";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
+
+const submitCodeSchema = z.object({
+  code: z.union([z.string(), z.number()]).optional(),
+  captcha: z.string().optional(),
+  timeout: z.number().optional(),
+});
 
 /**
  * POST /api/providers/volcengine-plan/connect/[sessionId]/code
@@ -17,7 +24,11 @@ export async function POST(
   if (auth) return auth;
 
   const { sessionId } = await params;
-  const body = await request.json().catch(() => ({}));
+  const parsed = submitCodeSchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ success: false, error: "Invalid request body" }, { status: 400 });
+  }
+  const body = parsed.data;
 
   try {
     const { volcengineConsoleAutoLoginService } =
@@ -30,11 +41,11 @@ export async function POST(
       );
     }
 
-    const timeout = typeof body.timeout === "number" ? body.timeout : undefined;
+    const timeout = body.timeout;
     const session = await volcengineConsoleAutoLoginService.submitCode(
       sessionId,
       String(body.code ?? ""),
-      typeof body.captcha === "string" ? body.captcha : undefined,
+      body.captcha,
       { timeout }
     );
     if (!session) {
