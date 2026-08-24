@@ -19,6 +19,12 @@ export const geminiProvider: RegistryEntry = {
   },
   models: [
     {
+      id: "gemini-3.7-flash",
+      name: "Gemini 3.7 Flash",
+      toolCalling: true,
+      supportsVision: true,
+    },
+    {
       id: "gemini-3.6-flash",
       name: "Gemini 3.6 Flash",
       toolCalling: true,
@@ -33,12 +39,6 @@ export const geminiProvider: RegistryEntry = {
     {
       id: "gemini-3.5-flash-lite",
       name: "Gemini 3.5 Flash Lite",
-      toolCalling: true,
-      supportsVision: true,
-    },
-    {
-      id: "gemini-3.7-flash",
-      name: "Gemini 3.7 Flash",
       toolCalling: true,
       supportsVision: true,
     },

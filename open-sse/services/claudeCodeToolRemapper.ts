@@ -115,6 +115,29 @@ export function remapToolNamesInRequest(body: Record<string, unknown>): boolean 
   let hasTitleCase = false;
   const serverToolNames = collectServerToolNames(body.tools);
 
+  // Combo attempts may share request children. Keep the established in-place
+  // API for `body` while cloning every nested object this remapper can edit.
+  if (Array.isArray(body.tools)) {
+    body.tools = body.tools.map((tool) =>
+      tool && typeof tool === "object" ? { ...(tool as Record<string, unknown>) } : tool
+    );
+  }
+  if (Array.isArray(body.messages)) {
+    body.messages = body.messages.map((message) => {
+      if (!message || typeof message !== "object") return message;
+      const next = { ...(message as Record<string, unknown>) };
+      if (Array.isArray(next.content)) {
+        next.content = next.content.map((block) =>
+          block && typeof block === "object" ? { ...(block as Record<string, unknown>) } : block
+        );
+      }
+      return next;
+    });
+  }
+  if (body.tool_choice && typeof body.tool_choice === "object") {
+    body.tool_choice = { ...(body.tool_choice as Record<string, unknown>) };
+  }
+
   // Remap tool definitions
   const tools = body.tools as Array<Record<string, unknown>> | undefined;
   if (Array.isArray(tools)) {
