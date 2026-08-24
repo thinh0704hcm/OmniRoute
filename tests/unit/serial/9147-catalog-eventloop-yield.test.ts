@@ -1,3 +1,9 @@
+/**
+ * This regression measures event-loop scheduling latency while building a
+ * catalog-scale response. Running it in tests/unit/serial/ (--test-concurrency=1,
+ * see package.json's test:unit:serial) isolates the 400ms threshold from CPU
+ * contention caused by the parallel unit lane.
+ */
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -8,9 +14,9 @@ const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-9147-"));
 process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "catalog-9147-test-secret";
 
-const core = await import("../../src/lib/db/core.ts");
-const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
-const v1ModelsCatalog = await import("../../src/app/api/v1/models/catalog.ts");
+const core = await import("../../../src/lib/db/core.ts");
+const apiKeysDb = await import("../../../src/lib/db/apiKeys.ts");
+const v1ModelsCatalog = await import("../../../src/app/api/v1/models/catalog.ts");
 
 const CONNECTION_COUNT = 60;
 const MODELS_PER_CONNECTION = 12; // ~720 synced models total

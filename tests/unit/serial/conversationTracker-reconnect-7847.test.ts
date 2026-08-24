@@ -15,6 +15,10 @@
  *   1. The walk charges a step budget and never exceeds it (pure, no DB).
  *   2. A duplicate-heavy long-history resolve completes in bounded wall time
  *      (DB-backed end-to-end through resolveConversationId).
+ *
+ * The end-to-end assertion is intentionally kept in tests/unit/serial/
+ * (--test-concurrency=1, see package.json's test:unit:serial) so parallel CPU
+ * contention cannot consume its unchanged 2,000ms regression budget.
  */
 
 import test from "node:test";
@@ -29,7 +33,7 @@ process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "conversation-7847-te
 
 // Dynamic imports: modules reading DATA_DIR at top level must evaluate after
 // the override above (see conversationTracker.test.ts for the full rationale).
-const tracker = await import("../../open-sse/services/conversationTracker.ts");
+const tracker = await import("../../../open-sse/services/conversationTracker.ts");
 const { findReconnectMatch, resolveConversationId, hashTurnContent, DEFAULT_RECONNECT_MAX_STEPS } =
   tracker as {
     findReconnectMatch: typeof tracker.findReconnectMatch;
@@ -37,7 +41,7 @@ const { findReconnectMatch, resolveConversationId, hashTurnContent, DEFAULT_RECO
     hashTurnContent: typeof tracker.hashTurnContent;
     DEFAULT_RECONNECT_MAX_STEPS: number;
   };
-const { resetDbInstance } = await import("../../src/lib/db/core.ts");
+const { resetDbInstance } = await import("../../../src/lib/db/core.ts");
 
 test.after(() => {
   try {
