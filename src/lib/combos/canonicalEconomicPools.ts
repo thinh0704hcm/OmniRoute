@@ -291,6 +291,7 @@ function leafCombo(
     pricingStructure?: PricingStructure;
     economicPool?: EconomicPool;
     accessPolicy?: "open" | "explicit";
+    fallbackForTier?: ClaudePerformanceTier;
   } = {}
 ): CanonicalComboSpec {
   return {
