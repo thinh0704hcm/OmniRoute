@@ -6866,7 +6866,11 @@ paths:
         Returns a structured JSON catalog parsed from this `openapi.yaml`,
         including info, servers, tags, schemas, and a flat list of endpoints
         (method, path, tags, summary, security, parameters, responses).
-        Used by the in-app API explorer.
+        Used by the in-app API explorer. When `requireLogin` is enabled, this
+        management endpoint requires an authenticated dashboard session;
+        otherwise it is available without authentication.
+      security:
+        - ManagementSessionAuth: []
       responses:
         "200":
           description: Parsed OpenAPI catalog
@@ -6920,6 +6924,10 @@ paths:
                       type: string
         "404":
           description: openapi.yaml file not found on disk
+        "401":
+          $ref: "#/components/responses/ManagementAuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/ManagementInvalidToken"
         "500":
           description: Failed to parse OpenAPI spec
 

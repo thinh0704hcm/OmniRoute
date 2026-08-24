@@ -15,6 +15,16 @@ const SAMPLE = {
       thinking: true,
     },
     {
+      name: "models/gemini-3.5-flash",
+      displayName: "Gemini 3.5 Flash",
+      supportedGenerationMethods: ["generateContent"],
+    },
+    {
+      name: "models/gemini-3.5-flash-lite",
+      displayName: "Gemini 3.5 Flash Lite",
+      supportedGenerationMethods: ["generateContent"],
+    },
+    {
       name: "models/gemini-3-pro-image-preview",
       displayName: "Gemini 3 Pro Image Preview",
       supportedGenerationMethods: ["generateContent", "countTokens"],
@@ -46,6 +56,12 @@ test("parseGeminiModelsList strips the models/ prefix and maps display name", ()
   assert.equal(flash!.outputTokenLimit, 65536);
   assert.equal(flash!.supportsThinking, true);
   assert.deepEqual(flash!.supportedEndpoints, ["chat"]);
+});
+
+test("parseGeminiModelsList excludes retired Gemini 3.5 Flash but keeps Flash Lite", () => {
+  const ids = parseGeminiModelsList(SAMPLE).map((model) => model.id);
+  assert.equal(ids.includes("gemini-3.5-flash"), false);
+  assert.equal(ids.includes("gemini-3.5-flash-lite"), true);
 });
 
 test("parseGeminiModelsList maps generateContent image models to the chat endpoint", () => {

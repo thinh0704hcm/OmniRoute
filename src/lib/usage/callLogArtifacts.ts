@@ -5,7 +5,8 @@ import { resolveDataDir } from "../dataPaths.ts";
 import { getCallLogPipelineMaxSizeBytes, isChatDebugFileEnabled } from "../logEnv.ts";
 
 const isCloud = typeof globalThis.caches === "object" && globalThis.caches !== null;
-const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+const isBuildPhase =
+  process.env.NEXT_PHASE === "phase-production-build" || process.env.OMNIROUTE_BUILDING === "1";
 const DATA_DIR = resolveDataDir({ isCloud });
 
 export const CALL_LOGS_DIR = isCloud ? null : path.join(DATA_DIR, "call_logs");

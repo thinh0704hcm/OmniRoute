@@ -186,10 +186,12 @@ import {
   TRANSIENT_FOR_SEMAPHORE,
   MAX_FALLBACK_WAIT_MS,
   MAX_GLOBAL_ATTEMPTS,
+  MAX_GLOBAL_ATTEMPTS_HARD_CAP,
   COMBO_LOOP_SAFETY_TIMEOUT_MS,
   COMBO_SAFETY_DRAIN_MS,
   isAllAccountsRateLimitedResponse,
   clampComboDepth,
+  clampGlobalAttempts,
   shouldSkipForPredictedTtft,
   shouldRecordProviderBreakerFailure,
   isComboRequestScopedFailure as isScopedFailure,
@@ -289,6 +291,9 @@ export type { SingleModelTarget, ResolvedComboTarget };
 export { validateResponseQuality };
 export {
   clampComboDepth,
+  clampGlobalAttempts,
+  MAX_GLOBAL_ATTEMPTS,
+  MAX_GLOBAL_ATTEMPTS_HARD_CAP,
   shouldSkipForPredictedTtft,
   shouldRecordProviderBreakerFailure,
   isRequestScopedUpstreamFailure,
@@ -959,6 +964,9 @@ async function handleComboChatInner({
   const _registeredExecutionKeys = orderedTargets.map((t) => t.executionKey).filter(Boolean);
 
   let globalAttempts = 0;
+  // #11134: operator-configurable shared attempt budget (clamped to the hard
+  // cap). Defaults to MAX_GLOBAL_ATTEMPTS when unset.
+  const maxGlobalAttempts = clampGlobalAttempts(config.maxGlobalAttempts);
 
   // Cooldown-aware retry (Variante A). Originally quota-share (qtSd/) only;
   // extended to "auto" combos too (#7360 — a 2-model "default" auto combo
@@ -1393,10 +1401,10 @@ async function handleComboChatInner({
             return { ok: false, response: errorResponse(499, "Client disconnected") };
           }
           globalAttempts++;
-          if (globalAttempts > MAX_GLOBAL_ATTEMPTS) {
+          if (globalAttempts > maxGlobalAttempts) {
             log.warn(
               "COMBO",
-              `Maximum combo attempts (${MAX_GLOBAL_ATTEMPTS}) exceeded across all targets and fallbacks. Terminating loop to prevent runaway background requests.`
+              `Maximum combo attempts (${maxGlobalAttempts}) exceeded across all targets and fallbacks. Terminating loop to prevent runaway background requests.`
             );
             // Actionable failure instead of an opaque 503 when every candidate
             // failed the same recoverable way. If the dominant cause was reasoning
@@ -3071,6 +3079,9 @@ async function handleRoundRobinCombo({
   let globalAttempts = 0;
   let fallbackCount = 0;
   let recordedAttempts = 0;
+  // #11134: operator-configurable shared attempt budget (clamped to the hard
+  // cap). Defaults to MAX_GLOBAL_ATTEMPTS when unset.
+  const maxGlobalAttempts = clampGlobalAttempts(config.maxGlobalAttempts);
   // #10314: per-target outcome accumulator for the round-robin twin so the
   // terminal message lists each distinct reason separately (see the quality path
   // and the "Done with this model" path below), mirroring handleComboChat.
@@ -3206,10 +3217,10 @@ async function handleRoundRobinCombo({
       try {
         for (let retry = 0; retry <= maxRetries; retry++) {
           globalAttempts++;
-          if (globalAttempts > MAX_GLOBAL_ATTEMPTS) {
+          if (globalAttempts > maxGlobalAttempts) {
             log.warn(
               "COMBO-RR",
-              `Maximum combo attempts (${MAX_GLOBAL_ATTEMPTS}) exceeded. Terminating loop to prevent runaway requests.`
+              `Maximum combo attempts (${maxGlobalAttempts}) exceeded. Terminating loop to prevent runaway requests.`
             );
             return errorResponse(503, "Maximum combo retry limit reached");
           }

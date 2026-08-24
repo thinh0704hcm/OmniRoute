@@ -970,6 +970,13 @@
     "batchTimelineCancelled": "Cancelado",
     "batchTokenUsage": "Uso de Token",
     "batchMetadata": "Metadados",
+    "batchHeaderSubtitle": "Execute muitas requisições como um único job",
+    "batchStep1": "1 · Enviar JSONL",
+    "batchStep1Desc": "Adicionar requisições",
+    "batchStep2": "2 · Criar lote",
+    "batchStep2Desc": "Executar job",
+    "batchStep3": "3 · Obter resultados",
+    "batchStep3Desc": "Baixar saída",
     "batchFileContents": "Conteúdo do Arquivo",
     "batchFileUsedByCount": "Usado por {count, plural, one {# lote} other {# lotes}}",
     "batchFilePreview": "Prévia",
@@ -2905,6 +2912,7 @@
       "interpreter": "CLI do agente de codificação autônomo Open Interpreter",
       "omp": "Agente de codificação de terminal Oh My Pi",
       "letta": "Agente CLI Letta com memória persistente e uso de ferramentas",
+      "prime-agent": "Prime Agent — harness de codificação RLM autoevolutivo com suporte a API compatível com OpenAI",
       "warp": "Terminal de IA Warp com suporte a provedor personalizado",
       "agent-deck": "Orquestrador multi-agente Agent Deck"
     },
@@ -3831,6 +3839,9 @@
   },
   "endpoint": {
     "title": "Endpoint da API",
+    "subtitle": "Use o endpoint compatível com OpenAI na maioria dos SDKs e ferramentas.",
+    "testEndpoint": "Testar endpoint →",
+    "advancedProtocols": "Protocolos avançados",
     "available": "Endpoints Disponíveis",
     "cloudProxy": "Proxy na Nuvem",
     "disableConfirm": "Tem certeza que deseja desativar o proxy na nuvem?",
@@ -4611,6 +4622,13 @@
     "retry": "Tentar Novamente",
     "allOperational": "Todos os sistemas operacionais",
     "issuesDetected": "Problemas detectados no sistema",
+    "healthVerdictReady": "O OmniRoute está pronto",
+    "healthVerdictActionRequired": "Ação necessária para restaurar a operação plena",
+    "healthVerdictCoolingDown": "Em resfriamento após mudanças recentes",
+    "healthSubtitle": "Verificação de saúde do sistema",
+    "advancedDiagnosticsTitle": "Diagnósticos avançados",
+    "hide": "Ocultar",
+    "show": "Mostrar",
     "updatedAt": "Atualizado {time}",
     "latency": "Latência",
     "latencyP50": "p50",
@@ -5839,6 +5857,8 @@
     "rateLimitOverridesSection": "Substituições de Limite de Taxa",
     "rateLimitOverridesMaxConcurrentHint": "Sobrescrição do máximo de requisições concorrentes para esta conexão. Sobrescreve o limite de nível de conta.",
     "rateLimitOverridesMaxConcurrentLabel": "Máximo Concorrente (Limite de Taxa)",
+    "rateLimitOverridesMaxWaitMsHint": "__MISSING__:Maximum time (ms) a request may wait for a rate-limit slot before failing. Overrides the global Resilience setting for this connection only.",
+    "rateLimitOverridesMaxWaitMsLabel": "__MISSING__:Max Queue Wait (ms)",
     "rateLimitOverridesMinTimeHint": "Tempo mínimo (ms) entre solicitações. Substitui o atraso padrão do limitador de taxa.",
     "rateLimitOverridesMinTimeLabel": "Min Intervalo (ms)",
     "rateLimitOverridesRpmHint": "Máximo de requisições por minuto para esta conexão. Substitui o padrão do provedor.",
@@ -6116,7 +6136,6 @@
       "glmt": "Perfil GLM pré-configurado com orçamento de tokens maior, thinking ativado e timeout mais longo.",
       "getgoapi": "Conecte o GoAPI com uma chave de API.",
       "groq": "Nível gratuito: 30 RPM / 14,4K RPD — sem cartão de crédito",
-      "hackclub": "Entre com sua conta Hack Club em ai.hackclub.com.",
       "haiper": "Obtenha a chave de API em haiper.ai/haiper-api",
       "heroku": "Conecte o Heroku AI com uma chave de API.",
       "hcnsec": "Obtenha a chave de API em api.hcnsec.cn",
@@ -12034,6 +12053,7 @@
       "acp": {
         "title": "ACP Agents",
         "phrase": "CLIs que o OmniRoute spawna como backend de execução (fluxo reverso)",
+        "warning": "A maioria dos usuários pode ignorar isto — use apenas quando uma integração exigir.",
         "flow": "Cliente → OmniRoute → spawn CLI (stdio/ACP) → resposta",
         "seeOther": "Ver →"
       }
@@ -13341,6 +13361,13 @@
   },
   "resilienceConnections": {
     "title": "Resiliência de Conexão",
+    "reassuranceTitle": "Suas conexões se recuperam automaticamente",
+    "reassuranceDetail": "Normalmente nenhuma ação é necessária. O OmniRoute dá uma pausa temporária em uma conexão após falhas e depois a tenta novamente com segurança.",
+    "plainStates": {
+      "healthy": "Requisições podem ser enviadas",
+      "coolingDown": "Tentando novamente em breve",
+      "lockedOut": "Precisa da sua atenção"
+    },
     "table": {
       "status": "Status",
       "provider": "Provedor",

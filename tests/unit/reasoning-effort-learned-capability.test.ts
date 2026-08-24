@@ -89,3 +89,67 @@ test("deepseek's non-ordinal max<->xhigh translation is untouched by the learned
   // deepseek's special case returns early — xhigh -> max, never reaches the catch-all.
   assert.equal(result.reasoning_effort, "max");
 });
+
+test("proactive clamp: medium→low for learned {low,high,max}", () => {
+  recordLearnedReasoningEffort("opencode-zen-direct", "x-preview-f-free", ["low", "high", "max"]);
+  const out = sanitizeReasoningEffortForProvider(
+    { reasoning_effort: "medium", model: "x-preview-f-free" },
+    "opencode-zen-direct",
+    "x-preview-f-free"
+  ) as { reasoning_effort: string };
+  assert.equal(out.reasoning_effort, "low");
+});
+test("proactive clamp: xhigh→high for learned {low,high,max}", () => {
+  recordLearnedReasoningEffort("opencode-zen-direct", "x-preview-f-free-2", ["low", "high", "max"]);
+  const out = sanitizeReasoningEffortForProvider(
+    { reasoning_effort: "xhigh", model: "x-preview-f-free-2" },
+    "opencode-zen-direct",
+    "x-preview-f-free-2"
+  ) as { reasoning_effort: string };
+  assert.equal(out.reasoning_effort, "high");
+});
+test("proactive clamp: ultra→max for learned {low,high,max}", () => {
+  recordLearnedReasoningEffort("opencode-zen-direct", "x-preview-f-free-3", ["low", "high", "max"]);
+  const out = sanitizeReasoningEffortForProvider(
+    { reasoning_effort: "ultra", model: "x-preview-f-free-3" },
+    "opencode-zen-direct",
+    "x-preview-f-free-3"
+  ) as { reasoning_effort: string };
+  assert.equal(out.reasoning_effort, "max");
+});
+test("proactive clamp: ultra→medium for learned {low,medium}", () => {
+  recordLearnedReasoningEffort("acme", "m", ["low", "medium"]);
+  const out = sanitizeReasoningEffortForProvider(
+    { reasoning_effort: "ultra", model: "m" },
+    "acme",
+    "m"
+  ) as { reasoning_effort: string };
+  assert.equal(out.reasoning_effort, "medium");
+});
+test("proactive clamp: high→medium for learned {low,medium}", () => {
+  recordLearnedReasoningEffort("acme", "m2", ["low", "medium"]);
+  const out = sanitizeReasoningEffortForProvider(
+    { reasoning_effort: "high", model: "m2" },
+    "acme",
+    "m2"
+  ) as { reasoning_effort: string };
+  assert.equal(out.reasoning_effort, "medium");
+});
+test("no upgrade: low stays low for learned {high,max}", () => {
+  recordLearnedReasoningEffort("acme", "m3", ["high", "max"]);
+  const out = sanitizeReasoningEffortForProvider(
+    { reasoning_effort: "low", model: "m3" },
+    "acme",
+    "m3"
+  ) as { reasoning_effort: string };
+  assert.equal(out.reasoning_effort, "low");
+});
+test("custom model ultra→medium for learned {low,medium}", () => {
+  recordLearnedReasoningEffort("openai-compatible-chat-eaff6869", "qwen3-coder-30b-a3b-instruct-2", ["low", "medium"]);
+  const out = sanitizeReasoningEffortForProvider(
+    { reasoning_effort: "ultra", model: "qwen3-coder-30b-a3b-instruct-2" },
+    "openai-compatible-chat-eaff6869",
+    "qwen3-coder-30b-a3b-instruct-2"
+  ) as { reasoning_effort: string };
+  assert.equal(out.reasoning_effort, "medium");
+});

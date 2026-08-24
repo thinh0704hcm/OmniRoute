@@ -23,6 +23,10 @@ import { getComboByName } from "@/lib/db/combos";
 import { getAllCustomModels } from "@/lib/db/models";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { resolveImageRouteModel } from "@/lib/images/imageRouteModel";
+import {
+  resolveLocalSyncedEndpointRoute,
+  type LocalSyncedEndpointRoute,
+} from "@/lib/providerModels/syncedEndpointRouting";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { calculateModalCost } from "@/lib/usage/costCalculator";
@@ -145,6 +149,16 @@ async function postHandler(request, context) {
   // Parse model to get provider
   let { provider, model: requestedModel } = parseImageModel(body.model);
   let isCustomModel = false;
+  let syncedEndpointRoute: LocalSyncedEndpointRoute | null = null;
+
+  if (!provider) {
+    syncedEndpointRoute = await resolveLocalSyncedEndpointRoute(body.model, "images");
+    if (syncedEndpointRoute) {
+      provider = syncedEndpointRoute.provider;
+      body.model = `${syncedEndpointRoute.provider}/${syncedEndpointRoute.model}`;
+      isCustomModel = true;
+    }
+  }
 
   // If not in built-in registry, check custom models tagged for images
   if (!provider) {
@@ -231,9 +245,8 @@ async function postHandler(request, context) {
     credentials = await getProviderCredentialsWithQuotaPreflight(
       provider,
       null,
-      null,
-      requestedModel
-    );
+      syncedEndpointRoute?.connectionIds ?? null,
+      requestedModel    );
     if (!credentials) {
       return errorResponse(
         HTTP_STATUS.BAD_REQUEST,

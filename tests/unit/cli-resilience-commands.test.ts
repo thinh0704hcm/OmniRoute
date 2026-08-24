@@ -1,4 +1,5 @@
 import test from "node:test";
+import { makeMcpResp, makeMcpStreamFetch } from "./helpers/mcpStreamMock.ts";
 import assert from "node:assert/strict";
 
 function makeResp(data: unknown, status = 200) {
@@ -111,25 +112,25 @@ test("resilience reset envia provider e body correto", async () => {
   assert.equal(capturedBody.connectionId, "conn-1");
 });
 
-test("resilience profile set chama MCP tool", async () => {
-  let capturedBody: any = null;
+test("resilience profile set usa JSON-RPC tools/call", async () => {
+  let capturedCall: any = null;
   const origFetch = globalThis.fetch;
-  globalThis.fetch = ((_url: string, opts: any) => {
-    if (opts?.body) capturedBody = JSON.parse(opts.body);
-    return Promise.resolve(makeResp({ result: {} }));
+  globalThis.fetch = makeMcpStreamFetch({ toolResult: {} });
+  const inner = globalThis.fetch;
+  globalThis.fetch = ((url: any, init: any) => {
+    if (String(url).includes("/api/mcp/stream") && String(init?.body || "").includes("tools/call")) {
+      capturedCall = JSON.parse(init.body);
+    }
+    return inner(url, init);
   }) as any;
 
-  await (globalThis.fetch as any)("/api/mcp/tools/call", {
-    method: "POST",
-    body: JSON.stringify({
-      name: "omniroute_set_resilience_profile",
-      arguments: { profile: "balanced" },
-    }),
-  });
+  const { mcpCallTool } = await import("../../bin/cli/mcpClient.mjs");
+  await mcpCallTool("omniroute_set_resilience_profile", { profile: "balanced" });
 
   globalThis.fetch = origFetch;
-  assert.equal(capturedBody.name, "omniroute_set_resilience_profile");
-  assert.equal(capturedBody.arguments.profile, "balanced");
+  assert.equal(capturedCall.method, "tools/call");
+  assert.equal(capturedCall.params.name, "omniroute_set_resilience_profile");
+  assert.equal(capturedCall.params.arguments.profile, "balanced");
 });
 
 test("resilience.mjs pode ser importado sem erro", async () => {

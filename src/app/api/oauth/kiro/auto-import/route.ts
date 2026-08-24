@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { homedir } from "os";
 import { join } from "path";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import { isNextBuildPhase } from "@/lib/buildPhase";
 import {
   createProviderConnection,
   getProviderConnections,
@@ -83,6 +84,11 @@ async function tryKiroCliSqlite(): Promise<{
 
   let Database: any;
   try {
+    // Never load the native better-sqlite3 addon during the Next.js build:
+    // its Statement destructor aborts with SIGABRT at build-worker teardown
+    // (node::RemoveEnvironmentCleanupHook). Kiro auto-import never runs during
+    // build, so returning "not found" here is safe. (#10060)
+    if (isNextBuildPhase()) throw new Error("Skip better-sqlite3 during build");
     Database = (await import("better-sqlite3")).default;
   } catch {
     return { found: false, triedPaths: candidatePaths };

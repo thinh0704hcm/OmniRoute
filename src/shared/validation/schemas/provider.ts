@@ -426,17 +426,14 @@ export const providerNodeValidateSchema = z.object({
 // an empty/non-numeric string fails validation (surfaced as a 400), while still
 // coercing legit numeric strings like "60".
 function rateLimitOverrideNumber(max: number) {
-  return z.preprocess(
-    (raw) => {
-      if (typeof raw === "string") {
-        if (raw.trim() === "") return NaN;
-        const parsed = Number(raw);
-        return Number.isNaN(parsed) ? raw : parsed;
-      }
-      return raw;
-    },
-    z.coerce.number().int().min(0).max(max)
-  );
+  return z.preprocess((raw) => {
+    if (typeof raw === "string") {
+      if (raw.trim() === "") return NaN;
+      const parsed = Number(raw);
+      return Number.isNaN(parsed) ? raw : parsed;
+    }
+    return raw;
+  }, z.coerce.number().int().min(0).max(max));
 }
 
 export const updateProviderConnectionSchema = z
@@ -501,6 +498,7 @@ export const updateProviderConnectionSchema = z
         tpd: rateLimitOverrideNumber(10_000_000_000).optional(),
         minTime: rateLimitOverrideNumber(60_000).optional(),
         maxConcurrent: rateLimitOverrideNumber(10_000).optional(),
+        maxWaitMs: rateLimitOverrideNumber(120_000).optional(),
       })
       .partial()
       .strict()

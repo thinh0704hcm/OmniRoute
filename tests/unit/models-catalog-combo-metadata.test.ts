@@ -98,7 +98,11 @@ test("single-target Codex combo advertises a larger model context override", asy
     assert.equal(response.status, 200);
     assert.equal(direct?.context_length, contextWindow);
     assert.equal(combo?.context_length, contextWindow);
-    assert.equal(combo?.max_input_tokens, 272000);
+    // #11179 raised the static codex catalog cap to maxInputTokens=872000 (the real
+    // usable window; the old 272000 was just the first pricing tier). The input cap
+    // can never exceed the total window, so with the 500K override it clamps to it:
+    // min(872000, 500000) = 500000.
+    assert.equal(combo?.max_input_tokens, 500000);
   } finally {
     contextOverrides.removeModelContextOverride("codex", modelId);
   }

@@ -3,9 +3,67 @@ import {
   getCodexParentAccountDiagnostic,
 } from "@omniroute/open-sse/services/codexAccount/index.ts";
 import type { AdaptiveAdmissionPublicSnapshot } from "@omniroute/open-sse/services/admission/runtime.ts";
-import type { ChatAdmissionDiagnostics } from "@/shared/middleware/chatBodyAdmission";
+import type {
+  ChatAdmissionDiagnostics,
+  PerConnectionAdmissionController,
+} from "@/shared/middleware/chatBodyAdmission";
 
 type JsonRecord = Record<string, unknown>;
+
+/** Process-wide structural chat-admission snapshot type (chatBodyAdmission.ts). */
+export type ChatAdmissionSnapshot = ReturnType<PerConnectionAdmissionController["snapshot"]>;
+
+/**
+ * Low-card structural chat-admission health summary (#11244) — the bounded
+ * heavyweight-lease gate from chatBodyAdmission.ts (#10110/#10437), NOT the
+ * adaptive shadow-mode layer above. Lane keys are opaque HMAC fairness
+ * fingerprints (resolveSessionId), never raw credentials.
+ */
+export type ChatAdmissionHealthSummary = {
+  activeHeavy: number;
+  activeHealthyHeadroom: number;
+  waiting: number;
+  queuedBytes: number;
+  shedTotal: number;
+  shedsByReason: Record<string, number>;
+  lanes: Array<{ key: string; waiting: number }>;
+  maxHeavyInFlight?: number;
+  maxQueuedBytes?: number;
+  queueMs?: number;
+  rejections?: ChatAdmissionDiagnostics["rejections"];
+  lastRejection?: ChatAdmissionDiagnostics["lastRejection"];
+};
+
+/**
+ * Explicit allowlisted projection of the structural admission snapshot.
+ * Never spreads the snapshot — only the documented low-cardinality fields pass.
+ */
+export function projectChatAdmissionSummary(
+  snapshot: ChatAdmissionSnapshot | ChatAdmissionDiagnostics | null | undefined
+): ChatAdmissionHealthSummary | null {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const summary: ChatAdmissionHealthSummary = {
+    activeHeavy: snapshot.activeHeavy,
+    activeHealthyHeadroom: snapshot.activeHealthyHeadroom,
+    waiting: snapshot.waiting,
+    queuedBytes: snapshot.queuedBytes,
+    shedTotal: snapshot.shedTotal ?? 0,
+    shedsByReason: { ...(snapshot.shedsByReason ?? {}) },
+    lanes: (snapshot.lanes ?? []).map((lane) => ({ key: lane.key, waiting: lane.waiting })),
+  };
+  if ("rejections" in snapshot) {
+    const last = snapshot.lastRejection;
+    summary.maxHeavyInFlight = snapshot.maxHeavyInFlight;
+    summary.maxQueuedBytes = snapshot.maxQueuedBytes;
+    summary.queueMs = snapshot.queueMs;
+    summary.rejections = {
+      total: snapshot.rejections.total,
+      byStage: { ...snapshot.rejections.byStage },
+    };
+    summary.lastRejection = last ? { ...last } : null;
+  }
+  return summary;
+}
 
 /** Low-card adaptive-admission health summary — no tenant/request/body/queue details. */
 export type AdaptiveAdmissionHealthSummary = {
@@ -161,45 +219,8 @@ interface BuildHealthPayloadOptions {
   };
   /** Optional injected public adaptive-admission snapshot; projected, never raw-spread. */
   adaptiveAdmission?: AdaptiveAdmissionPublicSnapshot | null;
-  /** Process-local heavyweight chat admission occupancy and rejection counters. */
-  chatAdmission?: ChatAdmissionDiagnostics | null;
-}
-
-function projectChatAdmissionDiagnostics(
-  diagnostics: ChatAdmissionDiagnostics | null | undefined
-): ChatAdmissionDiagnostics | null {
-  if (!diagnostics || typeof diagnostics !== "object") return null;
-  const last = diagnostics.lastRejection;
-  return {
-    activeHeavy: diagnostics.activeHeavy,
-    activeHealthyHeadroom: diagnostics.activeHealthyHeadroom,
-    queuedBytes: diagnostics.queuedBytes,
-    waiting: diagnostics.waiting,
-    maxHeavyInFlight: diagnostics.maxHeavyInFlight,
-    maxQueuedBytes: diagnostics.maxQueuedBytes,
-    queueMs: diagnostics.queueMs,
-    rejections: {
-      total: diagnostics.rejections.total,
-      byStage: {
-        byte_hard_limit: diagnostics.rejections.byStage.byte_hard_limit,
-        byte_queue_timeout: diagnostics.rejections.byStage.byte_queue_timeout,
-        structure_message_limit: diagnostics.rejections.byStage.structure_message_limit,
-        structure_queue_timeout: diagnostics.rejections.byStage.structure_queue_timeout,
-      },
-    },
-    lastRejection: last
-      ? {
-          at: last.at,
-          stage: last.stage,
-          requestBytes: last.requestBytes,
-          queueWaitMs: last.queueWaitMs,
-          activeHeavy: last.activeHeavy,
-          activeHealthyHeadroom: last.activeHealthyHeadroom,
-          queuedBytes: last.queuedBytes,
-          waiting: last.waiting,
-        }
-      : null,
-  };
+  /** #11244: optional structural chat-admission snapshot; projected, never raw-spread. */
+  chatAdmission?: ChatAdmissionSnapshot | ChatAdmissionDiagnostics | null;
 }
 
 function limitMonitors(monitors: QuotaMonitorSnapshot[], maxItems = 8): QuotaMonitorSnapshot[] {
@@ -490,7 +511,9 @@ export function buildHealthPayload({
     sessions: buildSessionsSummary({ activeSessions, activeSessionsByKey }),
     credentialHealth, // may be undefined if credentialHealth module not loaded
     adaptiveAdmission: projectAdaptiveAdmissionSummary(adaptiveAdmission),
-    chatAdmission: projectChatAdmissionDiagnostics(chatAdmission),
+    // #11244: the STRUCTURAL gate (chatBodyAdmission.ts) next to the adaptive one —
+    // distinct key so clients reading `adaptiveAdmission` are untouched.
+    chatAdmission: projectChatAdmissionSummary(chatAdmission),
     dedup: {
       inflightRequests,
     },

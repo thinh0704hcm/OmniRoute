@@ -31,6 +31,7 @@ import { isPrivateHost, isCloudMetadataHost } from "@/shared/network/outboundUrl
 import { calculateCost } from "@/lib/usage/costCalculator";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { generateRequestId } from "@/shared/utils/requestId";
+import { resolveLocalSyncedEndpointRoute } from "@/lib/providerModels/syncedEndpointRouting";
 
 type ValidatedEmbeddingBody = Record<string, unknown> & { model: string };
 type ProviderCredentialsResult = Awaited<ReturnType<typeof getProviderCredentials>>;
@@ -164,7 +165,17 @@ export async function createEmbeddingResponse(
         model: options.resolvedModel ?? body.model,
       }
     : parseEmbeddingModel(body.model, dynamicProviders);
-  const { provider, model: resolvedModel } = parsedModel;
+  let { provider, model: resolvedModel } = parsedModel;
+  // #11088: a bare local-model request routes through the connection that
+  // advertises the requested endpoint — only when no explicit resolvedProvider
+  // already won above (explicit resolution takes precedence).
+  const syncedEndpointRoute = options.resolvedProvider
+    ? null
+    : await resolveLocalSyncedEndpointRoute(body.model, "embeddings");
+  if (syncedEndpointRoute) {
+    provider = syncedEndpointRoute.provider;
+    resolvedModel = syncedEndpointRoute.model;
+  }
   if (!provider) {
     return errorResponse(
       HTTP_STATUS.BAD_REQUEST,
@@ -172,12 +183,55 @@ export async function createEmbeddingResponse(
     );
   }
 
+  let credentials: ProviderCredentialsResult | null = null;
   let providerConfig: EmbeddingProvider | null =
     options.resolvedProvider ||
     dynamicProviders.find((dp) => dp.id === provider) ||
     getEmbeddingProvider(provider) ||
     null;
   let credentialsProviderId = provider;
+
+  if (syncedEndpointRoute) {
+    credentials = await getProviderCredentials(
+      provider,
+      null,
+      syncedEndpointRoute.connectionIds,
+      syncedEndpointRoute.model
+    );
+    if (!credentials) {
+      return errorResponse(
+        HTTP_STATUS.BAD_REQUEST,
+        `No credentials for embedding provider: ${provider}`
+      );
+    }
+    if ("allRateLimited" in credentials && credentials.allRateLimited) {
+      return unavailableResponse(
+        HTTP_STATUS.RATE_LIMITED,
+        `[${provider}] All accounts rate limited`,
+        credentials.retryAfter,
+        credentials.retryAfterHuman
+      );
+    }
+
+    const providerSpecificData = (credentials as { providerSpecificData?: Record<string, unknown> })
+      .providerSpecificData;
+    const configuredBaseUrl = providerSpecificData?.baseUrl;
+    if (typeof configuredBaseUrl !== "string" || configuredBaseUrl.trim().length === 0) {
+      return errorResponse(
+        HTTP_STATUS.BAD_REQUEST,
+        `No base URL configured for embedding provider: ${provider}`
+      );
+    }
+    let baseUrl = configuredBaseUrl.trim();
+    while (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
+    providerConfig = {
+      id: provider,
+      baseUrl: baseUrl.endsWith("/embeddings") ? baseUrl : `${baseUrl}/embeddings`,
+      authType: "apikey",
+      authHeader: "bearer",
+      models: [],
+    };
+  }
 
   if (!providerConfig) {
     try {
@@ -226,8 +280,7 @@ export async function createEmbeddingResponse(
     );
   }
 
-  let credentials: ProviderCredentialsResult | null = null;
-  if (providerConfig.authType !== "none") {
+  if (!credentials && providerConfig.authType !== "none") {
     credentials = await getProviderCredentials(credentialsProviderId);
     if (!credentials) {
       return errorResponse(
@@ -249,11 +302,14 @@ export async function createEmbeddingResponse(
         `[${provider}] All ${credentials.expiredCount || 1} connection(s) authentication expired — please reconnect in the dashboard`
       );
     }
-  } else if (provider === "ollama-local") {
-    // Ollama is keyless, but a configured connection can still provide a
-    // custom local host. Hydrate that optional connection without imposing an
-    // authentication requirement, then keep the static localhost default when
-    // no connection exists.
+  } else if (provider === "ollama-local" || provider === "lmstudio") {
+    // Ollama and LM Studio are keyless, but a configured connection can still
+    // provide a custom local host. Hydrate that optional connection without
+    // imposing an authentication requirement, then keep the static localhost
+    // default when no connection exists. getProviderCredentials("lmstudio")
+    // resolves the dashboard's hyphenated "lm-studio" connection via the
+    // provider search pool/alias (#11233); a selection or rate-limit failure
+    // must not break the flow — proceed without credentials.
     const localCredentials = await getProviderCredentials(credentialsProviderId);
     if (
       localCredentials &&

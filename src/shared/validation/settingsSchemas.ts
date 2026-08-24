@@ -199,7 +199,10 @@ export const updateSettingsSchema = z.object({
     .array(z.enum(SIDEBAR_SECTIONS.map((s) => s.id) as [string, ...string[]]))
     .optional(),
   sidebarItemOrder: z.record(z.string(), z.array(z.string().max(100))).optional(),
-  sidebarActivePreset: z.enum(["all", "minimal", "developer", "admin"]).nullable().optional(),
+  sidebarActivePreset: z
+    .enum(["all", "essentials", "minimal", "developer", "admin"])
+    .nullable()
+    .optional(),
   comboConfigMode: z.enum(COMBO_CONFIG_MODES).optional(),
   codexServiceTier: z
     .object({

@@ -1300,13 +1300,7 @@
       "open": "mở",
       "close": "đóng"
     },
-    "noResults": "Không có kết quả",
-    "healthVerdictReady": "OmniRoute đã sẵn sàng",
-    "healthVerdictActionRequired": "Cần hành động để khôi phục hoạt động đầy đủ",
-    "healthVerdictCoolingDown": "Đang nguội sau các thay đổi gần đây",
-    "advancedDiagnosticsTitle": "Chẩn đoán nâng cao",
-    "hide": "Ẩn",
-    "show": "Hiện"
+    "noResults": "Không có kết quả"
   },
   "webhooks": {
     "title": "Webhook",
@@ -2918,6 +2912,7 @@
       "interpreter": "Tác nhân lập trình tự trị Open Interpreter CLI",
       "omp": "Tác nhân lập trình Oh My Pi trên terminal",
       "letta": "Tác nhân Letta CLI có bộ nhớ lâu dài và khả năng dùng công cụ",
+      "prime-agent": "Prime Agent — bộ khung lập trình RLM tự cải tiến hỗ trợ API tương thích OpenAI",
       "warp": "Terminal Warp AI hỗ trợ nhà cung cấp tùy chỉnh",
       "agent-deck": "Trình điều phối đa tác nhân Agent Deck"
     },
@@ -4627,6 +4622,13 @@
     "retry": "Thử lại",
     "allOperational": "Tất cả hệ thống đang hoạt động bình thường",
     "issuesDetected": "Phát hiện sự cố hệ thống",
+    "healthVerdictReady": "OmniRoute đã sẵn sàng",
+    "healthVerdictActionRequired": "Cần hành động để khôi phục hoạt động đầy đủ",
+    "healthVerdictCoolingDown": "Đang nguội sau các thay đổi gần đây",
+    "healthSubtitle": "Kiểm tra tình trạng hệ thống",
+    "advancedDiagnosticsTitle": "Chẩn đoán nâng cao",
+    "hide": "Ẩn",
+    "show": "Hiện",
     "updatedAt": "Đã cập nhật {time}",
     "latency": "Độ trễ",
     "latencyP50": "p50",
@@ -5855,6 +5857,8 @@
     "rateLimitOverridesSection": "Ghi đè giới hạn tốc độ",
     "rateLimitOverridesMaxConcurrentHint": "Ghi đè số yêu cầu đồng thời tối đa cho kết nối này. Ghi đè giới hạn ở cấp tài khoản.",
     "rateLimitOverridesMaxConcurrentLabel": "Đồng thời tối đa (Giới hạn tốc độ)",
+    "rateLimitOverridesMaxWaitMsHint": "Thời gian tối đa (ms) một yêu cầu có thể chờ để có suất giới hạn tốc độ trước khi thất bại. Ghi đè cài đặt Resilience toàn cục chỉ cho kết nối này.",
+    "rateLimitOverridesMaxWaitMsLabel": "Thời gian chờ hàng đợi tối đa (ms)",
     "rateLimitOverridesMinTimeHint": "Thời gian tối thiểu (ms) giữa các yêu cầu. Ghi đè độ trễ bộ giới hạn tốc độ mặc định.",
     "rateLimitOverridesMinTimeLabel": "Khoảng thời gian tối thiểu (ms)",
     "rateLimitOverridesRpmHint": "Số yêu cầu tối đa mỗi phút cho kết nối này. Ghi đè giá trị mặc định của nhà cung cấp.",
@@ -6132,7 +6136,6 @@
       "glmt": "Hồ sơ GLM đặt sẵn với ngân sách token cao hơn, bật thinking và thời gian chờ dài hơn.",
       "getgoapi": "Kết nối GoAPI bằng khóa API.",
       "groq": "Gói miễn phí: 30 RPM / 14,4 nghìn RPD — không cần thẻ tín dụng",
-      "hackclub": "Đăng nhập bằng tài khoản Hack Club tại ai.hackclub.com.",
       "haiper": "Lấy khóa API tại haiper.ai/haiper-api",
       "heroku": "Kết nối Heroku AI bằng khóa API.",
       "hcnsec": "Lấy khóa API tại api.hcnsec.cn",

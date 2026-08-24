@@ -34,6 +34,8 @@ const IGNORED_METHODS = new Set([
   "asyncBatchEmbedContent",
 ]);
 
+const RETIRED_GEMINI_MODEL_IDS = new Set(["gemini-3.5-flash"]);
+
 export interface GeminiDiscoveryModel {
   id: string;
   name: string;
@@ -46,36 +48,38 @@ export interface GeminiDiscoveryModel {
 }
 
 export function parseGeminiModelsList(data: any): GeminiDiscoveryModel[] {
-  return (data?.models || []).map((m: Record<string, unknown>) => {
-    const methods: string[] = Array.isArray(m.supportedGenerationMethods)
-      ? (m.supportedGenerationMethods as string[])
-      : [];
+  return (data?.models || [])
+    .map((m: Record<string, unknown>) => {
+      const methods: string[] = Array.isArray(m.supportedGenerationMethods)
+        ? (m.supportedGenerationMethods as string[])
+        : [];
 
-    const endpoints = new Set<string>(
-      methods
-        .filter((method) => !IGNORED_METHODS.has(method))
-        .map((method) => METHOD_TO_ENDPOINT[method] || "chat")
-    );
+      const endpoints = new Set<string>(
+        methods
+          .filter((method) => !IGNORED_METHODS.has(method))
+          .map((method) => METHOD_TO_ENDPOINT[method] || "chat")
+      );
 
-    const id = ((m.name as string) || (m.id as string) || "").replace(/^models\//, "");
-    const lowerId = id.toLowerCase();
+      const id = ((m.name as string) || (m.id as string) || "").replace(/^models\//, "");
+      const lowerId = id.toLowerCase();
 
-    // Keep Veo models in the video bucket even when the method list is incomplete.
-    if (lowerId.includes("veo")) {
-      endpoints.add("video");
-    }
+      // Keep Veo models in the video bucket even when the method list is incomplete.
+      if (lowerId.includes("veo")) {
+        endpoints.add("video");
+      }
 
-    if (endpoints.size === 0) endpoints.add("chat");
+      if (endpoints.size === 0) endpoints.add("chat");
 
-    return {
-      ...m,
-      id,
-      name: (m.displayName as string) || id,
-      supportedEndpoints: [...endpoints],
-      ...(typeof m.inputTokenLimit === "number" ? { inputTokenLimit: m.inputTokenLimit } : {}),
-      ...(typeof m.outputTokenLimit === "number" ? { outputTokenLimit: m.outputTokenLimit } : {}),
-      ...(typeof m.description === "string" ? { description: m.description } : {}),
-      ...(m.thinking === true ? { supportsThinking: true } : {}),
-    } as GeminiDiscoveryModel;
-  });
+      return {
+        ...m,
+        id,
+        name: (m.displayName as string) || id,
+        supportedEndpoints: [...endpoints],
+        ...(typeof m.inputTokenLimit === "number" ? { inputTokenLimit: m.inputTokenLimit } : {}),
+        ...(typeof m.outputTokenLimit === "number" ? { outputTokenLimit: m.outputTokenLimit } : {}),
+        ...(typeof m.description === "string" ? { description: m.description } : {}),
+        ...(m.thinking === true ? { supportsThinking: true } : {}),
+      } as GeminiDiscoveryModel;
+    })
+    .filter((model: GeminiDiscoveryModel) => !RETIRED_GEMINI_MODEL_IDS.has(model.id));
 }

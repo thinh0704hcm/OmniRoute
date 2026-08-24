@@ -34,6 +34,21 @@ test("every x-loopback-only path matches a LOCAL_ONLY prefix in routeGuard.ts", 
   }
 });
 
+test("GET /api/openapi/spec documents its conditional management auth contract", () => {
+  const operation = paths["/api/openapi/spec"]?.get;
+
+  assert.deepEqual(operation?.security, [{ ManagementSessionAuth: [] }]);
+  assert.match(operation?.description ?? "", /When `requireLogin` is enabled/);
+  assert.equal(
+    operation?.responses?.["401"]?.$ref,
+    "#/components/responses/ManagementAuthenticationRequired"
+  );
+  assert.equal(
+    operation?.responses?.["403"]?.$ref,
+    "#/components/responses/ManagementInvalidToken"
+  );
+});
+
 test("every x-always-protected path matches ALWAYS_PROTECTED_API_PATHS in routeGuard.ts", () => {
   for (const [pathStr, methods] of Object.entries(paths)) {
     if (!methods || typeof methods !== "object") continue;

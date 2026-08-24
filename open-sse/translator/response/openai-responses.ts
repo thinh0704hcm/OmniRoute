@@ -866,13 +866,13 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
 
 function openaiResponsesToOpenAIResponseStream(chunk, state) {
   if (!chunk) {
-    // Iterate every still-open call needing schema-aware normalization, not just a
-    // single one — multiple parallel calls can each be pending here if the stream
-    // ends before their output_item.done arrives.
+    // Iterate every still-open call with a buffered argument payload — argument
+    // deltas are buffered for every tool, so an incomplete stream must flush every
+    // buffered call, not only the historical uppercase Agent path.
     const pendingNormalized: Array<{ index: number; argsStr: string }> = [];
     if (state.toolCallByCallId instanceof Map) {
       for (const entry of state.toolCallByCallId.values()) {
-        if (entry.needsNormalization && entry.argsBuffer) {
+        if (entry.argsBuffer) {
           const toolSchema = state.toolSchemas?.get(entry.name);
           const argsToEmit = stripEmptyOptionalToolArgs(entry.argsBuffer, entry.name, toolSchema);
           pendingNormalized.push({
