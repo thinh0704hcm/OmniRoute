@@ -28,6 +28,8 @@ services:
       PORT: "20130"
       DASHBOARD_PORT: "20130"
       API_PORT: "20131"
+      # The API bridge must accept Docker port-forward traffic from the host.
+      API_HOST: 0.0.0.0
       LIVE_WS_PORT: "20133"
       OMNIROUTE_MEMORY_MB: "4096"
       NODE_OPTIONS: --max-old-space-size=4096
