@@ -177,6 +177,9 @@ function getTopLevelRuntimeSteps(
 
 function getCompositeTierStepOrder(combo: ComboLike): string[] {
   const compositeTiers = isRecord(combo?.config) ? combo.config.compositeTiers : null;
+  // A manual routing override makes the persisted models array authoritative
+  // without discarding the canonical composite graph needed to opt back in.
+  if (isRecord(combo?.config) && combo.config.manualRoutingOverride === true) return [];
   if (!isRecord(compositeTiers)) return [];
 
   const defaultTier = toTrimmedString(compositeTiers.defaultTier);

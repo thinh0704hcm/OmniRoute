@@ -66,6 +66,8 @@ type CanonicalComboConfig = Record<string, unknown> & {
     defaultTier: string;
     tiers: Record<string, CompositeTier>;
   };
+  /** Operator-controlled routing keeps the graph for a later opt-back-in. */
+  manualRoutingOverride?: boolean;
 };
 
 export type CanonicalComboSpec = {
@@ -671,7 +673,10 @@ export function validateCanonicalComboManifest(
 }
 
 function isOwned(combo: StoredCanonicalCombo): boolean {
-  return combo.config?._managedBy === CANONICAL_COMBO_MANAGER;
+  return (
+    combo.config?._managedBy === CANONICAL_COMBO_MANAGER &&
+    combo.config?.manualRoutingOverride !== true
+  );
 }
 
 function mergeDesiredCombo(
@@ -742,6 +747,10 @@ export function planCanonicalComboReconciliation(
 
   for (const spec of manifest.combos) {
     const existing = byName.get(spec.name) || null;
+    // An operator may take a managed pool over temporarily. Preserve both its
+    // hand-authored steps and its canonical graph, and resume reconciliation
+    // only when the override is explicitly cleared.
+    if (existing?.config?.manualRoutingOverride === true) continue;
     if (existing && !isOwned(existing) && !adopt) {
       const prospective = mergeDesiredCombo(existing, spec, now, nextSortOrder);
       if (!equalValue(comparable(existing), comparable(prospective))) {

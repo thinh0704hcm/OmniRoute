@@ -15,6 +15,7 @@ import {
   validateCanonicalComboManifest,
 } from "../../src/lib/combos/canonicalEconomicPools.ts";
 import { reconcileCanonicalComboDatabase } from "../../src/lib/db/canonicalEconomicCombos.ts";
+import { resolveNestedComboTargets } from "../../open-sse/services/combo/comboStructure.ts";
 
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-canonical-combos-"));
 const ORIGINAL_DATA_DIR = process.env.DATA_DIR;
@@ -379,6 +380,73 @@ test("planner requires reviewed adoption, preserves unrelated fields, and become
   assert.deepEqual(second.operations, []);
   assert.deepEqual(second.conflicts, []);
   assert.equal(second.drift, false);
+});
+
+test("manual routing overrides preserve operator order and are excluded from reconciliation", () => {
+  const existing = planCanonicalComboReconciliation([], {
+    now: "2026-08-25T00:00:00.000Z",
+  }).operations
+    .filter((operation) => operation.action === "create")
+    .map((operation) => operation.combo as CanonicalCombo);
+  const fable = findCombo(existing, "pool-fable");
+  const manualFable: CanonicalCombo = {
+    ...fable,
+    models: [...fable.models].reverse(),
+    config: { ...fable.config, manualRoutingOverride: true },
+  };
+  const withManualOverride = existing.map((combo) =>
+    combo.name === manualFable.name ? manualFable : combo
+  );
+
+  const plan = planCanonicalComboReconciliation(withManualOverride, {
+    now: "2026-08-26T00:00:00.000Z",
+  });
+  assert.deepEqual(plan.operations, []);
+  assert.deepEqual(plan.conflicts, []);
+  assert.equal(plan.drift, false);
+
+  const composite: CanonicalCombo = {
+    name: "manual-override-runtime-order",
+    strategy: "priority",
+    models: [
+      { id: "manual-first", kind: "model", model: "test/first", weight: 1 },
+      { id: "graph-first", kind: "model", model: "test/second", weight: 1 },
+    ],
+    config: {
+      compositeTiers: {
+        defaultTier: "graph",
+        tiers: {
+          graph: { stepId: "graph-first", fallbackTier: "manual" },
+          manual: { stepId: "manual-first" },
+        },
+      },
+    },
+  };
+  assert.deepEqual(
+    resolveNestedComboTargets(composite, [composite]).map((target) => target.stepId),
+    ["graph-first", "manual-first"]
+  );
+  assert.deepEqual(
+    resolveNestedComboTargets(
+      { ...composite, config: { ...composite.config, manualRoutingOverride: true } },
+      [composite]
+    ).map((target) => target.stepId),
+    ["manual-first", "graph-first"]
+  );
+
+  const restoredPlan = planCanonicalComboReconciliation(
+    withManualOverride.map((combo) =>
+      combo.name === manualFable.name
+        ? { ...manualFable, config: { ...manualFable.config, manualRoutingOverride: false } }
+        : combo
+    ),
+    { now: "2026-08-26T00:00:00.000Z" }
+  );
+  assert.ok(
+    restoredPlan.operations.some(
+      (operation) => operation.action === "update" && operation.name === "pool-fable"
+    )
+  );
 });
 
 test("canonical performance entrypoints and their leaves remain visible", () => {

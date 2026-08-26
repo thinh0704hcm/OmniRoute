@@ -2907,6 +2907,8 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, combo
     usesIntelligentBuilderStage && (isExpertMode || builderStage === "intelligent");
   const showReviewSection = !isExpertMode && builderStage === "review";
   const advancedConfigVisible = isExpertMode || showAdvanced;
+  const supportsManualRoutingOverride =
+    !!config.compositeTiers || config.manualRoutingOverride === true;
 
   return (
     <>
@@ -3199,6 +3201,41 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, combo
                   </button>
                 )}
               </div>
+
+              {supportsManualRoutingOverride && (
+                <div className="mb-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5">
+                  <div className="flex items-start gap-2">
+                    <input
+                      id="combo-manual-routing-override"
+                      type="checkbox"
+                      checked={config.manualRoutingOverride === true}
+                      onChange={(event) =>
+                        setConfig({
+                          ...config,
+                          manualRoutingOverride: event.target.checked || undefined,
+                        })
+                      }
+                      className="mt-0.5 h-3.5 w-3.5 rounded border border-black/20 dark:border-white/20 accent-primary cursor-pointer"
+                      data-testid="combo-manual-routing-override"
+                    />
+                    <label
+                      htmlFor="combo-manual-routing-override"
+                      className="cursor-pointer text-xs text-text-main"
+                    >
+                      <span className="font-medium">
+                        {getI18nOrFallback(t, "manualRoutingOverride", "Manual routing override")}
+                      </span>
+                      <span className="mt-0.5 block text-[10px] leading-relaxed text-text-muted">
+                        {getI18nOrFallback(
+                          t,
+                          "manualRoutingOverrideDescription",
+                          "Use the step order below instead of this pool’s managed tier graph. Clear this to resume canonical routing."
+                        )}
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
 
               <div className="rounded-lg border border-black/8 dark:border-white/8 bg-black/[0.02] dark:bg-white/[0.02] p-3 mb-2">
                 <div className="flex items-start justify-between gap-3">

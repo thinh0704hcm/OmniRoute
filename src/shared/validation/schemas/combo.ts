@@ -212,6 +212,7 @@ export const comboRuntimeConfigSchema = z
     slaMaxCostPer1MTokens: z.coerce.number().positive().max(1000000).optional(),
     slaHardConstraints: z.boolean().optional(),
     sla: slaRoutingPolicySchema.optional(),
+    manualRoutingOverride: z.boolean().optional(),
     compositeTiers: compositeTiersSchema.optional(),
     resetAwareSessionWeight: z.coerce.number().min(0).max(100).optional(),
     resetAwareWeeklyWeight: z.coerce.number().min(0).max(100).optional(),
