@@ -4,7 +4,7 @@ title: Oracle VPS operations knowledge base
 
 # Oracle VPS operations knowledge base
 
-Last updated: 2026-08-23
+Last updated: 2026-08-26
 
 This is the canonical, durable runbook for OmniRoute production on `oracle-vps`. It covers
 source ownership, validation, immutable builds, isolated canary qualification, promotion,
@@ -63,6 +63,30 @@ Continue only on oracle-vps in /home/ubuntu/OmniRoute-src.
 The Oracle working tree is clean at the canonical pushed commit. Changes are developed on the
 workstation, pushed to `fork`, then synchronized and verified on Oracle; never deploy a dirty
 checkout or hand-edit only persisted combo rows.
+
+### Pending manual-routing rollout — 2026-08-26
+
+- `b1108cd6ae` adds `config.manualRoutingOverride`. In the Combo editor, enable **Manual
+  routing override**, arrange the persisted step order, and save. That order then takes
+  precedence over a managed composite tier graph. Clear the checkbox to resume canonical
+  graph-based routing. The setting is persistent, so it is an operator control rather than a
+  one-time database edit.
+- `e539eff323` sets `API_HOST=0.0.0.0` in both Oracle Compose overlays. This is required for
+  the host-loopback API bridge ports used by the canary and deployment gates.
+- The immutable `omniroute:canary-b1108cd6ae-20260826` / `ops-b1108cd6ae-20260826` images were
+  built and one isolated qualification passed health, SHA/image identity, zero restart,
+  completion, streaming, mixed-case tool, combo, and call-log gates.
+- No production cutover occurred. Two later promotion requalifications ended with the bounded
+  upstream error `The operation was aborted due to timeout`; the deployment tool correctly
+  stopped before cutover. Production remains on its prior image. Do not promote by manually
+  replacing a container. Rerun the normal `promote` command only after a fresh qualification
+  passes.
+
+When investigating this class of failure, distinguish a transient provider timeout from a
+container failure: inspect the current image, restart/OOM state, Docker health, and loopback
+`/healthz` response time. Preserve the canary, backup, and rollback safeguards; do not clear a
+live deployment lock except through the deployment helper's canary cleanup actions after an
+interrupted client has been verified absent.
 
 Current live state:
 
