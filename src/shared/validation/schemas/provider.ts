@@ -6,6 +6,10 @@ import {
 import { SUPPORTED_BATCH_ENDPOINTS } from "@/shared/constants/batchEndpoints";
 import { MAX_REQUEST_BODY_LIMIT_MB, MIN_REQUEST_BODY_LIMIT_MB } from "@/shared/constants/bodySize";
 import { COMBO_CONFIG_MODES } from "@/shared/constants/comboConfigMode";
+import {
+  MODEL_SUPPORTED_ENDPOINT_VALUES,
+  normalizeModelSupportedEndpoints,
+} from "@/shared/constants/modelSupportedEndpoints";
 import { providerAllowsOptionalApiKey } from "@/shared/constants/providers";
 import { HIDEABLE_SIDEBAR_ITEM_IDS } from "@/shared/constants/sidebarVisibility";
 import {
@@ -238,22 +242,12 @@ export const providerModelMutationSchema = z.object({
       "audio-transcriptions",
       "audio-speech",
       "images-generations",
+      "video",
     ])
     .default("chat-completions"),
   supportedEndpoints: z
-    .array(
-      z.enum([
-        "chat",
-        "embeddings",
-        "rerank",
-        "images",
-        "audio",
-        "audio-transcriptions",
-        "audio-speech",
-        "images-generations",
-        "videos",
-      ])
-    )
+    .array(z.enum(MODEL_SUPPORTED_ENDPOINT_VALUES))
+    .transform(normalizeModelSupportedEndpoints)
     .default(["chat"]),
   // #2905: optional per-model wire format override for custom models (e.g. a
   // custom opencode-go model that must use the Anthropic Messages shape).

@@ -28,6 +28,7 @@
  */
 
 import { randomUUID } from "crypto";
+import { matchesCookieDomain } from "../utils/cookieDomain";
 
 // ─── Public types ───────────────────────────────────────────────────────────
 
@@ -229,6 +230,21 @@ export function normalizePhone(raw: string): string | null {
     .replace(/[\s-]/g, "");
   const bare = trimmed.replace(/^\+?86/, "");
   return /^1\d{10}$/.test(bare) ? bare : null;
+}
+
+/**
+ * Whether a cookie's `domain` belongs to the Volcengine console.
+ *
+ * Cookie domains must be matched by exact host or dot-boundary suffix, never by
+ * substring: `domain.includes("volcengine.com")` also accepted
+ * `volcengine.com.attacker.tld` and `notvolcengine.com`, so a cookie named
+ * `digest`/`AccountID`/`csrfToken`/`userInfo` set by a look-alike host was
+ * harvested as an operator credential and persisted as a provider connection
+ * (CodeQL js/incomplete-url-substring-sanitization #860/#861). Mirrors
+ * `isAdobeCookieDomain` in adobeFireflyBrowserLogin.ts.
+ */
+export function isVolcengineCookieDomain(domain: string | undefined): boolean {
+  return matchesCookieDomain(domain, "volcengine.com");
 }
 
 function sleep(ms: number): Promise<void> {
@@ -618,7 +634,7 @@ export class VolcengineConsoleAutoLoginService {
       for (const cookie of cookies as Array<{ name: string; domain: string; value: string }>) {
         if (
           REQUIRED_COOKIES.includes(cookie.name as (typeof REQUIRED_COOKIES)[number]) &&
-          cookie.domain.includes("volcengine.com")
+          isVolcengineCookieDomain(cookie.domain)
         ) {
           credentials[cookie.name] = cookie.value;
         }
@@ -763,7 +779,7 @@ export class VolcengineConsoleAutoLoginService {
           domain: string;
         }>;
         const present = REQUIRED_COOKIES.filter((name) =>
-          cookies.some((c) => c.name === name && c.domain.includes("volcengine.com"))
+          cookies.some((c) => c.name === name && isVolcengineCookieDomain(c.domain))
         );
         parts.push(
           `cookies=[${present.join(",") || "none of digest/AccountID/csrfToken/userInfo"}]`

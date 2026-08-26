@@ -26,8 +26,10 @@
 // merge-train batch — independently bumped the gateways family too, landing at 231; Freebuff
 // (gateways, #10531) brings it to 232. #8864 moves uncloseai (gateways family) into
 // NOAUTH_PROVIDERS, dropping the APIKEY_PROVIDERS count to 231. Logfare (gateways, #10987) brings it back to 232.
-// #11176 removes hackclub (gateways family), landing at 231. The two Volcengine
-// plan providers bring the merged API-key catalog to 233.
+// #11176 removes hackclub (gateways family), landing at 231. The Volcano Ark plan providers
+// (volcengine-agent-plan + volcengine-coding-plan, regional family, commit d732cf615) bring it
+// to 233 - measured on the tip: merged 233 keys, 233 unique, family sum 233 with an empty
+// cross-family duplicate set, so the strict partition is intact.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
