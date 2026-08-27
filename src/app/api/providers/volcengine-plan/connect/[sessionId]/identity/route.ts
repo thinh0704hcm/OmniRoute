@@ -30,8 +30,9 @@ export async function POST(
   const { index, timeout } = validation.data;
 
   try {
-    const { volcengineConsoleAutoLoginService } =
-      await import("@omniroute/open-sse/services/volcengineConsoleAutoLogin.ts");
+    const { volcengineConsoleAutoLoginService } = await import(
+      "@omniroute/open-sse/services/volcengineConsoleAutoLogin.ts"
+    );
 
     if (!volcengineConsoleAutoLoginService.getStatus(sessionId)) {
       return NextResponse.json(

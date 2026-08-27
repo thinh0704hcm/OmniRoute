@@ -226,6 +226,28 @@ jobs:
           JWT_SECRET: ci-build-secret-with-sufficient-length-for-validation
         run: npm run build:cli
 
+      # `build:cli` assembles dist/ but does NOT write dist/BUILD_SHA — only
+      # `build:release` does, by calling write-build-sha.mjs. The #10427 provenance
+      # guard inside check:pack-artifact rejects an artifact with no SHA (and rejects
+      # it even under OMNIROUTE_ALLOW_CANARY_BUILD=1: what cannot be identified cannot
+      # be vouched for). Without this step the build+validate pair in this job is
+      # structurally incompatible and fails 100% of the time — the same gap that was
+      # fixed in ci.yml's Package Artifact job.
+      - name: Stamp dist/BUILD_SHA for the provenance guard (#10427)
+        if: steps.resolve.outputs.skip != 'true'
+        env:
+          OMNIROUTE_BUILD_SHA: ${{ github.sha }}
+        run: |
+          export OMNIROUTE_BUILD_SHA="${OMNIROUTE_BUILD_SHA:0:7}"
+          node scripts/build/write-build-sha.mjs
+
+      # The guard checks ancestry against origin/main by default, which is correct
+      # here (a release tag is cut from main), but the ref has to exist locally for
+      # `git merge-base` to resolve it.
+      - name: Fetch main for the provenance probe
+        if: steps.resolve.outputs.skip != 'true'
+        run: git fetch --no-tags --depth=50 origin +refs/heads/main:refs/remotes/origin/main
+
       - name: Validate npm package artifact
         if: steps.resolve.outputs.skip != 'true'
         run: npm run check:pack-artifact

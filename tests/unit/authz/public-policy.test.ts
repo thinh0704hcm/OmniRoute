@@ -47,11 +47,13 @@ function cliCtx(overrides: Partial<PolicyContext["request"]> = {}): PolicyContex
   };
 }
 
-test("publicPolicy stamps the local-CLI subject for a valid loopback machine token", async (t) => {
-  if (!getMachineTokenSync()) {
-    t.skip("machine-id unavailable in this environment");
-    return;
-  }
+test("publicPolicy stamps the local-CLI subject for a valid loopback machine token", async () => {
+  // No environment guard here on purpose: this and the negative control below are
+  // the only tests covering the loopback branch added for check:pack-boot, and a
+  // conditional skip would silence them exactly where the coverage matters. The
+  // sibling management-policy tests in authz/routeGuard.test.ts call this same
+  // helper unguarded, so an empty token is a broken environment worth failing on.
+  assert.ok(getMachineTokenSync(), "machine token must resolve for this suite to mean anything");
   const out = await publicPolicy.evaluate(cliCtx());
   assert.equal(out.allow, true);
   if (out.allow) {
@@ -60,11 +62,8 @@ test("publicPolicy stamps the local-CLI subject for a valid loopback machine tok
   }
 });
 
-test("publicPolicy keeps anonymous for a non-loopback peer carrying the token", async (t) => {
-  if (!getMachineTokenSync()) {
-    t.skip("machine-id unavailable in this environment");
-    return;
-  }
+test("publicPolicy keeps anonymous for a non-loopback peer carrying the token", async () => {
+  assert.ok(getMachineTokenSync(), "machine token must resolve for this suite to mean anything");
   const out = await publicPolicy.evaluate(cliCtx({ ip: "203.0.113.7" }));
   assert.equal(out.allow, true);
   if (out.allow) assert.equal(out.subject.kind, "anonymous");

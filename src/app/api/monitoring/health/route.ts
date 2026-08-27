@@ -174,11 +174,14 @@ export async function GET(request: Request) {
             null
           )
         : null;
+    // #11244: the STRUCTURAL admission gate (chatBodyAdmission.ts — bounded
+    // heavyweight lease + shed counters), exposed next to but distinct from the
+    // adaptive shadow-mode snapshot above. Additive key — nothing existing moves.
     const chatAdmission =
       chatAdmissionModule.status === "fulfilled"
         ? readHealthValue(
             "chat admission",
-            () => chatAdmissionModule.value.getChatAdmissionDiagnostics(),
+            () => chatAdmissionModule.value.perConnectionAdmissionController.snapshot(),
             null
           )
         : null;

@@ -13,7 +13,6 @@ import {
 import { restoreClaudeToolName } from "../services/claudeCodeToolRemapper.ts";
 import { extractReplayableResponsesReasoningText } from "../services/reasoningInputPolicy.ts";
 import { sanitizeToolId } from "../translator/helpers/schemaCoercion.ts";
-import { normalizeOpenAIBodyToolCallArgs } from "../utils/toolCallXmlNormalizer.ts";
 import { stripEmptyOptionalToolArgs } from "../translator/response/openai-responses/pureHelpers.ts";
 
 type JsonRecord = Record<string, unknown>;
@@ -163,9 +162,7 @@ export function translateNonStreamingResponse(
   // If already in source format, return as-is
   if (targetFormat === sourceFormat) {
     if (targetFormat === FORMATS.OPENAI) {
-      const normalized = normalizeOpenAIBodyToolCallArgs(responseBody).body;
-      restoreOpenAIToolNames(normalized, toolNameMap);
-      return normalized;
+      restoreOpenAIToolNames(responseBody, toolNameMap);
     }
     return responseBody;
   }
@@ -173,7 +170,6 @@ export function translateNonStreamingResponse(
   let intermediateOpenAI = responseBody;
 
   if (targetFormat === FORMATS.OPENAI) {
-    intermediateOpenAI = normalizeOpenAIBodyToolCallArgs(intermediateOpenAI).body;
     restoreOpenAIToolNames(intermediateOpenAI, toolNameMap);
   }
 

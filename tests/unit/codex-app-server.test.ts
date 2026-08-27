@@ -98,7 +98,10 @@ function makeExecuteInput(overrides: Partial<ExecuteInput> = {}): ExecuteInput {
 // ── Gating ──────────────────────────────────────────────────────────────────
 
 test("isCodexAppServerRequired: true only when codexTransport==='app-server' + configured", () => {
-  assert.equal(isCodexAppServerRequired({ providerSpecificData: { ...APP_SERVER_PSD } }), true);
+  assert.equal(
+    isCodexAppServerRequired({ providerSpecificData: { ...APP_SERVER_PSD } }),
+    true
+  );
   // wrong transport
   assert.equal(
     isCodexAppServerRequired({
@@ -132,7 +135,10 @@ test("isCodexAppServerRequired: false when OMNIROUTE_CODEX_APP_SERVER_ENABLED=fa
   const prev = process.env.OMNIROUTE_CODEX_APP_SERVER_ENABLED;
   process.env.OMNIROUTE_CODEX_APP_SERVER_ENABLED = "false";
   try {
-    assert.equal(isCodexAppServerRequired({ providerSpecificData: { ...APP_SERVER_PSD } }), false);
+    assert.equal(
+      isCodexAppServerRequired({ providerSpecificData: { ...APP_SERVER_PSD } }),
+      false
+    );
   } finally {
     if (prev === undefined) delete process.env.OMNIROUTE_CODEX_APP_SERVER_ENABLED;
     else process.env.OMNIROUTE_CODEX_APP_SERVER_ENABLED = prev;
@@ -140,10 +146,7 @@ test("isCodexAppServerRequired: false when OMNIROUTE_CODEX_APP_SERVER_ENABLED=fa
 });
 
 test("resolveAppServerConfig: env fallback + token-file, ws-scheme validation", () => {
-  assert.equal(
-    resolveAppServerConfig({ codexAppServerUrl: "http://x", codexAppServerToken: "t" }),
-    null
-  );
+  assert.equal(resolveAppServerConfig({ codexAppServerUrl: "http://x", codexAppServerToken: "t" }), null);
   const cfg = resolveAppServerConfig({ ...APP_SERVER_PSD });
   assert.deepEqual(cfg, { url: "ws://ts-egress:1456", token: "deadbeef", cwd: "/tmp" });
 });
@@ -154,8 +157,14 @@ test("translateNotification: maps deltas, done and error to AdapterEvents", () =
   const events: AdapterEvent[] = [];
   const push = (e: AdapterEvent) => events.push(e);
 
-  assert.equal(translateNotification("item/agentMessage/delta", { delta: "Hel" }, push), false);
-  assert.equal(translateNotification("item/reasoning/textDelta", { delta: "think" }, push), false);
+  assert.equal(
+    translateNotification("item/agentMessage/delta", { delta: "Hel" }, push),
+    false
+  );
+  assert.equal(
+    translateNotification("item/reasoning/textDelta", { delta: "think" }, push),
+    false
+  );
   // terminal → returns true
   assert.equal(
     translateNotification(
@@ -177,8 +186,10 @@ test("translateNotification: maps deltas, done and error to AdapterEvents", () =
 
 test("translateNotification: error notification maps to error event (terminal)", () => {
   const events: AdapterEvent[] = [];
-  const isTerminal = translateNotification("error", { error: { message: "boom" } }, (e) =>
-    events.push(e)
+  const isTerminal = translateNotification(
+    "error",
+    { error: { message: "boom" } },
+    (e) => events.push(e)
   );
   assert.equal(isTerminal, true);
   assert.equal(events[0].type, "error");
@@ -332,9 +343,7 @@ async function runStreamingTurn(): Promise<{
 
 test("CodexAppServerExecutor: streaming turn emits initialize → thread/start → turn/start in order", async () => {
   const { sent } = await runStreamingTurn();
-  const methods = sent
-    .filter((f) => typeof f.method === "string" && f.id != null)
-    .map((f) => f.method);
+  const methods = sent.filter((f) => typeof f.method === "string" && f.id != null).map((f) => f.method);
   const lifecycle = methods.filter(
     (m) => m === "initialize" || m === "thread/start" || m === "turn/start"
   );
@@ -630,13 +639,7 @@ test("CodexAppServerExecutor: async post-turn/start completion does not close th
   const result = await Promise.race([
     executor.execute(makeExecuteInput({ stream: false })),
     new Promise<never>((_, reject) =>
-      setTimeout(
-        () =>
-          reject(
-            new Error("execute() hung: socket closed before async completion (BUG#3 regressed)")
-          ),
-        5000
-      )
+      setTimeout(() => reject(new Error("execute() hung: socket closed before async completion (BUG#3 regressed)")), 5000)
     ),
   ]);
   const response = "response" in result ? result.response : (result as Response);
@@ -645,11 +648,7 @@ test("CodexAppServerExecutor: async post-turn/start completion does not close th
     status?: string;
     output?: Array<{ content?: Array<{ text?: string }> }>;
   };
-  assert.equal(
-    body.status,
-    "completed",
-    "the turn completed after the async terminal notification"
-  );
+  assert.equal(body.status, "completed", "the turn completed after the async terminal notification");
   const text = body.output?.[0]?.content?.[0]?.text ?? "";
   assert.equal(text, "ASYNC-OK", "the model output that arrived AFTER turn/start is present");
 });
@@ -694,10 +693,7 @@ const AUTH_CONFIG = { url: "ws://ts-egress:1456", token: "deadbeef", cwd: "/tmp"
 
 test("probeCodexAppServerAuth: account with email → authenticated", async () => {
   const fn = fakeAuthTransport({
-    result: {
-      account: { type: "chatgpt", email: "user@example.com", planType: "pro" },
-      requiresOpenaiAuth: true,
-    },
+    result: { account: { type: "chatgpt", email: "user@example.com", planType: "pro" }, requiresOpenaiAuth: true },
   });
   const status = await probeCodexAppServerAuth(AUTH_CONFIG, fn, 3000);
   assert.equal(status.state, "authenticated");
@@ -714,9 +710,7 @@ test("probeCodexAppServerAuth: no account → logged_out", async () => {
 });
 
 test("probeCodexAppServerAuth: auth-error on account/read → logged_out", async () => {
-  const fn = fakeAuthTransport({
-    error: { code: -32000, message: "AuthRequiredError: please login" },
-  });
+  const fn = fakeAuthTransport({ error: { code: -32000, message: "AuthRequiredError: please login" } });
   const status = await probeCodexAppServerAuth(AUTH_CONFIG, fn, 3000);
   assert.equal(status.state, "logged_out");
 });
@@ -725,6 +719,7 @@ test("probeCodexAppServerAuth: no transport → unknown (does not throw)", async
   const status = await probeCodexAppServerAuth(AUTH_CONFIG, null, 3000);
   assert.equal(status.state, "unknown");
 });
+
 
 // ── Security hardening (#11205 post-merge review) ───────────────────────────
 // Two findings from the automated push review on the original #11205 merge:
@@ -843,8 +838,9 @@ test("resolveAppServerConfig: env URL + env token pairs regardless of host", () 
 // ── Health probe: redirect pinning + binding inheritance ────────────────────
 
 test("testCodexAppServerConnection: readyz probe pins redirects (no token leak via 30x)", async () => {
-  const { testCodexAppServerConnection } =
-    await import("../../src/app/api/providers/[id]/test/codexAppServerHealth.ts");
+  const { testCodexAppServerConnection } = await import(
+    "../../src/app/api/providers/[id]/test/codexAppServerHealth.ts"
+  );
   const originalFetch = globalThis.fetch;
   const seen: Array<{ url: string; init?: RequestInit }> = [];
   globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
@@ -870,8 +866,9 @@ test("testCodexAppServerConnection: readyz probe pins redirects (no token leak v
 });
 
 test("testCodexAppServerConnection: env token + remote psd URL reports unconfigured, no network", async () => {
-  const { testCodexAppServerConnection } =
-    await import("../../src/app/api/providers/[id]/test/codexAppServerHealth.ts");
+  const { testCodexAppServerConnection } = await import(
+    "../../src/app/api/providers/[id]/test/codexAppServerHealth.ts"
+  );
   const originalFetch = globalThis.fetch;
   let fetched = false;
   globalThis.fetch = (async () => {
@@ -886,10 +883,7 @@ test("testCodexAppServerConnection: env token + remote psd URL reports unconfigu
       });
       assert.ok(result);
       assert.equal(result!.valid, false);
-      assert.match(
-        String((result!.diagnosis as { code?: string })?.code),
-        /app_server_unconfigured/
-      );
+      assert.match(String((result!.diagnosis as { code?: string })?.code), /app_server_unconfigured/);
     });
     assert.equal(fetched, false, "binding refusal must happen before any network call");
   } finally {

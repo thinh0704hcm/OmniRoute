@@ -3,10 +3,7 @@ import {
   getCodexParentAccountDiagnostic,
 } from "@omniroute/open-sse/services/codexAccount/index.ts";
 import type { AdaptiveAdmissionPublicSnapshot } from "@omniroute/open-sse/services/admission/runtime.ts";
-import type {
-  ChatAdmissionDiagnostics,
-  PerConnectionAdmissionController,
-} from "@/shared/middleware/chatBodyAdmission";
+import type { PerConnectionAdmissionController } from "@/shared/middleware/chatBodyAdmission";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -27,11 +24,6 @@ export type ChatAdmissionHealthSummary = {
   shedTotal: number;
   shedsByReason: Record<string, number>;
   lanes: Array<{ key: string; waiting: number }>;
-  maxHeavyInFlight?: number;
-  maxQueuedBytes?: number;
-  queueMs?: number;
-  rejections?: ChatAdmissionDiagnostics["rejections"];
-  lastRejection?: ChatAdmissionDiagnostics["lastRejection"];
 };
 
 /**
@@ -39,30 +31,18 @@ export type ChatAdmissionHealthSummary = {
  * Never spreads the snapshot — only the documented low-cardinality fields pass.
  */
 export function projectChatAdmissionSummary(
-  snapshot: ChatAdmissionSnapshot | ChatAdmissionDiagnostics | null | undefined
+  snapshot: ChatAdmissionSnapshot | null | undefined
 ): ChatAdmissionHealthSummary | null {
   if (!snapshot || typeof snapshot !== "object") return null;
-  const summary: ChatAdmissionHealthSummary = {
+  return {
     activeHeavy: snapshot.activeHeavy,
     activeHealthyHeadroom: snapshot.activeHealthyHeadroom,
     waiting: snapshot.waiting,
     queuedBytes: snapshot.queuedBytes,
-    shedTotal: snapshot.shedTotal ?? 0,
+    shedTotal: snapshot.shedTotal,
     shedsByReason: { ...(snapshot.shedsByReason ?? {}) },
     lanes: (snapshot.lanes ?? []).map((lane) => ({ key: lane.key, waiting: lane.waiting })),
   };
-  if ("rejections" in snapshot) {
-    const last = snapshot.lastRejection;
-    summary.maxHeavyInFlight = snapshot.maxHeavyInFlight;
-    summary.maxQueuedBytes = snapshot.maxQueuedBytes;
-    summary.queueMs = snapshot.queueMs;
-    summary.rejections = {
-      total: snapshot.rejections.total,
-      byStage: { ...snapshot.rejections.byStage },
-    };
-    summary.lastRejection = last ? { ...last } : null;
-  }
-  return summary;
 }
 
 /** Low-card adaptive-admission health summary — no tenant/request/body/queue details. */
@@ -220,7 +200,7 @@ interface BuildHealthPayloadOptions {
   /** Optional injected public adaptive-admission snapshot; projected, never raw-spread. */
   adaptiveAdmission?: AdaptiveAdmissionPublicSnapshot | null;
   /** #11244: optional structural chat-admission snapshot; projected, never raw-spread. */
-  chatAdmission?: ChatAdmissionSnapshot | ChatAdmissionDiagnostics | null;
+  chatAdmission?: ChatAdmissionSnapshot | null;
 }
 
 function limitMonitors(monitors: QuotaMonitorSnapshot[], maxItems = 8): QuotaMonitorSnapshot[] {

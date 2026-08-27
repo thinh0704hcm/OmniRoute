@@ -22,8 +22,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   // Auto flow: phone present → start a session-based headless phone/SMS login.
   if (phone) {
     try {
-      const { volcengineConsoleAutoLoginService } =
-        await import("@omniroute/open-sse/services/volcengineConsoleAutoLogin.ts");
+      const { volcengineConsoleAutoLoginService } = await import(
+        "@omniroute/open-sse/services/volcengineConsoleAutoLogin.ts"
+      );
       const started = await volcengineConsoleAutoLoginService.startLogin(phone, { timeout });
       if (!started.ok) {
         return NextResponse.json({ success: false, error: started.error }, { status: 400 });
