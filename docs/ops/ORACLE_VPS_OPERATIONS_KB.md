@@ -133,12 +133,6 @@ Key operator files:
     scripts/ops/oracle-deploy.mjs
     scripts/ops/oracleDeploy.ts
     scripts/ops/oracle-deploy-remote.sh
-    scripts/ops/reconcile-canonical-combos.mjs
-    scripts/ops/recover-call-logs.mjs
-    scripts/ops/prune-call-log-orphans.mjs
-    src/lib/db/callLogRecovery.ts
-    src/lib/db/canonicalEconomicCombos.ts
-    src/lib/combos/canonicalEconomicPools.ts
     contrib/vps/compose.oracle.yaml
     contrib/vps/compose.canary.yaml
 
@@ -318,46 +312,13 @@ bot settings and `/dealstatus` pass their checks. Enable the monitor only after 
 second deal-database backup; then observe the first 50 calls against the dedicated
 key before allowing normal backlog draining.
 
-### 6. Recover logs
+### 6. Post-cutover log checks
 
-After response_id exists and new logs advance, take another online backup. Use:
-
-    from: 2026-08-19T12:44:10.277Z
-    through: <exact pre-fix cutover timestamp>
-
-Dry-run in the immutable ops image:
-
-    docker run --rm --network none --read-only \
-      --tmpfs /tmp:size=64m,mode=1777 \
-      --volume /home/ubuntu/.omniroute:/app/data \
-      --workdir /app "$ops_image" \
-      node --import tsx/esm scripts/ops/recover-call-logs.mjs \
-      --db /app/data/storage.sqlite \
-      --from 2026-08-19T12:44:10.277Z \
-      --through '<exact pre-fix cutover timestamp>'
-
-Review corrupt, invalid, checksumMismatches, and collisions. Repeat with --apply
-only after backup and review. A final dry-run must report wouldInsert zero.
-
-### 7. Prune residual orphans
-
-Only after recovery, dry-run:
-
-    docker run --rm --network none --read-only \
-      --tmpfs /tmp:size=64m,mode=1777 \
-      --volume /home/ubuntu/.omniroute:/app/data \
-      --workdir /app "$ops_image" \
-      node --import tsx/esm scripts/ops/prune-call-log-orphans.mjs \
-      --db /app/data/storage.sqlite \
-      --before '<exact pre-fix cutover timestamp>'
-
-Do not apply with unexplained unsafe/corrupt/invalid entries. Apply by repeating
-the command with:
-
-    --apply --confirm-count <exact orphanCount> --confirm-bytes <exact orphanBytes>
-
-The apply path rescans and revalidates inode, size, mtime, checksum, and DB
-references before individual unlinks.
+After response identifiers exist and new logs advance, take another online backup.
+Review the call-log counts, integrity status, and any orphaned artifacts using the
+immutable ops image before making any cleanup decision. Do not delete records or
+artifacts as a shortcut to readiness; unexplained integrity findings require a
+separate reviewed recovery change.
 
 ### 8. Verify and drill rollback
 
@@ -419,9 +380,8 @@ credits targets. A live replay showed the first free Tencent target returning on
 thinking content for a tool request, so making free the first Terra target would
 regress mixed-case tool continuation despite a successful HTTP response.
 
-The evidence ledger is `src/lib/combos/tierEvidence.ts`; it is deliberately pure
-and records source URL, price, performance score, and availability weight. Sources
-reviewed on 2026-08-23:
+The evidence ledger and tier replay details are maintained in the release-specific
+routing documentation. Sources reviewed on 2026-08-23:
 
 - OpenAI GPT-5.6 overview: https://openai.com/index/gpt-5-6/
 - OpenAI price/performance update: https://openai.com/index/advancing-the-price-performance-frontier-with-gpt-5-6/
@@ -436,15 +396,6 @@ Command Code 3 active of 5, and AgentRouter 1. Quota snapshots are historical an
 must be reduced to the latest window before changing weights; raw credentials and
 quota payloads are never copied into the ledger.
 
-Replay command (sanitized snapshot, no DB writes):
-
-    node scripts/ops/replay-tier-evidence.mjs snapshot.json
-
-The regression suite is `tests/unit/tier-evidence-replay.test.ts`. Any future tier
-change must update the evidence ledger, replay fixture, and focused test together,
-then run lint plus the focused unit tests. The broad unit runner remains intentionally
-unrun for this incident per operator scope.
-
 Operational build decision: the effective Oracle BuildKit builder remains
 `omniroute-safe-12g-4`, but its BuildKit container was raised to 18 GiB memory and
 20 GiB memory+swap to finish the production image reliably; the historical builder
@@ -454,4 +405,3 @@ Rollback root cause fixed: the remote Compose fingerprint now removes both
 **OMNIROUTE_IMAGE** and `OMNIROUTE_BUILD_SHA` from the resolved `env_file` environment.
 Previously only `OMNIROUTE_BUILD_SHA` was removed, so every image identity change
 made the effective Compose hash differ and incorrectly blocked an immediate rollback.
-The regression is covered by `tests/unit/oracle-deploy-remote.test.ts`.
