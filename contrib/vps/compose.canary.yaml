@@ -15,6 +15,9 @@ services:
       # The API bridge must accept Docker port-forward traffic from the host.
       API_HOST: 0.0.0.0
       LIVE_WS_PORT: "20133"
+      LIVE_WS_HOST: 127.0.0.1
+      ADAPTIVE_ADMISSION_MODE: enforce
+      OMNIROUTE_CHAT_VIRTUAL_LANES: "1"
       OMNIROUTE_MEMORY_MB: "4096"
       NODE_OPTIONS: --max-old-space-size=4096
       OMNIROUTE_BASE_URL: http://omniroute-canary:20130
@@ -23,11 +26,11 @@ services:
     ports: !override
       - "127.0.0.1:30130:20130"
       - "127.0.0.1:30131:20131"
-      - "127.0.0.1:30133:20133"
     volumes: !override
       - "${OMNIROUTE_CANARY_DATA_DIR:?required}:/app/data"
     mem_limit: 6g
     memswap_limit: 6g
+    cpus: "2.0"
     pids_limit: 512
     healthcheck:
       interval: 15s

@@ -3,27 +3,109 @@ import test from "node:test";
 
 import {
   createDeploymentManifest,
+  evaluateLocalRuntimeGate,
+  evaluatePublicGate,
   evaluateRuntimeGate,
   isImmutableOmniRouteImage,
   planProtectedImageCleanup,
   promoteWithRollback,
+  type LocalRuntimeGate,
   type OracleDeployAdapter,
+  type PublicGate,
   type RuntimeGate,
 } from "../../scripts/ops/oracleDeploy.ts";
 
-const PASSING_GATE: RuntimeGate = {
-  healthy: true,
-  expectedBuildSha: "abc1234",
-  actualBuildSha: "abc1234",
-  expectedImageId: "sha256:candidate",
-  actualImageId: "sha256:candidate",
+const CANDIDATE = {
+  imageRef: "omniroute:canary-abc1234-20260822",
+  imageId: "sha256:candidate",
+  buildSha: "abc1234",
+};
+const PREVIOUS = {
+  imageRef: "omniroute:canary-old-20260821",
+  imageId: "sha256:previous",
+  buildSha: "old1234",
+  composeHash: "compose-hash",
+};
+const PASSING_LOCAL: LocalRuntimeGate = {
+  containerName: "omniroute-parallel",
+  containerStatus: "running",
+  healthStatus: "healthy",
+  expectedBuildSha: CANDIDATE.buildSha,
+  actualBuildSha: CANDIDATE.buildSha,
+  expectedImageId: CANDIDATE.imageId,
+  actualImageId: CANDIDATE.imageId,
   restartCount: 0,
+  oomKilled: false,
+  memoryBytes: 6442450944,
+  nanoCpus: 2000000000,
+  dashboardOk: true,
+  healthOk: true,
+  apiModelsOk: true,
   completionOk: true,
   streamingOk: true,
-  mixedCaseToolOk: true,
   comboOk: true,
   callLogAdvanced: true,
+  liveWsOk: true,
 };
+const PASSING_PUBLIC: PublicGate = {
+  healthzStatus: 200,
+  unauthenticatedModelsStatus: 401,
+  authenticatedModelsStatus: 200,
+  authenticatedModelIds: ["gpt-5.4-mini", "gpt-5.6-luna"],
+  configuredSmokeModels: ["gpt-5.4-mini", "gpt-5.6-luna"],
+  completionOk: true,
+  liveWsOk: true,
+};
+
+function makeAdapter(
+  calls: string[],
+  overrides: Partial<OracleDeployAdapter> = {}
+): OracleDeployAdapter {
+  const adapter: OracleDeployAdapter = {
+    acquireLock: async () => calls.push("lock"),
+    releaseLock: async () => calls.push("unlock"),
+    captureCurrent: async () => {
+      calls.push("capture");
+      return PREVIOUS;
+    },
+    backupDatabase: async () => {
+      calls.push("backup-db");
+      return "/backup.sqlite";
+    },
+    backupConfig: async () => {
+      calls.push("backup-config");
+      return { path: "/backup.env", hash: "env-hash" };
+    },
+    backupGateway: async () => {
+      calls.push("backup-gateway");
+      return { dir: "/backup-gateway", tsGatewayImage: "ts-gateway@sha256:old" };
+    },
+    tagRollback: async () => calls.push("tag-image"),
+    tagGatewayRollback: async () => calls.push("tag-gateway"),
+    reconcileEnvironment: async () => calls.push("env"),
+    reconcileConfiguration: async () => calls.push("combos"),
+    writeCandidateImage: async () => calls.push("write-image"),
+    recreateProduction: async () => calls.push("recreate"),
+    probeLocalGates: async () => {
+      calls.push("local");
+      return PASSING_LOCAL;
+    },
+    reconcileGateway: async () => calls.push("gateway"),
+    probePublicGates: async () => {
+      calls.push("public");
+      return PASSING_PUBLIC;
+    },
+    restoreGateway: async () => calls.push("restore-gateway"),
+    restoreConfig: async () => calls.push("restore-config"),
+    restorePreviousImage: async () => calls.push("restore-image"),
+    verifyRollback: async () => {
+      calls.push("verify-image");
+      return true;
+    },
+    writeManifest: async (manifest) => calls.push(`manifest:${manifest.state}`),
+  };
+  return { ...adapter, ...overrides };
+}
 
 test("Oracle deploy accepts immutable digests and unique SHA tags only", () => {
   assert.equal(isImmutableOmniRouteImage("omniroute:canary-abc1234-20260822"), true);
@@ -39,45 +121,79 @@ test("Oracle deploy accepts immutable digests and unique SHA tags only", () => {
   assert.equal(isImmutableOmniRouteImage("not a ref"), false);
 });
 
-test("runtime gate requires identity, zero restarts, real probes, and a new call-log row", () => {
-  assert.deepEqual(evaluateRuntimeGate(PASSING_GATE), { ok: true, failures: [] });
+test("strict local and public gates fail closed on missing or malformed values", () => {
+  assert.deepEqual(evaluateLocalRuntimeGate(PASSING_LOCAL), { ok: true, failures: [] });
+  assert.equal(evaluateLocalRuntimeGate({ ...PASSING_LOCAL, memoryBytes: null }).ok, false);
+  assert.equal(evaluateLocalRuntimeGate({ ...PASSING_LOCAL, liveWsOk: undefined }).ok, false);
+  assert.deepEqual(evaluatePublicGate(PASSING_PUBLIC), { ok: true, failures: [] });
+  assert.equal(
+    evaluatePublicGate({ ...PASSING_PUBLIC, unauthenticatedModelsStatus: 404 }).ok,
+    false
+  );
+  assert.equal(evaluatePublicGate({ ...PASSING_PUBLIC, authenticatedModelIds: null }).ok, false);
+});
 
+test("legacy runtime gate reports identity, resource, and probe failures", () => {
+  const passing: RuntimeGate = {
+    healthy: true,
+    expectedBuildSha: CANDIDATE.buildSha,
+    actualBuildSha: CANDIDATE.buildSha,
+    expectedImageId: CANDIDATE.imageId,
+    actualImageId: CANDIDATE.imageId,
+    restartCount: 0,
+    oomKilled: false,
+    memoryBytes: 6442450944,
+    nanoCpus: 2000000000,
+    completionOk: true,
+    streamingOk: true,
+    mixedCaseToolOk: true,
+    comboOk: true,
+    callLogAdvanced: true,
+  };
+  assert.deepEqual(evaluateRuntimeGate(passing), { ok: true, failures: [] });
   const verdict = evaluateRuntimeGate({
-    ...PASSING_GATE,
+    ...passing,
     actualBuildSha: null,
     actualImageId: "sha256:wrong",
     restartCount: 1,
+    oomKilled: true,
+    memoryBytes: 1024,
+    nanoCpus: 1000000000,
     mixedCaseToolOk: false,
     callLogAdvanced: false,
   });
-  assert.equal(verdict.ok, false);
   assert.deepEqual(verdict.failures, [
     "image build SHA is missing",
     "running image ID does not match the candidate",
     "container restarted during qualification",
+    "container was OOMKilled",
+    "memory limit is 1024 bytes, expected 6442450944",
+    "CPU limit is 1000000000, expected 2000000000",
     "mixed-case tool continuation failed",
     "call_logs did not advance",
   ]);
 });
 
-test("manifest records the exact current image as rollback anchor", () => {
+test("schema-v2 manifest records gateway/config rollback anchors", () => {
   const manifest = createDeploymentManifest({
-    candidateImageRef: "omniroute:canary-abc1234-20260822",
-    candidateImageId: "sha256:candidate",
-    candidateBuildSha: "abc1234",
+    candidateImageRef: CANDIDATE.imageRef,
+    candidateImageId: CANDIDATE.imageId,
+    candidateBuildSha: CANDIDATE.buildSha,
     previousImageRef: "omniroute:canary-old-20260821",
-    previousImageId: "sha256:previous",
-    previousBuildSha: "old1234",
-    databaseBackupPath: "/home/ubuntu/.omniroute/db_backups/pre-promote.sqlite",
-    composeHash: "compose-hash",
+    previousImageId: PREVIOUS.imageId,
+    previousBuildSha: PREVIOUS.buildSha,
+    databaseBackupPath: "/home/ubuntu/.omniroute/deployments/backups/pre-promote.sqlite",
+    composeHash: PREVIOUS.composeHash,
     createdAt: "2026-08-22T00:00:00.000Z",
+    gatewayBackupDir: "/backup-gateway",
+    configBackupPath: "/backup.env",
+    tsGatewayImage: "ts-gateway@sha256:old",
+    envHash: "env-hash",
   });
-
-  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.schemaVersion, 2);
   assert.equal(manifest.state, "pending");
-  assert.equal(manifest.rollback.imageId, "sha256:previous");
-  assert.equal(manifest.current.imageId, "sha256:candidate");
-  assert.equal(manifest.databaseBackupPath.endsWith("pre-promote.sqlite"), true);
+  assert.equal(manifest.gatewayBackupDir, "/backup-gateway");
+  assert.equal(manifest.rollback.imageId, PREVIOUS.imageId);
 });
 
 test("cleanup never selects current or rollback image IDs", () => {
@@ -90,173 +206,107 @@ test("cleanup never selects current or rollback image IDs", () => {
   );
 });
 
-test("failed post-cutover gate restores and verifies the exact previous image", async () => {
+test("promotion writes pending before mutation and restores gateway/config/image in order", async () => {
   const calls: string[] = [];
-  const adapter: OracleDeployAdapter = {
-    acquireLock: async () => calls.push("lock"),
-    releaseLock: async () => calls.push("unlock"),
-    backupDatabase: async () => {
-      calls.push("backup");
-      return "/backup.sqlite";
-    },
-    captureCurrent: async () => ({
-      imageRef: "omniroute:canary-old-20260821",
-      imageId: "sha256:previous",
-      buildSha: "old1234",
-      composeHash: "compose-hash",
-    }),
-    tagRollback: async (_ref, id) => calls.push(`tag:${id}`),
-    reconcileConfiguration: async () => calls.push("reconcile"),
-    writeCandidateImage: async (ref) => calls.push(`write:${ref}`),
-    recreateProduction: async () => calls.push("recreate"),
-    probeRuntime: async () => ({ ...PASSING_GATE, healthy: false }),
-    restorePreviousImage: async (ref, id) => calls.push(`restore:${ref}:${id}`),
-    verifyRollback: async (id) => {
-      calls.push(`verify:${id}`);
-      return true;
-    },
-    writeManifest: async () => calls.push("manifest"),
-  };
-
-  const result = await promoteWithRollback(
-    {
-      imageRef: "omniroute:canary-abc1234-20260822",
-      imageId: "sha256:candidate",
-      buildSha: "abc1234",
-    },
-    adapter,
-    () => "2026-08-22T00:00:00.000Z"
-  );
-
-  assert.equal(result.ok, false);
-  assert.equal(result.rolledBack, true);
-  assert.ok(calls.includes("restore:omniroute:rollback-canary:sha256:previous"));
-  assert.ok(calls.includes("verify:sha256:previous"));
-  assert.equal(result.manifest.state, "rolled_back");
-  assert.equal(result.manifest.current.imageId, "sha256:previous");
-  assert.equal(result.manifest.rollback.imageId, "sha256:previous");
-  assert.equal(
-    calls.filter((call) => call === "manifest").length,
-    2,
-    "write pending state before cutover, then durable rolled-back state"
-  );
-  assert.equal(calls.at(-1), "unlock");
-});
-
-test("successful promotion commits the manifest from pending to active", async () => {
-  const manifestStates: string[] = [];
-  const adapter: OracleDeployAdapter = {
-    acquireLock: async () => undefined,
-    releaseLock: async () => undefined,
-    backupDatabase: async () => "/backup.sqlite",
-    captureCurrent: async () => ({
-      imageRef: "omniroute:canary-old-20260821",
-      imageId: "sha256:previous",
-      buildSha: "old1234",
-      composeHash: "compose-hash",
-    }),
-    tagRollback: async () => undefined,
-    reconcileConfiguration: async () => undefined,
-    writeCandidateImage: async () => undefined,
-    recreateProduction: async () => undefined,
-    probeRuntime: async () => PASSING_GATE,
-    restorePreviousImage: async () => undefined,
-    verifyRollback: async () => true,
-    writeManifest: async (manifest) => manifestStates.push(manifest.state),
-  };
-
-  const result = await promoteWithRollback(
-    {
-      imageRef: "omniroute:canary-abc1234-20260822",
-      imageId: "sha256:candidate",
-      buildSha: "abc1234",
-    },
-    adapter
-  );
-
+  const result = await promoteWithRollback(CANDIDATE, makeAdapter(calls));
   assert.equal(result.ok, true);
-  assert.equal(result.manifest.state, "active");
-  assert.deepEqual(manifestStates, ["pending", "active"]);
+  assert.deepEqual(calls, [
+    "lock",
+    "capture",
+    "backup-db",
+    "backup-config",
+    "backup-gateway",
+    "tag-image",
+    "tag-gateway",
+    "manifest:pending",
+    "env",
+    "combos",
+    "write-image",
+    "recreate",
+    "local",
+    "gateway",
+    "public",
+    "manifest:active",
+    "unlock",
+  ]);
 });
 
-test("backup failure aborts before any production recreation", async () => {
+test("local failure avoids gateway exposure and restores every component", async () => {
   const calls: string[] = [];
-  const adapter: OracleDeployAdapter = {
-    acquireLock: async () => calls.push("lock"),
-    releaseLock: async () => calls.push("unlock"),
+  const result = await promoteWithRollback(
+    CANDIDATE,
+    makeAdapter(calls, {
+      probeLocalGates: async () => {
+        calls.push("local");
+        return { ...PASSING_LOCAL, healthOk: false };
+      },
+    })
+  );
+  assert.equal(result.rolledBack, true);
+  assert.deepEqual(calls.slice(calls.indexOf("local")), [
+    "local",
+    "restore-gateway",
+    "restore-config",
+    "restore-image",
+    "recreate",
+    "verify-image",
+    "manifest:rolled_back",
+    "unlock",
+  ]);
+  assert.equal(calls.includes("gateway"), false);
+});
+
+test("public failure restores all components and records rollback", async () => {
+  const calls: string[] = [];
+  const result = await promoteWithRollback(
+    CANDIDATE,
+    makeAdapter(calls, {
+      probePublicGates: async () => {
+        calls.push("public");
+        return { ...PASSING_PUBLIC, healthzStatus: 404 };
+      },
+    })
+  );
+  assert.equal(result.rolledBack, true);
+  assert.deepEqual(calls.slice(calls.indexOf("public")), [
+    "public",
+    "restore-gateway",
+    "restore-config",
+    "restore-image",
+    "recreate",
+    "verify-image",
+    "manifest:rolled_back",
+    "unlock",
+  ]);
+});
+
+test("restoration failure records rollback_failed after attempting all components", async () => {
+  const calls: string[] = [];
+  const adapter = makeAdapter(calls, {
+    probeLocalGates: async () => {
+      calls.push("local");
+      return { ...PASSING_LOCAL, healthOk: false };
+    },
+    restoreGateway: async () => {
+      calls.push("restore-gateway");
+      throw new Error("gateway reset failed");
+    },
+  });
+  await assert.rejects(promoteWithRollback(CANDIDATE, adapter), /rollback_failed/);
+  assert.equal(calls.filter((entry) => entry === "restore-gateway").length, 1);
+  assert.equal(calls.includes("restore-config"), true);
+  assert.equal(calls.includes("restore-image"), true);
+  assert.equal(calls.includes("manifest:rollback_failed"), true);
+});
+
+test("backup failure causes zero cutover mutations", async () => {
+  const calls: string[] = [];
+  const adapter = makeAdapter(calls, {
     backupDatabase: async () => {
-      calls.push("backup");
+      calls.push("backup-db");
       throw new Error("backup failed");
     },
-    captureCurrent: async () => ({
-      imageRef: "omniroute:old",
-      imageId: "sha256:previous",
-      buildSha: "old",
-      composeHash: "hash",
-    }),
-    tagRollback: async () => calls.push("tag"),
-    reconcileConfiguration: async () => calls.push("reconcile"),
-    writeCandidateImage: async () => calls.push("write"),
-    recreateProduction: async () => calls.push("recreate"),
-    probeRuntime: async () => PASSING_GATE,
-    restorePreviousImage: async () => calls.push("restore"),
-    verifyRollback: async () => true,
-    writeManifest: async () => calls.push("manifest"),
-  };
-
-  await assert.rejects(
-    promoteWithRollback(
-      {
-        imageRef: "omniroute:canary-abc1234-20260822",
-        imageId: "sha256:candidate",
-        buildSha: "abc1234",
-      },
-      adapter
-    ),
-    /backup failed/
-  );
-  assert.equal(calls.includes("recreate"), false);
-  assert.equal(calls.at(-1), "unlock");
-});
-
-test("configuration reconciliation failure aborts before image or container mutation", async () => {
-  const calls: string[] = [];
-  const adapter: OracleDeployAdapter = {
-    acquireLock: async () => calls.push("lock"),
-    releaseLock: async () => calls.push("unlock"),
-    captureCurrent: async () => ({
-      imageRef: "omniroute:old-abcdef1",
-      imageId: "sha256:previous",
-      buildSha: "abcdef1",
-      composeHash: "hash",
-    }),
-    backupDatabase: async () => {
-      calls.push("backup");
-      return "/backup.sqlite";
-    },
-    tagRollback: async () => calls.push("tag"),
-    reconcileConfiguration: async () => {
-      calls.push("reconcile");
-      throw new Error("combo drift refused");
-    },
-    writeCandidateImage: async () => calls.push("write"),
-    recreateProduction: async () => calls.push("recreate"),
-    probeRuntime: async () => PASSING_GATE,
-    restorePreviousImage: async () => calls.push("restore"),
-    verifyRollback: async () => true,
-    writeManifest: async () => calls.push("manifest"),
-  };
-
-  await assert.rejects(
-    promoteWithRollback(
-      {
-        imageRef: "omniroute:canary-abc1234-20260822",
-        imageId: "sha256:candidate",
-        buildSha: "abc1234",
-      },
-      adapter
-    ),
-    /combo drift refused/
-  );
-  assert.deepEqual(calls, ["lock", "backup", "tag", "reconcile", "unlock"]);
+  });
+  await assert.rejects(promoteWithRollback(CANDIDATE, adapter), /backup failed/);
+  assert.deepEqual(calls, ["lock", "capture", "backup-db", "unlock"]);
 });

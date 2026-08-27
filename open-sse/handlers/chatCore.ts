@@ -3080,7 +3080,7 @@ export async function handleChatCore({
                 provider,
                 attemptConnectionId,
                 modelToCall,
-                async () => {
+                async (effectiveSignal) => {
                   trace("inside_rate_limit", { connectionId: attemptConnectionId });
                   updatePendingScope(pendingScope, {
                     stage: "rate_limit_slot_acquired",
@@ -3093,7 +3093,7 @@ export async function handleChatCore({
                     connectionTimeoutMs: resolveConnectionTimeoutMs(
                       execCreds?.providerSpecificData
                     ),
-                    signal: streamController.signal,
+                    signal: effectiveSignal,
                     log,
                     execute: (signal) =>
                       runWithCapture(providerRequestCapture, () =>
@@ -3399,7 +3399,7 @@ export async function handleChatCore({
                         connectionTimeoutMs: resolveConnectionTimeoutMs(
                           execCreds?.providerSpecificData
                         ),
-                        signal: streamController.signal,
+                        signal: effectiveSignal,
                         log,
                         execute: (signal) =>
                           runWithCapture(providerRequestCapture, () =>

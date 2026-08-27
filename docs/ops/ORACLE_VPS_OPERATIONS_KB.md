@@ -215,7 +215,6 @@ Set mode 0600 and preserve all values. Atomically update only:
     OMNIROUTE_BUILD_SHA=6fe25f3dc
     OMNIROUTE_BIND_HOST=0.0.0.0
     OMNIROUTE_API_BIND_HOST=0.0.0.0
-    OMNIROUTE_WS_BIND_HOST=0.0.0.0
     REDIS_BIND_HOST=127.0.0.1
 
 The app binds preserve the current public/Tailscale contract. Redis must be
@@ -273,6 +272,51 @@ transport or configure key-based loopback SSH and rerun deployment tests.
 Qualification uses a WAL-consistent DB copy and isolated canary. Promotion backs
 up SQLite, pins exact rollback, reconciles combos, writes a pending manifest,
 and either activates or restores and verifies rollback.
+
+### Canonical squrvq recovery contract
+
+`squrvq` is the only production origin: `https://squrvq.tail0bec0f.ts.net` and
+`wss://squrvq.tail0bec0f.ts.net/live-ws`. The legacy `my-server` name is not a
+production origin; retain it only as a temporary rollback alias while a verified
+promotion is being observed.
+
+The Oracle overlay owns the persistent `ts-gateway` container. It uses the pinned
+Tailscale v1.102.2 arm64 digest, host networking, and the mode-0700 state bind at
+`/home/ubuntu/ts-gateway/state`. Run every Tailscale command through
+`docker exec ts-gateway tailscale`; never inspect or mutate an unrelated host
+daemon. The one-time `adopt-gateway` transaction snapshots the complete state,
+image/spec, and normalized Serve/Funnel JSON, then verifies the `squrvq` identity
+and exact handler (`/` → `http://127.0.0.1:20130`). A failed adoption restores the
+state snapshot and previous container/image/spec; a reset or semantic mismatch is
+fatal.
+
+Local qualification requires the exact container/image build identity, zero
+restarts and OOM kills, 6-GiB memory, 2-CPU limit, dashboard/health/models,
+non-empty completion, streaming, combo, call-log, and LiveWS welcome results.
+Public qualification requires `/healthz` 200, unauthenticated `/v1/models` 401
+(404 is a failure), authenticated models containing every configured smoke model,
+non-empty authenticated completion, and an authorized LiveWS welcome with the
+`Origin` header and `{"type":"subscribe","channels":["requests"]}` payload.
+Missing, null, malformed, or false gate values fail closed.
+
+The schema-v2 promotion transaction is ordered as follows: acquire the lock;
+capture runtime/Compose state; back up SQLite, `.env`, and gateway state/config;
+pin the previous OmniRoute and gateway images; write the `pending` manifest;
+reconcile canonical `squrvq` environment and combos; set/recreate the candidate;
+pass both local tunnels; reconcile Funnel; pass public gates; then mark `active`.
+After a pending manifest exists, every failure attempts gateway restoration, `.env`
+restoration and hash verification, then prior image recreation and local identity/
+health verification. Only all-success restoration writes `rolled_back`; any
+component failure writes `rollback_failed` with sanitized component errors. Manual
+rollback uses the same v2 fields and ordering.
+
+During deal-monitor recovery keep `TG_DEAL_MONITOR_ENABLED=false`, recreate only
+`tg-bot-go`, and verify no deal worker or `concac` traffic remains before exposing
+the gateway. Back up both SQLite databases, qualify and promote the immutable
+images, adopt the gateway, and keep monitoring disabled until the directory-mounted
+bot settings and `/dealstatus` pass their checks. Enable the monitor only after the
+second deal-database backup; then observe the first 50 calls against the dedicated
+key before allowing normal backlog draining.
 
 ### 6. Recover logs
 

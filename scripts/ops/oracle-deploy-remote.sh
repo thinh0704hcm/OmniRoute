@@ -18,6 +18,10 @@ CANARY_ROOT="${OMNIROUTE_CANARY_ROOT:-/home/ubuntu/.omniroute-canary}"
 PROD_CONTAINER="omniroute-parallel"
 CANARY_CONTAINER="omniroute-canary"
 ROLLBACK_TAG="omniroute:rollback-canary"
+TS_GATEWAY_CONTAINER="ts-gateway"
+TS_GATEWAY_STATE_DIR="${TS_GATEWAY_STATE_DIR:-/home/ubuntu/ts-gateway/state}"
+TS_GATEWAY_ROLLBACK_TAG="ts-gateway:rollback"
+TS_GATEWAY_IMAGE="docker.io/tailscale/tailscale@sha256:fdbdb434c50a6d3a5ed73f2b15ef66228dd2d265c1729e55f9a663ae804c5453"
 
 fail() {
   printf '%s\n' "$*" >&2
@@ -203,7 +207,281 @@ PY
 inspect_container_json() {
   local container="$1"
   docker inspect "$container" --format \
-    '{"imageId":{{json .Image}},"imageRef":{{json .Config.Image}},"restartCount":{{json .RestartCount}},"status":{{json .State.Status}},"health":{{json .State.Health.Status}}}'
+    '{"containerName":{{json .Name}},"imageId":{{json .Image}},"imageRef":{{json .Config.Image}},"restartCount":{{json .RestartCount}},"status":{{json .State.Status}},"health":{{json .State.Health.Status}},"oomKilled":{{json .State.OOMKilled}},"memoryBytes":{{json .HostConfig.Memory}},"nanoCpus":{{json .HostConfig.NanoCpus}}}'
+}
+
+# Tailscale state belongs to the managed container. Never use a host daemon:
+# a host-level tailscale process may be a different tailnet and would make a
+# successful-looking promotion route traffic to the wrong machine.
+run_ts() {
+  docker exec "$TS_GATEWAY_CONTAINER" tailscale "$@"
+}
+
+normalize_json_file() {
+  python3 - "$1" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    value = json.load(handle)
+
+def normalize(value):
+    if isinstance(value, dict):
+        return {key: normalize(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        return [normalize(item) for item in value]
+    return value
+
+print(json.dumps(normalize(value), sort_keys=True, separators=(",", ":")))
+PY
+}
+
+gateway_config_is_exact() {
+  python3 - "$1" <<'PY'
+import json
+import sys
+
+try:
+    actual = json.loads(sys.argv[1])
+except Exception as exc:
+    raise SystemExit(f"malformed Tailscale Serve JSON: {exc}")
+expected = {
+    "TCP": {"443": {"HTTPS": True}},
+    "Web": {
+        "squrvq.tail0bec0f.ts.net:443": {
+            "Handlers": {"/": {"Proxy": "http://127.0.0.1:20130"}}
+        }
+    },
+    "AllowFunnel": {"squrvq.tail0bec0f.ts.net:443": True},
+}
+if actual != expected:
+    raise SystemExit("Tailscale Serve/Funnel configuration is not the exact squrvq contract")
+PY
+}
+
+verify_gateway_runtime() {
+  local expected_image="$1"
+  local inspect_json
+  inspect_json="$(docker inspect "$TS_GATEWAY_CONTAINER" --format \
+    '{"imageId":{{json .Image}},"imageRef":{{json .Config.Image}},"networkMode":{{json .HostConfig.NetworkMode}},"mounts":{{json .Mounts}}}')"
+  python3 - "$inspect_json" "$expected_image" "$TS_GATEWAY_STATE_DIR" <<'PY'
+import json
+import sys
+
+data = json.loads(sys.argv[1])
+expected_image, expected_state = sys.argv[2:]
+if data.get("imageRef") != expected_image and data.get("imageId") != expected_image:
+    raise SystemExit("ts-gateway image identity does not match the pinned digest")
+if data.get("networkMode") != "host":
+    raise SystemExit("ts-gateway is not using host networking")
+mounts = data.get("mounts") or []
+matches = [
+    m for m in mounts
+    if m.get("Destination") == "/var/lib/tailscale"
+    and m.get("Source") == expected_state
+    and m.get("RW") is True
+]
+if len(matches) != 1 or len(mounts) != 1:
+    raise SystemExit("ts-gateway state mount is not the exact read-write managed mount")
+PY
+  local status
+  status="$(run_ts status --json)"
+  python3 - "$status" <<'PY'
+import json
+import sys
+
+status = json.loads(sys.argv[1])
+self = status.get("Self") or {}
+dns = self.get("DNSName", "").rstrip(".")
+if dns != "squrvq.tail0bec0f.ts.net":
+    raise SystemExit("ts-gateway has unexpected DNS identity")
+if self.get("Online") is not True:
+    raise SystemExit("ts-gateway is not online")
+PY
+}
+
+reconcile_squrvq_env() {
+  local env_path="$ENV_FILE"
+  test -f "$env_path" || fail "production env file missing: $env_path"
+  python3 - "$env_path" <<'PY'
+import os, sys, tempfile
+env_path = sys.argv[1]
+with open(env_path, "r", encoding="utf-8") as h:
+    lines = h.readlines()
+required = {
+    "NEXT_PUBLIC_BASE_URL": "NEXT_PUBLIC_BASE_URL=https://squrvq.tail0bec0f.ts.net\n",
+    "OMNIROUTE_PUBLIC_BASE_URL": "OMNIROUTE_PUBLIC_BASE_URL=https://squrvq.tail0bec0f.ts.net\n",
+    "LIVE_WS_PUBLIC_URL": "LIVE_WS_PUBLIC_URL=wss://squrvq.tail0bec0f.ts.net/live-ws\n",
+    "NEXT_PUBLIC_LIVE_WS_PUBLIC_URL": "NEXT_PUBLIC_LIVE_WS_PUBLIC_URL=wss://squrvq.tail0bec0f.ts.net/live-ws\n",
+    "LIVE_WS_ALLOWED_ORIGINS": "LIVE_WS_ALLOWED_ORIGINS=https://squrvq.tail0bec0f.ts.net\n",
+}
+found = set()
+out = []
+for line in lines:
+    key = line.split("=", 1)[0].strip()
+    if key == "OMNIROUTE_WS_BIND_HOST":
+        continue
+    if key in required:
+        if key not in found:
+            out.append(required[key])
+            found.add(key)
+        continue
+    out.append(line)
+if out and not out[-1].endswith("\n"):
+    out[-1] += "\n"
+for k, v in required.items():
+    if k not in found:
+        out.append(v)
+fd, tmp = tempfile.mkstemp(prefix=".env.", dir=os.path.dirname(env_path))
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as h:
+        h.writelines(out)
+        h.flush()
+        os.fsync(h.fileno())
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, env_path)
+finally:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+PY
+  env_hash="$(sha256sum "$env_path" | cut -d' ' -f1)"
+  printf '%s %s\n' "$env_path" "$env_hash"
+}
+
+backup_gateway() {
+  local stamp
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  local dir="$STATE_DIR/gateway_${stamp}_$$"
+  mkdir -p "$dir"
+  chmod 700 "$dir"
+  test -d "$TS_GATEWAY_STATE_DIR" || fail "ts-gateway state directory is missing"
+  local img
+  img="$(docker inspect "$TS_GATEWAY_CONTAINER" --format '{{.Image}}')"
+  local img_ref
+  img_ref="$(docker inspect "$TS_GATEWAY_CONTAINER" --format '{{.Config.Image}}')"
+  local repo_digest
+  repo_digest="$(docker inspect "$TS_GATEWAY_CONTAINER" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+  if test -z "$repo_digest" || ! printf '%s' "$repo_digest" | grep -q '@sha256:[a-f0-9]\{64\}$'; then
+    fail "ts-gateway image is not digest-pinned (RepoDigests)"
+  fi
+  docker inspect "$TS_GATEWAY_CONTAINER" > "$dir/inspect.json"
+  printf '%s\n' "$img" > "$dir/image.id"
+  printf '%s\n' "$img_ref" > "$dir/image.ref"
+  printf '%s\n' "$repo_digest" > "$dir/image.digest"
+  cp -a -- "$TS_GATEWAY_STATE_DIR" "$dir/state"
+  chmod -R u=rwX,go= "$dir/state"
+  run_ts status --json > "$dir/tailscale-status.json"
+  run_ts serve status --json > "$dir/serve-status.json"
+  run_ts funnel status --json > "$dir/funnel-status.json"
+  run_ts serve get-config --all > "$dir/serve.json"
+  normalize_json_file "$dir/serve.json" > "$dir/serve.normalized.json"
+  normalize_json_file "$dir/funnel-status.json" > "$dir/funnel.normalized.json"
+  chmod 600 "$dir"/*.json "$dir/image.*"
+  printf '{"dir":%s,"tsGatewayImage":%s}\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$dir")" "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$repo_digest")"
+}
+
+reconcile_gateway() {
+  # Funnel must be exactly squrvq:443 / -> http://127.0.0.1:20130
+  run_ts serve reset
+  run_ts funnel reset
+  run_ts funnel --bg --yes --https=443 http://127.0.0.1:20130
+  sleep 2
+  local cfg
+  cfg="$(run_ts serve get-config --all)"
+  if test -z "$cfg"; then fail "funnel reconciliation produced no config"; fi
+  if ! gateway_config_is_exact "$cfg"; then fail "funnel reconciliation produced an unexpected semantic config"; fi
+  printf '%s\n' "ok"
+}
+
+restore_gateway() {
+  local dir="$1"
+  test -n "$dir" || fail "restore_gateway requires backup dir"
+  test -f "$dir/serve.json" || fail "gateway backup serve.json missing: $dir"
+  test -d "$dir/state" || fail "gateway state snapshot missing: $dir/state"
+  local quarantine="$STATE_DIR/gateway_failed_$(date -u +%Y%m%dT%H%M%S)_$$"
+  mkdir -p "$quarantine"
+  chmod 700 "$quarantine"
+  if docker container inspect "$TS_GATEWAY_CONTAINER" >/dev/null 2>&1; then
+    docker stop "$TS_GATEWAY_CONTAINER" >/dev/null
+  fi
+  if test -d "$TS_GATEWAY_STATE_DIR"; then
+    mv "$TS_GATEWAY_STATE_DIR" "$quarantine/state"
+  fi
+  mkdir -p "$(dirname "$TS_GATEWAY_STATE_DIR")"
+  cp -a -- "$dir/state" "$TS_GATEWAY_STATE_DIR"
+  chmod -R u=rwX,go= "$TS_GATEWAY_STATE_DIR"
+  compose_prod up -d --no-deps --pull never "$TS_GATEWAY_CONTAINER"
+  docker cp "$dir/serve.json" "$TS_GATEWAY_CONTAINER:/tmp/serve-restore.json"
+  run_ts serve reset
+  run_ts funnel reset
+  run_ts serve set-config /tmp/serve-restore.json
+  local restored_cfg expected_cfg
+  restored_cfg="$(run_ts serve get-config --all)"
+  expected_cfg="$(cat "$dir/serve.json")"
+  test "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), sort_keys=True, separators=(",", ":")))' "$restored_cfg")" = \
+    "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), sort_keys=True, separators=(",", ":")))' "$expected_cfg")" \
+    || fail "restored Tailscale Serve configuration did not verify"
+  run_ts status --json >/dev/null
+  printf '%s\n' "ok"
+}
+
+adopt_gateway() {
+  ensure_layout
+  test -d "$TS_GATEWAY_STATE_DIR" || fail "ts-gateway state directory is missing"
+  docker container inspect "$TS_GATEWAY_CONTAINER" >/dev/null 2>&1 || fail "existing ts-gateway container is missing"
+  if test "$(docker inspect "$TS_GATEWAY_CONTAINER" --format '{{.Config.Image}}')" = "$TS_GATEWAY_IMAGE"; then
+    verify_gateway_runtime "$TS_GATEWAY_IMAGE"
+    printf '{"alreadyAdopted":true,"tsGatewayImage":%s}\n' \
+      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$TS_GATEWAY_IMAGE")"
+    return 0
+  fi
+  local stamp
+  stamp="$(date -u +%Y%m%dT%H%M%S)_$$"
+  local dir="$STATE_DIR/gateway-adoption_${stamp}"
+  mkdir -p "$dir"
+  chmod 700 "$dir"
+  docker inspect "$TS_GATEWAY_CONTAINER" > "$dir/old.inspect.json"
+  local old_id old_ref
+  old_id="$(docker inspect "$TS_GATEWAY_CONTAINER" --format '{{.Image}}')"
+  old_ref="$(docker inspect "$TS_GATEWAY_CONTAINER" --format '{{.Config.Image}}')"
+  printf '%s\n' "$old_id" > "$dir/old.image.id"
+  printf '%s\n' "$old_ref" > "$dir/old.image.ref"
+  run_ts status --json > "$dir/old.tailscale-status.json"
+  run_ts serve get-config --all > "$dir/old.serve.json"
+  run_ts funnel status --json > "$dir/old.funnel.json"
+  normalize_json_file "$dir/old.serve.json" > "$dir/old.serve.normalized.json"
+  normalize_json_file "$dir/old.funnel.json" > "$dir/old.funnel.normalized.json"
+  cp -a -- "$TS_GATEWAY_STATE_DIR" "$dir/state"
+  chmod -R u=rwX,go= "$dir/state"
+  docker tag "$old_id" "$TS_GATEWAY_ROLLBACK_TAG"
+  test "$(docker image inspect "$TS_GATEWAY_ROLLBACK_TAG" --format '{{.Id}}')" = "$old_id" \
+    || fail "gateway rollback tag did not resolve to the existing image"
+  docker stop "$TS_GATEWAY_CONTAINER" >/dev/null
+  docker container rm "$TS_GATEWAY_CONTAINER" >/dev/null
+  if ! compose_prod up -d --no-deps --pull never "$TS_GATEWAY_CONTAINER"; then
+    fail "managed ts-gateway failed to start during adoption"
+  fi
+  if ! verify_gateway_runtime "$TS_GATEWAY_IMAGE"; then
+    # Keep failed state quarantined and restore the complete state snapshot
+    # before recreating the previous container image/spec.
+    local quarantine="$STATE_DIR/gateway-adoption-failed_${stamp}"
+    mkdir -p "$quarantine"
+    chmod 700 "$quarantine"
+    if test -d "$TS_GATEWAY_STATE_DIR"; then mv "$TS_GATEWAY_STATE_DIR" "$quarantine/state"; fi
+    cp -a -- "$dir/state" "$TS_GATEWAY_STATE_DIR"
+    chmod -R u=rwX,go= "$TS_GATEWAY_STATE_DIR"
+    docker rm -f "$TS_GATEWAY_CONTAINER" >/dev/null 2>&1 || true
+    docker run -d --name "$TS_GATEWAY_CONTAINER" --network host --restart unless-stopped \
+      --env TS_STATE_DIR=/var/lib/tailscale --env TS_HOSTNAME=squrvq \
+      --env TS_USERSPACE=true --env TS_AUTH_ONCE=true \
+      --volume "$TS_GATEWAY_STATE_DIR:/var/lib/tailscale" "$old_ref" >/dev/null
+    docker cp "$dir/old.serve.json" "$TS_GATEWAY_CONTAINER:/tmp/serve-adoption-restore.json"
+    docker exec "$TS_GATEWAY_CONTAINER" tailscale serve set-config /tmp/serve-adoption-restore.json
+    fail "managed ts-gateway adoption verification failed; previous container restored"
+  fi
+  printf '{"backupDir":%s,"tsGatewayImage":%s}\n' \
+    "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$dir")" \
+    "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$TS_GATEWAY_IMAGE")"
 }
 
 command="${1:-}"
@@ -458,6 +736,13 @@ PY
       || fail "rollback tag did not resolve to the expected image"
     ;;
 
+  tag-gateway-rollback)
+    current_gateway_id="$(docker inspect "$TS_GATEWAY_CONTAINER" --format '{{.Image}}')"
+    docker image tag "$current_gateway_id" "$TS_GATEWAY_ROLLBACK_TAG"
+    test "$(docker image inspect "$TS_GATEWAY_ROLLBACK_TAG" --format '{{.Id}}')" = "$current_gateway_id" \
+      || fail "gateway rollback tag did not resolve to the expected image"
+    ;;
+
   verify-rollback-tag)
     expected_id="${1:-}"
     test -n "$expected_id" || fail "expected rollback image ID is required"
@@ -497,13 +782,66 @@ PY
     test "$(docker inspect "$PROD_CONTAINER" --format '{{.State.Status}}')" = "running"
     test "$(docker inspect "$PROD_CONTAINER" --format '{{.State.Health.Status}}')" = "healthy"
     test "$(docker inspect "$PROD_CONTAINER" --format '{{.RestartCount}}')" = "0"
+    test "$(docker inspect "$PROD_CONTAINER" --format '{{.State.OOMKilled}}')" = "false"
+    test "$(docker inspect "$PROD_CONTAINER" --format '{{.HostConfig.Memory}}')" = "6442450944"
+    test "$(docker inspect "$PROD_CONTAINER" --format '{{.HostConfig.NanoCpus}}')" = "2000000000"
+    ;;
+
+  adopt-gateway)
+    adopt_gateway
+    ;;
+
+  backup-gateway)
+    backup_gateway
+    ;;
+
+  reconcile-gateway)
+    reconcile_gateway
+    ;;
+
+  restore-gateway)
+    restore_gateway "$1"
+    ;;
+
+  reconcile-squrvq-env)
+    reconcile_squrvq_env
+    ;;
+
+  backup-config)
+    ensure_layout
+    # Hash production .env for manifest envHash
+    env_path="$ENV_FILE"
+    require_file "$env_path"
+    sha="$(sha256sum "$env_path" | cut -d' ' -f1)"
+    # Also copy to timestamped backup dir
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    dir="$STATE_DIR/config_${stamp}_$$"
+    mkdir -p "$dir"
+    chmod 700 "$dir"
+    cp -p "$env_path" "$dir/.env"
+    chmod 600 "$dir/.env"
+    printf '{"path":%s,"hash":%s}\n' \
+      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$dir/.env")" \
+      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$sha")"
+    ;;
+
+  restore-config)
+    backup_path="${1:-}"
+    expected_hash="${2:-}"
+    test -f "$backup_path" || fail "config backup missing: $backup_path"
+    install -m 600 "$backup_path" "$ENV_FILE"
+    if test -n "$expected_hash"; then
+      actual_hash="$(sha256sum "$ENV_FILE" | cut -d' ' -f1)"
+      test "$actual_hash" = "$expected_hash" || fail "restored .env hash did not verify"
+    fi
+    printf '%s\n' "ok"
     ;;
 
   write-manifest)
     ensure_layout
     manifest_path="$STATE_DIR/current.json"
     temp_path="$STATE_DIR/.current.json.tmp"
-    python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("schemaVersion") == 1; assert data.get("state") in {"pending", "active", "rolled_back"}; assert data.get("current", {}).get("imageId"); assert data.get("rollback", {}).get("imageId"); json.dump(data,sys.stdout,indent=2); print()' > "$temp_path"
+    python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("schemaVersion") == 2; assert data.get("state") in {"pending", "active", "rolled_back", "rollback_failed"}; assert data.get("current", {}).get("imageId"); assert data.get("rollback", {}).get("imageId"); assert data.get("gatewayBackupDir"); assert data.get("configBackupPath"); assert data.get("tsGatewayImage"); assert data.get("envHash"); json.dump(data,sys.stdout,indent=2); print()' > "$temp_path"
     chmod 600 "$temp_path"
     mv "$temp_path" "$manifest_path"
     printf '%s\n' "$manifest_path"
@@ -521,6 +859,6 @@ PY
     ;;
 
   *)
-    fail "usage: $0 {dispatch-json|preflight|lock|unlock|lock-canary|unlock-canary|inspect-image|inspect-prod|inspect-canary|compose-hash|backup|prepare-canary|start-canary|stop-canary|delete-canary-data|call-log-max|combo-log-evidence|reconcile-combos|tag-rollback|verify-rollback-tag|set-image|recreate-prod|verify-image|write-manifest|read-manifest|status}"
+    fail "usage: $0 {dispatch-json|preflight|lock|unlock|lock-canary|unlock-canary|inspect-image|inspect-prod|inspect-canary|compose-hash|backup|prepare-canary|start-canary|stop-canary|delete-canary-data|call-log-max|combo-log-evidence|reconcile-combos|tag-rollback|tag-gateway-rollback|verify-rollback-tag|set-image|recreate-prod|verify-image|adopt-gateway|backup-gateway|reconcile-gateway|restore-gateway|reconcile-squrvq-env|backup-config|restore-config|write-manifest|read-manifest|status}"
     ;;
 esac

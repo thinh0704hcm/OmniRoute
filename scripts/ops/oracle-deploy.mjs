@@ -15,13 +15,15 @@ import { spawn, spawnSync } from "node:child_process";
 import process from "node:process";
 
 import {
-  evaluateRuntimeGate,
+  evaluateLocalRuntimeGate,
   isImmutableOmniRouteImage,
   promoteWithRollback,
 } from "./oracleDeploy.ts";
 
 const REMOTE_HELPER = "/home/ubuntu/OmniRoute-src/scripts/ops/oracle-deploy-remote.sh";
 const DEFAULT_MODELS = ["gpt-5.4-mini", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"];
+const PUBLIC_ORIGIN = "https://squrvq.tail0bec0f.ts.net";
+const PUBLIC_WS_URL = "wss://squrvq.tail0bec0f.ts.net/live-ws";
 
 function parseArgs(argv) {
   const args = {
@@ -90,8 +92,8 @@ function runRemote(host, action, values = [], options = {}) {
   return (result.stdout || "").trim();
 }
 
-function readRemoteJson(host, action, values = []) {
-  return JSON.parse(runRemote(host, action, values));
+function readRemoteJson(host, action, values = [], options = {}) {
+  return JSON.parse(runRemote(host, action, values, options));
 }
 
 async function waitForComboLogEvidence(host, databasePath, sinceTimestamp) {
@@ -141,9 +143,15 @@ async function withTunnel(host, localPort, remotePort, callback) {
 
 function requestHeaders(extra = {}) {
   const headers = { "Content-Type": "application/json", ...extra };
-  const apiKey = process.env.OMNIROUTE_SMOKE_API_KEY?.trim();
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const apiKey = requireSmokeApiKey();
+  headers.Authorization = `Bearer ${apiKey}`;
   return headers;
+}
+
+function requireSmokeApiKey() {
+  const apiKey = process.env.OMNIROUTE_SMOKE_API_KEY?.trim();
+  if (!apiKey) throw new Error("OMNIROUTE_SMOKE_API_KEY is required for deployment gates");
+  return apiKey;
 }
 
 async function waitForHealth(baseUrl) {
@@ -166,100 +174,247 @@ async function waitForHealth(baseUrl) {
 }
 
 async function probeCompletion(baseUrl, model) {
-  const response = await fetch(new URL("/v1/chat/completions", baseUrl), {
-    method: "POST",
-    headers: requestHeaders(),
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: "Reply with exactly: ok" }],
-      max_tokens: 24,
-    }),
-    signal: AbortSignal.timeout(180_000),
-  });
-  const body = await response.json().catch(() => null);
-  return response.ok && Array.isArray(body?.choices) && body.choices.length > 0;
+  try {
+    const response = await fetch(new URL("/v1/chat/completions", baseUrl), {
+      method: "POST",
+      headers: requestHeaders(),
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: "Reply with exactly: ok" }],
+        max_tokens: 24,
+      }),
+      signal: AbortSignal.timeout(180_000),
+    });
+    const body = await response.json().catch(() => null);
+    const content = body?.choices?.[0]?.message?.content;
+    return response.ok && typeof content === "string" && content.trim().length > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function probeStreaming(baseUrl, model) {
-  const response = await fetch(new URL("/v1/chat/completions", baseUrl), {
-    method: "POST",
-    headers: requestHeaders(),
-    body: JSON.stringify({
-      model,
-      stream: true,
-      messages: [{ role: "user", content: "Reply with exactly: ok" }],
-      max_tokens: 24,
-    }),
-    signal: AbortSignal.timeout(180_000),
-  });
-  if (!response.ok) return false;
-  const text = await response.text();
-  return text.includes("data:") && text.includes("[DONE]");
+  try {
+    const response = await fetch(new URL("/v1/chat/completions", baseUrl), {
+      method: "POST",
+      headers: requestHeaders(),
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: [{ role: "user", content: "Reply with exactly: ok" }],
+        max_tokens: 24,
+      }),
+      signal: AbortSignal.timeout(180_000),
+    });
+    if (!response.ok) return false;
+    const text = await response.text();
+    return text.includes("data:") && text.includes("[DONE]") && text.trim().length > 0;
+  } catch {
+    return false;
+  }
 }
 
-async function probeMixedCaseTool(baseUrl, model) {
-  const headers = requestHeaders({
-    "anthropic-version": "2023-06-01",
-  });
-  const firstRequest = {
-    model,
-    max_tokens: 128,
-    tools: [
-      {
-        name: "GetTestValue",
-        description: "Return the deterministic test value.",
-        input_schema: { type: "object", properties: {}, additionalProperties: false },
-      },
-    ],
-    tool_choice: { type: "tool", name: "GetTestValue" },
-    messages: [
-      {
-        role: "user",
-        content: "Call GetTestValue exactly once. Do not answer before calling the tool.",
-      },
-    ],
-  };
-  const first = await fetch(new URL("/v1/messages", baseUrl), {
-    method: "POST",
-    headers,
-    body: JSON.stringify(firstRequest),
-    signal: AbortSignal.timeout(180_000),
-  });
-  const firstBody = await first.json().catch(() => null);
-  const toolUse = Array.isArray(firstBody?.content)
-    ? firstBody.content.find((block) => block?.type === "tool_use")
-    : null;
-  if (!first.ok || toolUse?.name !== "GetTestValue" || !toolUse?.id) return false;
+async function probeModels(baseUrl, expectedModels) {
+  try {
+    const unauthenticated = await fetch(new URL("/v1/models", baseUrl), {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    const authenticated = await fetch(new URL("/v1/models", baseUrl), {
+      headers: requestHeaders({ Accept: "application/json" }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    const body = await authenticated.json().catch(() => null);
+    const ids = Array.isArray(body?.data)
+      ? body.data.map((entry) => entry?.id).filter((id) => typeof id === "string")
+      : null;
+    const allPresent =
+      Array.isArray(ids) &&
+      Array.isArray(expectedModels) &&
+      expectedModels.length > 0 &&
+      expectedModels.every((model) => ids.includes(model));
+    return {
+      unauthenticatedStatus: unauthenticated.status,
+      authenticatedStatus: authenticated.status,
+      modelIds: ids,
+      ok: unauthenticated.status === 401 && authenticated.status === 200 && allPresent,
+    };
+  } catch {
+    return {
+      unauthenticatedStatus: null,
+      authenticatedStatus: null,
+      modelIds: null,
+      ok: false,
+    };
+  }
+}
 
-  const second = await fetch(new URL("/v1/messages", baseUrl), {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      ...firstRequest,
-      tool_choice: { type: "auto" },
-      messages: [
-        firstRequest.messages[0],
-        { role: "assistant", content: firstBody.content },
+async function probeDashboard(baseUrl) {
+  try {
+    const res = await fetch(new URL("/", baseUrl), {
+      headers: requestHeaders(),
+      signal: AbortSignal.timeout(8_000),
+    });
+    const text = await res.text().catch(() => "");
+    return res.ok && /<html/i.test(text);
+  } catch {
+    return false;
+  }
+}
+async function probeHealthz(baseUrl) {
+  try {
+    const res = await fetch(new URL("/healthz", baseUrl), {
+      headers: {},
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+async function probeLiveWs(baseUrl, origin = PUBLIC_ORIGIN) {
+  // Protocol-level LiveWS gate. It intentionally sends both Authorization and
+  // Origin because a TCP connection alone does not prove the public gateway's
+  // auth/origin policy.
+  const wsUrl = baseUrl.startsWith("ws") ? baseUrl : baseUrl.replace(/^http/, "ws") + "/live-ws";
+  try {
+    const WebSocket = (await import("ws")).default;
+    const ws = new WebSocket(wsUrl, {
+      headers: {
+        Authorization: `Bearer ${requireSmokeApiKey()}`,
+        Origin: origin,
+      },
+    });
+    const ok = await new Promise((resolve) => {
+      let settled = false;
+      let timer;
+      const done = (v) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        try {
+          ws.close();
+        } catch {}
+        resolve(v);
+      };
+      ws.on("open", () => {
+        try {
+          ws.send(JSON.stringify({ type: "subscribe", channels: ["requests"] }));
+        } catch {
+          done(false);
+        }
+      });
+      ws.on("message", (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+          if (message?.type === "welcome") done(true);
+        } catch {
+          done(false);
+        }
+      });
+      ws.on("error", () => done(false));
+      timer = setTimeout(() => done(false), 8000);
+    });
+    return ok;
+  } catch {
+    return false;
+  }
+}
+async function probePublicHealthz() {
+  try {
+    const res = await fetch(`${PUBLIC_ORIGIN}/healthz`, { signal: AbortSignal.timeout(8_000) });
+    return res.status;
+  } catch {
+    return null;
+  }
+}
+async function probePublicModelsAuth(expectedModels) {
+  const result = await probeModels(PUBLIC_ORIGIN, expectedModels);
+  return {
+    unauthenticatedStatus: result.unauthenticatedStatus,
+    authenticatedStatus: result.authenticatedStatus,
+    modelIds: result.modelIds,
+    ok: result.ok,
+  };
+}
+async function probePublicCompletion(model) {
+  return probeCompletion(PUBLIC_ORIGIN, model);
+}
+async function runTrafficProbesWithGates(dashboardUrl, apiUrl, models) {
+  const dashOk = await probeDashboard(dashboardUrl);
+  const healthOk = await probeHealthz(dashboardUrl);
+  const liveWsOk = await probeLiveWs(dashboardUrl, PUBLIC_ORIGIN);
+  const core = await runTrafficProbes(apiUrl, models);
+  return { ...core, dashboardOk: dashOk, healthOk, liveWsOk };
+}
+async function probeMixedCaseTool(baseUrl, model) {
+  try {
+    const headers = requestHeaders({
+      "anthropic-version": "2023-06-01",
+    });
+    const firstRequest = {
+      model,
+      max_tokens: 128,
+      tools: [
         {
-          role: "user",
-          content: [{ type: "tool_result", tool_use_id: toolUse.id, content: "42" }],
+          name: "GetTestValue",
+          description: "Return the deterministic test value.",
+          input_schema: { type: "object", properties: {}, additionalProperties: false },
         },
       ],
-    }),
-    signal: AbortSignal.timeout(180_000),
-  });
-  const secondBody = await second.json().catch(() => null);
-  const text = Array.isArray(secondBody?.content)
-    ? secondBody.content
-        .filter((block) => block?.type === "text")
-        .map((block) => block.text)
-        .join("")
-    : "";
-  return second.ok && text.includes("42");
+      tool_choice: { type: "tool", name: "GetTestValue" },
+      messages: [
+        {
+          role: "user",
+          content: "Call GetTestValue exactly once. Do not answer before calling the tool.",
+        },
+      ],
+    };
+    const first = await fetch(new URL("/v1/messages", baseUrl), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(firstRequest),
+      signal: AbortSignal.timeout(180_000),
+    });
+    const firstBody = await first.json().catch(() => null);
+    const toolUse = Array.isArray(firstBody?.content)
+      ? firstBody.content.find((block) => block?.type === "tool_use")
+      : null;
+    if (!first.ok || toolUse?.name !== "GetTestValue" || !toolUse?.id) return false;
+
+    const second = await fetch(new URL("/v1/messages", baseUrl), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        ...firstRequest,
+        tool_choice: { type: "auto" },
+        messages: [
+          firstRequest.messages[0],
+          { role: "assistant", content: firstBody.content },
+          {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: toolUse.id, content: "42" }],
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(180_000),
+    });
+    const secondBody = await second.json().catch(() => null);
+    const text = Array.isArray(secondBody?.content)
+      ? secondBody.content
+          .filter((block) => block?.type === "text")
+          .map((block) => block.text)
+          .join("")
+      : "";
+    return second.ok && text.includes("42");
+  } catch {
+    return false;
+  }
 }
 
 async function runTrafficProbes(baseUrl, models) {
   await waitForHealth(baseUrl);
+  const modelProbe = await probeModels(baseUrl, models);
   const completionResults = [];
   for (const model of models) {
     const ok = await probeCompletion(baseUrl, model);
@@ -276,6 +431,10 @@ async function runTrafficProbes(baseUrl, models) {
     mixedCaseResults.push(ok);
   }
   return {
+    modelsOk: modelProbe.ok,
+    modelIds: modelProbe.modelIds,
+    modelsUnauthenticatedStatus: modelProbe.unauthenticatedStatus,
+    modelsAuthenticatedStatus: modelProbe.authenticatedStatus,
     completionOk: completionResults.every(Boolean),
     comboRequestOk,
     streamingOk,
@@ -296,7 +455,23 @@ function requireCandidate(args) {
   return { imageRef: args.image, opsImageRef: args.opsImage, buildSha: args.sha };
 }
 
+function sanitizeFailure(error) {
+  return String(error instanceof Error ? error.message : error)
+    .replace(/Bearer\s+[^\s]+/gi, "Bearer <redacted>")
+    .replace(/https?:\/\/[^\s]+/gi, "<url-redacted>")
+    .slice(0, 240);
+}
+
+async function withDualTunnels(host, canary, callback) {
+  return withTunnel(host, canary ? 30130 : 31130, canary ? 30130 : 20130, async (dashUrl) => {
+    return withTunnel(host, canary ? 30131 : 31131, canary ? 30131 : 20131, async (apiUrl) => {
+      return callback({ dashboard: dashUrl, api: apiUrl });
+    });
+  });
+}
+
 async function qualify(host, input, models) {
+  requireSmokeApiKey();
   runRemote(host, "lock-canary");
   let canaryDir = null;
   try {
@@ -325,29 +500,41 @@ async function qualify(host, input, models) {
       runRemote(host, "start-canary", [input.imageRef, input.buildSha, canaryDir], {
         timeoutMs: 600_000,
       });
-      const probes = await withTunnel(host, 30130, 30130, (baseUrl) =>
-        runTrafficProbes(baseUrl, models)
+      const probes = await withDualTunnels(host, true, ({ dashboard, api }) =>
+        runTrafficProbesWithGates(dashboard, api, models)
       );
       const after = runRemote(host, "call-log-max", [databasePath]);
       const comboEvidence = await waitForComboLogEvidence(host, databasePath, before);
       const runtime = readRemoteJson(host, "inspect-canary");
       const gate = {
-        healthy: runtime.status === "running" && runtime.health === "healthy",
+        containerName: String(runtime.containerName || "").replace(/^\//, "") || null,
+        containerStatus: runtime.status ?? null,
+        healthStatus: runtime.health ?? null,
         expectedBuildSha: input.buildSha,
         actualBuildSha: image.revision,
-        expectedImageId: image.imageId,
         actualImageId: runtime.imageId,
-        restartCount: runtime.restartCount,
+        expectedImageId: image.imageId,
+        restartCount: runtime.restartCount ?? null,
+        oomKilled: runtime.oomKilled ?? null,
+        memoryBytes: runtime.memoryBytes ?? null,
+        nanoCpus: runtime.nanoCpus ?? null,
+        dashboardOk: probes.dashboardOk,
+        healthOk: probes.healthOk,
+        apiModelsOk: probes.modelsOk,
         completionOk: probes.completionOk,
         streamingOk: probes.streamingOk,
-        mixedCaseToolOk: probes.mixedCaseToolOk,
+        // The mixed-case tool continuation is part of the combo/application
+        // contract; retain it in comboOk below while the explicit local gate
+        // remains protocol-oriented.
         comboOk:
           probes.comboRequestOk &&
           comboEvidence.comboRows > 0 &&
-          comboEvidence.forbiddenPreviewRows === 0,
+          comboEvidence.forbiddenPreviewRows === 0 &&
+          probes.mixedCaseToolOk,
         callLogAdvanced: Boolean(after) && after > before,
+        liveWsOk: probes.liveWsOk,
       };
-      const verdict = evaluateRuntimeGate(gate);
+      const verdict = evaluateLocalRuntimeGate(gate);
       if (!verdict.ok) throw new Error(`qualification failed: ${verdict.failures.join("; ")}`);
       return { imageId: image.imageId, gate };
     } finally {
@@ -368,6 +555,7 @@ async function promote(host, candidate, models) {
   const qualified = await qualify(host, candidate, models);
   let previousBuildSha = null;
   let logBefore = "";
+  let configBackupHash = null;
 
   const adapter = {
     acquireLock: async () => runRemote(host, "lock"),
@@ -387,6 +575,15 @@ async function promote(host, candidate, models) {
     },
     backupDatabase: async () => runRemote(host, "backup", [], { timeoutMs: 600_000 }),
     tagRollback: async (_rollbackRef, imageId) => runRemote(host, "tag-rollback", [imageId]),
+    tagGatewayRollback: async (rollbackRef) =>
+      runRemote(host, "tag-gateway-rollback", [rollbackRef]),
+    backupGateway: async () => readRemoteJson(host, "backup-gateway", [], { timeoutMs: 300_000 }),
+    backupConfig: async () => {
+      const backup = await readRemoteJson(host, "backup-config", [], { timeoutMs: 60_000 });
+      configBackupHash = backup.hash;
+      return backup;
+    },
+    reconcileEnvironment: async () => runRemote(host, "reconcile-squrvq-env"),
     reconcileConfiguration: async () =>
       runRemote(host, "reconcile-combos", [candidate.opsImageRef, "production"], {
         timeoutMs: 600_000,
@@ -394,31 +591,59 @@ async function promote(host, candidate, models) {
     writeCandidateImage: async (imageRef) =>
       runRemote(host, "set-image", [imageRef, candidate.buildSha]),
     recreateProduction: async () => runRemote(host, "recreate-prod", [], { timeoutMs: 600_000 }),
-    probeRuntime: async () => {
-      const probes = await withTunnel(host, 31130, 20130, (baseUrl) =>
-        runTrafficProbes(baseUrl, models)
+    probeLocalGates: async () => {
+      const probes = await withDualTunnels(host, false, ({ dashboard, api }) =>
+        runTrafficProbesWithGates(dashboard, api, models)
       );
       const after = runRemote(host, "call-log-max");
       const comboEvidence = await waitForComboLogEvidence(host, "", logBefore);
       const runtime = readRemoteJson(host, "inspect-prod");
       const image = readRemoteJson(host, "inspect-image", [candidate.imageRef]);
       return {
-        healthy: runtime.status === "running" && runtime.health === "healthy",
+        containerName: String(runtime.containerName || "").replace(/^\//, "") || null,
+        containerStatus: runtime.status ?? null,
+        healthStatus: runtime.health ?? null,
         expectedBuildSha: candidate.buildSha,
         actualBuildSha: image.revision,
         expectedImageId: qualified.imageId,
         actualImageId: runtime.imageId,
-        restartCount: runtime.restartCount,
+        restartCount: runtime.restartCount ?? null,
+        oomKilled: runtime.oomKilled ?? null,
+        memoryBytes: runtime.memoryBytes ?? null,
+        nanoCpus: runtime.nanoCpus ?? null,
+        dashboardOk: probes.dashboardOk,
+        healthOk: probes.healthOk,
+        apiModelsOk: probes.modelsOk,
         completionOk: probes.completionOk,
         streamingOk: probes.streamingOk,
-        mixedCaseToolOk: probes.mixedCaseToolOk,
         comboOk:
           probes.comboRequestOk &&
           comboEvidence.comboRows > 0 &&
-          comboEvidence.forbiddenPreviewRows === 0,
+          comboEvidence.forbiddenPreviewRows === 0 &&
+          probes.mixedCaseToolOk,
         callLogAdvanced: Boolean(after) && after > logBefore,
+        liveWsOk: probes.liveWsOk,
       };
     },
+    reconcileGateway: async () => runRemote(host, "reconcile-gateway", [], { timeoutMs: 60_000 }),
+    probePublicGates: async () => {
+      const modelsProbe = await probePublicModelsAuth(models);
+      return {
+        healthzStatus: await probePublicHealthz(),
+        unauthenticatedModelsStatus: modelsProbe.unauthenticatedStatus,
+        authenticatedModelsStatus: modelsProbe.authenticatedStatus,
+        authenticatedModelIds: modelsProbe.modelIds,
+        configuredSmokeModels: models,
+        completionOk: await probePublicCompletion(models[0]),
+        liveWsOk: await probeLiveWs(PUBLIC_WS_URL, PUBLIC_ORIGIN),
+      };
+    },
+    restoreGateway: async (backupDir) =>
+      runRemote(host, "restore-gateway", [backupDir], { timeoutMs: 300_000 }),
+    restoreConfig: async (backupPath) =>
+      runRemote(host, "restore-config", [backupPath, configBackupHash || ""], {
+        timeoutMs: 60_000,
+      }),
     restorePreviousImage: async (imageRef, imageId) => {
       if (!previousBuildSha) throw new Error("previous build SHA is unavailable");
       runRemote(host, "verify-rollback-tag", [imageId]);
@@ -427,9 +652,13 @@ async function promote(host, candidate, models) {
     verifyRollback: async (imageId) => {
       try {
         runRemote(host, "verify-image", [imageId]);
-        return withTunnel(host, 33130, 20130, async (baseUrl) => {
-          await waitForHealth(baseUrl);
-          return probeCompletion(baseUrl, models[0]);
+        return withDualTunnels(host, false, async ({ dashboard, api }) => {
+          await waitForHealth(api);
+          const [dashboardOk, completionOk] = await Promise.all([
+            probeDashboard(dashboard),
+            probeCompletion(api, models[0]),
+          ]);
+          return dashboardOk && completionOk;
         });
       } catch {
         return false;
@@ -450,16 +679,31 @@ async function promote(host, candidate, models) {
 }
 
 async function rollback(host, models) {
+  requireSmokeApiKey();
   runRemote(host, "lock");
   let manifest = null;
-  let cutoverStarted = false;
+  let mutationStarted = false;
   try {
     manifest = readRemoteJson(host, "read-manifest");
+    if (manifest?.schemaVersion !== 2) {
+      throw new Error("deployment manifest is not schema version 2");
+    }
     if (manifest?.state === "rolled_back") {
       throw new Error("the latest promotion is already rolled back");
     }
+    if (manifest?.state !== "active") {
+      throw new Error("deployment manifest is not active");
+    }
     if (runRemote(host, "compose-hash") !== manifest?.composeHash) {
       throw new Error("effective Compose configuration changed since promotion");
+    }
+    if (
+      !manifest.gatewayBackupDir ||
+      !manifest.configBackupPath ||
+      !manifest.envHash ||
+      !manifest.tsGatewayImage
+    ) {
+      throw new Error("deployment manifest has no complete gateway/config rollback state");
     }
     const rollbackTarget = manifest?.rollback;
     if (!rollbackTarget?.imageRef || !rollbackTarget?.imageId || !rollbackTarget?.buildSha) {
@@ -478,13 +722,23 @@ async function rollback(host, models) {
     ) {
       throw new Error("deployment manifest has no recoverable current target");
     }
-    cutoverStarted = true;
+    mutationStarted = true;
+    // Keep manual rollback in the same component order as automatic rollback:
+    // gateway state/config first, then environment, then the application image.
+    runRemote(host, "restore-gateway", [manifest.gatewayBackupDir], { timeoutMs: 300_000 });
+    runRemote(host, "restore-config", [manifest.configBackupPath, manifest.envHash], {
+      timeoutMs: 60_000,
+    });
     runRemote(host, "set-image", [rollbackTarget.imageRef, rollbackTarget.buildSha]);
     runRemote(host, "recreate-prod", [], { timeoutMs: 600_000 });
     runRemote(host, "verify-image", [rollbackTarget.imageId]);
-    const smokeOk = await withTunnel(host, 32130, 20130, async (baseUrl) => {
-      await waitForHealth(baseUrl);
-      return probeCompletion(baseUrl, models[0]);
+    const smokeOk = await withDualTunnels(host, false, async ({ dashboard, api }) => {
+      await waitForHealth(api);
+      const [dashboardOk, completionOk] = await Promise.all([
+        probeDashboard(dashboard),
+        probeCompletion(api, models[0]),
+      ]);
+      return dashboardOk && completionOk;
     });
     if (!smokeOk) throw new Error("rollback completion probe failed");
     const rolledBackManifest = {
@@ -498,21 +752,43 @@ async function rollback(host, models) {
     });
   } catch (error) {
     const currentTarget = manifest?.current;
-    if (
-      cutoverStarted &&
-      currentTarget?.imageRef &&
-      currentTarget?.imageId &&
-      currentTarget?.buildSha
-    ) {
+    if (mutationStarted && manifest?.schemaVersion === 2) {
+      const failures = [];
       try {
+        runRemote(host, "restore-gateway", [manifest.gatewayBackupDir], { timeoutMs: 300_000 });
+      } catch (restoreError) {
+        failures.push(`gateway restoration failed: ${sanitizeFailure(restoreError)}`);
+      }
+      try {
+        runRemote(host, "restore-config", [manifest.configBackupPath, manifest.envHash], {
+          timeoutMs: 60_000,
+        });
+      } catch (restoreError) {
+        failures.push(`config restoration failed: ${sanitizeFailure(restoreError)}`);
+      }
+      try {
+        if (!currentTarget?.imageRef || !currentTarget?.buildSha) {
+          throw new Error("current target is incomplete");
+        }
         runRemote(host, "set-image", [currentTarget.imageRef, currentTarget.buildSha]);
         runRemote(host, "recreate-prod", [], { timeoutMs: 600_000 });
         runRemote(host, "verify-image", [currentTarget.imageId]);
       } catch (restoreError) {
-        const original = error instanceof Error ? error.message : String(error);
-        const restore = restoreError instanceof Error ? restoreError.message : String(restoreError);
-        throw new Error(`${original}; candidate restoration also failed: ${restore}`);
+        failures.push(`image restoration failed: ${sanitizeFailure(restoreError)}`);
       }
+      try {
+        runRemote(host, "write-manifest", [], {
+          input: `${JSON.stringify({
+            ...manifest,
+            state: "rollback_failed",
+            failures,
+          })}\n`,
+        });
+      } catch (manifestError) {
+        failures.push(`manifest restoration failed: ${sanitizeFailure(manifestError)}`);
+      }
+      const original = sanitizeFailure(error);
+      throw new Error(`${original}; rollback_failed: ${failures.join("; ")}`);
     }
     throw error;
   } finally {
@@ -554,8 +830,10 @@ try {
   } else if (args.command === "rollback") {
     await rollback(args.host, models);
     console.log("rollback verified");
+  } else if (args.command === "adopt-gateway") {
+    console.log(runRemote(args.host, "adopt-gateway", [], { timeoutMs: 600_000 }));
   } else {
-    throw new Error("command must be status, qualify, promote, or rollback");
+    throw new Error("command must be status, qualify, promote, rollback, or adopt-gateway");
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

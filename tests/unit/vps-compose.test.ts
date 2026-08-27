@@ -19,6 +19,7 @@ type ComposeService = {
   volumes?: string[];
   mem_limit?: string;
   memswap_limit?: string;
+  cpus?: string;
 };
 
 type ComposeDocument = {
@@ -80,7 +81,7 @@ test("VPS environment example uses a versioned image rather than a floating chan
   assert.match(env, /^REQUIRE_API_KEY=true$/m);
 });
 
-test("Oracle overlay exactly reproduces the production ports, data bind, and limits", () => {
+test("Oracle overlay exposes only dashboard/API on loopback, squrvq origins, and 2-CPU enforcement", () => {
   const raw = fs.readFileSync(ORACLE_COMPOSE_PATH, "utf8");
   const parsed = loadCompose(raw);
   const service = parsed.services?.omniroute;
@@ -89,7 +90,6 @@ test("Oracle overlay exactly reproduces the production ports, data bind, and lim
   assert.deepEqual(service?.ports, [
     "${OMNIROUTE_BIND_HOST:-127.0.0.1}:20130:20130",
     "${OMNIROUTE_API_BIND_HOST:-127.0.0.1}:20131:20131",
-    "${OMNIROUTE_WS_BIND_HOST:-127.0.0.1}:20133:20133",
   ]);
   assert.match(raw, /ports: !override/);
   assert.match(raw, /volumes: !override/);
@@ -98,23 +98,38 @@ test("Oracle overlay exactly reproduces the production ports, data bind, and lim
   assert.equal(service?.environment?.DASHBOARD_PORT, "20130");
   assert.equal(service?.environment?.API_PORT, "20131");
   assert.equal(service?.environment?.LIVE_WS_PORT, "20133");
+  assert.equal(service?.environment?.LIVE_WS_HOST, "127.0.0.1");
+  assert.equal(service?.environment?.API_HOST, "0.0.0.0");
+  assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MODE, "enforce");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_VIRTUAL_LANES, "1");
+  assert.equal(service?.environment?.NEXT_PUBLIC_BASE_URL, "https://squrvq.tail0bec0f.ts.net");
+  assert.equal(service?.environment?.OMNIROUTE_PUBLIC_BASE_URL, "https://squrvq.tail0bec0f.ts.net");
+  assert.equal(service?.environment?.LIVE_WS_PUBLIC_URL, "wss://squrvq.tail0bec0f.ts.net/live-ws");
+  assert.equal(
+    service?.environment?.NEXT_PUBLIC_LIVE_WS_PUBLIC_URL,
+    "wss://squrvq.tail0bec0f.ts.net/live-ws"
+  );
+  assert.equal(service?.environment?.LIVE_WS_ALLOWED_ORIGINS, "https://squrvq.tail0bec0f.ts.net");
   assert.equal(service?.environment?.OMNIROUTE_BUILD_SHA, "${OMNIROUTE_BUILD_SHA:?required}");
   assert.equal(service?.mem_limit, "6g");
   assert.equal(service?.memswap_limit, "6g");
+  assert.equal(service?.cpus, "2.0");
+  assert.doesNotMatch(raw, /OMNIROUTE_WS_BIND_HOST/);
+  assert.doesNotMatch(raw, /:20133/);
 });
 
-test("Oracle canary is host-only, uses copied data, and cannot collide with prod", () => {
+test("Oracle canary mirrors enforcement and exposes only dashboard/API locally", () => {
   const raw = fs.readFileSync(CANARY_COMPOSE_PATH, "utf8");
   const parsed = loadCompose(raw);
   const service = parsed.services?.omniroute;
 
   assert.equal(parsed.services?.redis?.image, "docker.io/library/redis:7.4.10-alpine");
   assert.equal(service?.container_name, "omniroute-canary");
-  assert.deepEqual(service?.ports, [
-    "127.0.0.1:30130:20130",
-    "127.0.0.1:30131:20131",
-    "127.0.0.1:30133:20133",
-  ]);
+  assert.deepEqual(service?.ports, ["127.0.0.1:30130:20130", "127.0.0.1:30131:20131"]);
+  assert.equal(service?.environment?.LIVE_WS_HOST, "127.0.0.1");
+  assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MODE, "enforce");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_VIRTUAL_LANES, "1");
+  assert.equal(service?.cpus, "2.0");
   assert.deepEqual(service?.volumes, ["${OMNIROUTE_CANARY_DATA_DIR:?required}:/app/data"]);
   assert.match(raw, /ports: !override/);
   assert.match(raw, /volumes: !override/);
