@@ -47,9 +47,8 @@ services:
       LIVE_WS_HOST: 127.0.0.1
       OMNIROUTE_MEMORY_MB: "4096"
       NODE_OPTIONS: --max-old-space-size=4096
-      # Oracle mitigation for long Anthropic agent bursts: serialize heavyweight
-      # work while allowing the next request to wait for the active lease.
-      OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT: "1"
+      # Keep admission adaptive and key-fair. A fixed heavy-in-flight cap is
+      # process-global, so a long deals call must not serialize every tenant.
       OMNIROUTE_CHAT_ADMISSION_QUEUE_MS: "30000"
       OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES: "4194304"
       ADAPTIVE_ADMISSION_MODE: enforce

@@ -249,7 +249,11 @@ expected = {
     "TCP": {"443": {"HTTPS": True}},
     "Web": {
         "squrvq.tail0bec0f.ts.net:443": {
-            "Handlers": {"/": {"Proxy": "http://127.0.0.1:20130"}}
+            "Handlers": {
+                "/": {"Proxy": "http://127.0.0.1:20131"},
+                "/healthz": {"Proxy": "http://127.0.0.1:20130"},
+                "/live-ws": {"Proxy": "http://127.0.0.1:20133"},
+            }
         }
     },
     "AllowFunnel": {"squrvq.tail0bec0f.ts.net:443": True},
@@ -381,10 +385,32 @@ backup_gateway() {
 }
 
 reconcile_gateway() {
-  # Funnel must be exactly squrvq:443 / -> http://127.0.0.1:20130
+  # The public root is API-only; health and LiveWS use their native listeners.
+  # Configure the full semantic contract atomically so no intermediate reset
+  # can leave the hostname pointing at the dashboard listener.
+  local config_path
+  config_path="$(mktemp "$STATE_DIR/serve-squrvq.XXXXXX.json")"
+  chmod 600 "$config_path"
+  cat > "$config_path" <<'JSON'
+{
+  "TCP": {"443": {"HTTPS": true}},
+  "Web": {
+    "squrvq.tail0bec0f.ts.net:443": {
+      "Handlers": {
+        "/": {"Proxy": "http://127.0.0.1:20131"},
+        "/healthz": {"Proxy": "http://127.0.0.1:20130"},
+        "/live-ws": {"Proxy": "http://127.0.0.1:20133"}
+      }
+    }
+  },
+  "AllowFunnel": {"squrvq.tail0bec0f.ts.net:443": true}
+}
+JSON
+  docker cp "$config_path" "$TS_GATEWAY_CONTAINER:/tmp/serve-squrvq.json"
+  rm -f -- "$config_path"
   run_ts serve reset
   run_ts funnel reset
-  run_ts funnel --bg --yes --https=443 http://127.0.0.1:20130
+  run_ts serve set-config /tmp/serve-squrvq.json
   sleep 2
   local cfg
   cfg="$(run_ts serve get-config --all)"
