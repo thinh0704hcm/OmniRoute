@@ -10,6 +10,7 @@ const COMPOSE_PATH = path.join(REPO_ROOT, "contrib/vps/compose.yaml");
 const ORACLE_COMPOSE_PATH = path.join(REPO_ROOT, "contrib/vps/compose.oracle.yaml");
 const CANARY_COMPOSE_PATH = path.join(REPO_ROOT, "contrib/vps/compose.canary.yaml");
 const ENV_EXAMPLE_PATH = path.join(REPO_ROOT, "contrib/vps/.env.example");
+const ORACLE_REMOTE_SCRIPT_PATH = path.join(REPO_ROOT, "scripts/ops/oracle-deploy-remote.sh");
 
 type ComposeService = {
   container_name?: string;
@@ -133,4 +134,26 @@ test("Oracle canary mirrors enforcement and exposes only dashboard/API locally",
   assert.deepEqual(service?.volumes, ["${OMNIROUTE_CANARY_DATA_DIR:?required}:/app/data"]);
   assert.match(raw, /ports: !override/);
   assert.match(raw, /volumes: !override/);
+});
+
+test("Oracle gateway sends public API and LiveWS traffic to their dedicated listeners", () => {
+  const raw = fs.readFileSync(ORACLE_REMOTE_SCRIPT_PATH, "utf8");
+  const exactGatewayStart = raw.indexOf("gateway_config_is_exact() {");
+  const exactGatewayEnd = raw.indexOf("\nverify_gateway_runtime()", exactGatewayStart);
+  const reconcileStart = raw.indexOf("reconcile_gateway() {");
+  const reconcileEnd = raw.indexOf("\nrestore_gateway()", reconcileStart);
+
+  assert.notEqual(exactGatewayStart, -1);
+  assert.notEqual(exactGatewayEnd, -1);
+  assert.notEqual(reconcileStart, -1);
+  assert.notEqual(reconcileEnd, -1);
+
+  const exactGateway = raw.slice(exactGatewayStart, exactGatewayEnd);
+  const reconcile = raw.slice(reconcileStart, reconcileEnd);
+  for (const section of [exactGateway, reconcile]) {
+    assert.match(section, /"\/": \{"Proxy": "http:\/\/127\.0\.0\.1:20131"\}/);
+    assert.match(section, /"\/healthz": \{"Proxy": "http:\/\/127\.0\.0\.1:20130"\}/);
+    assert.match(section, /"\/live-ws": \{"Proxy": "http:\/\/127\.0\.0\.1:20133"\}/);
+    assert.doesNotMatch(section, /"\/": \{"Proxy": "http:\/\/127\.0\.0\.1:20130"\}/);
+  }
 });

@@ -3427,7 +3427,7 @@ export async function handleChatCore({
                         connectionTimeoutMs: resolveConnectionTimeoutMs(
                           execCreds?.providerSpecificData
                         ),
-                        signal: effectiveSignal,
+                        signal: streamController.signal,
                         log,
                         execute: (signal) =>
                           runWithCapture(providerRequestCapture, () =>

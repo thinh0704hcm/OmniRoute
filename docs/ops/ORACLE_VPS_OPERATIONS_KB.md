@@ -280,9 +280,10 @@ Tailscale v1.102.2 arm64 digest, host networking, and the mode-0700 state bind a
 `docker exec ts-gateway tailscale`; never inspect or mutate an unrelated host
 daemon. The one-time `adopt-gateway` transaction snapshots the complete state,
 image/spec, and normalized Serve/Funnel JSON, then verifies the `squrvq` identity
-and exact handler (`/` → `http://127.0.0.1:20130`). A failed adoption restores the
-state snapshot and previous container/image/spec; a reset or semantic mismatch is
-fatal.
+and exact handlers: API root → `http://127.0.0.1:20131`, `/healthz` → dashboard
+listener `20130`, and `/live-ws` → the native WebSocket listener `20133`. A failed
+adoption restores the state snapshot and previous container/image/spec; a reset or
+semantic mismatch is fatal.
 
 Local qualification requires the exact container/image build identity, zero
 restarts and OOM kills, 6-GiB memory, 2-CPU limit, dashboard/health/models,
