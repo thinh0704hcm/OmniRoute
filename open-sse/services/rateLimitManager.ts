@@ -555,57 +555,70 @@ function getLimiter(provider, connectionId, model = null) {
  * @returns {Promise<unknown>} Result of fn()
  */
 export async function withRateLimit(provider, connectionId, model, fn, signal = null) {
-  if (!enabledConnections.has(connectionId)) {
-    return fn();
-  }
-
-  if (signal?.aborted) {
-    const reason = signal.reason;
-    if (reason instanceof Error) throw reason;
-    const err = new Error(typeof reason === "string" ? reason : "The operation was aborted");
-    err.name = "AbortError";
-    throw err;
-  }
-
-  // Proactive sliding-window fallback for header-less providers with a declared cap
-  // (Fase 8.2). No-op unless PROVIDER_DEFAULT_RATE_LIMITS has an entry for `provider`.
-  const maxWaitMs = resolveRequestQueueMaxWaitMs(provider, undefined, connectionId);
-  await awaitProviderDefaultSlot(provider, connectionId, signal, maxWaitMs);
-
-  const limiter = getLimiter(provider, connectionId, model);
-  // Bottleneck's `expiration` starts only after a job leaves QUEUED, so it
-  // bounds limiter-managed execution — not queue wait. It is therefore fed by
-  // the dedicated execution backstop (`requestQueue.executionMaxWaitMs`),
-  // never by the queue-wait budget: non-incremental gateways legitimately run
-  // for minutes before first bytes, and an expiration at the queue budget
-  // killed them mid-flight (false 504s on opencode-go/glm-5.3-flash).
-  const executionExpirationMs = resolveExecutionMaxWaitMs();
-  const scheduleOpts =
-    executionExpirationMs && executionExpirationMs > 0 ? { expiration: executionExpirationMs } : {};
-
-  // Issue #6593: opt-in admission cap — fast-reject before Bottleneck's
-  // schedule() (and before any downstream compression/prompt work runs) when
-  // the queue is already at/over maxQueueDepth. Default 0 = disabled.
-  const admissionErr = checkQueueAdmission(
-    limiter.counts().QUEUED,
-    currentRequestQueueSettings.maxQueueDepth,
-    model ? `${provider}/${model}` : provider
-  );
-  if (admissionErr) {
-    logRateLimit(
-      `🚧 [RATE-LIMIT] ${getLimiterKey(provider, connectionId, model)} — queue full, rejecting fast (maxQueueDepth=${currentRequestQueueSettings.maxQueueDepth})`
-    );
-    throw admissionErr;
-  }
+  const executionController = new AbortController();
+  // AbortSignal.any() cannot be explicitly detached on older Node releases and
+  // leaves listeners behind for long-lived request streams. Keep one local
+  // controller and remove both forwarding listeners in the outer finally.
+  const linked = createLinkedAbortSignal(signal, executionController.signal);
+  const effectiveSignal = linked.signal;
+  let executionExpirationMs = 0;
+  let limiter: Bottleneck | null = null;
+  const abortExecution = (reason = signal?.reason) => {
+    if (!executionController.signal.aborted) {
+      executionController.abort(
+        reason ?? new DOMException("The operation was aborted", "AbortError")
+      );
+    }
+  };
 
   try {
+    if (signal?.aborted) {
+      const reason = signal.reason;
+      if (reason instanceof Error) throw reason;
+      const err = new Error(typeof reason === "string" ? reason : "The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    }
+
+    if (!enabledConnections.has(connectionId)) {
+      return await fn(effectiveSignal);
+    }
+
+    // Proactive sliding-window fallback for header-less providers with a declared cap
+    // (Fase 8.2). No-op unless PROVIDER_DEFAULT_RATE_LIMITS has an entry for `provider`.
+    const maxWaitMs = resolveRequestQueueMaxWaitMs(provider, undefined, connectionId);
+    await awaitProviderDefaultSlot(provider, connectionId, effectiveSignal, maxWaitMs);
+
+    limiter = getLimiter(provider, connectionId, model);
+    // Keep upstream's dedicated execution backstop separate from the queue-wait
+    // budget while still forwarding expiration into the running callback.
+    executionExpirationMs = resolveExecutionMaxWaitMs();
+    const scheduleOpts =
+      executionExpirationMs && executionExpirationMs > 0
+        ? { expiration: executionExpirationMs }
+        : {};
+
+    // Issue #6593: opt-in admission cap — fast-reject before Bottleneck's
+    // schedule() (and before any downstream compression/prompt work runs) when
+    // the queue is already at/over maxQueueDepth. Default 0 = disabled.
+    const admissionErr = checkQueueAdmission(
+      limiter.counts().QUEUED,
+      currentRequestQueueSettings.maxQueueDepth,
+      model ? `${provider}/${model}` : provider
+    );
+    if (admissionErr) {
+      logRateLimit(
+        `🚧 [RATE-LIMIT] ${getLimiterKey(provider, connectionId, model)} — queue full, rejecting fast (maxQueueDepth=${currentRequestQueueSettings.maxQueueDepth})`
+      );
+      throw admissionErr;
+    }
+
     if (signal) {
       let abortListener: (() => void) | undefined;
       const { promise: abortPromise, reject: rejectAbort } = Promise.withResolvers<never>();
       const onAbort = () => {
         const reason = signal.reason;
-        // Preserve native Error reasons (including AbortController's
-        // read-only DOMException) instead of mutating or wrapping them.
+        abortExecution();
         if (reason instanceof Error) {
           rejectAbort(reason);
           return;
@@ -625,13 +638,10 @@ export async function withRateLimit(provider, connectionId, model, fn, signal = 
       }
 
       try {
-        // Race the work against the abort signal. When abort wins, fn is still
-        // running inside Bottleneck's limiter — its eventual rejection must not
-        // surface as an unhandledRejection. The .catch(noop) silences only the
-        // orphaned branch; the real rejection comes from abortPromise.
-        const scheduled = limiter.schedule(scheduleOpts, fn);
-        scheduled.catch(() => {}); // prevent unhandledRejection when abort wins
-        abortPromise.catch(() => {}); // prevent unhandledRejection when scheduled wins
+        const wrappedFn = () => fn(effectiveSignal);
+        const scheduled = limiter.schedule(scheduleOpts, wrappedFn);
+        scheduled.catch(() => {});
+        abortPromise.catch(() => {});
         return await Promise.race([scheduled, abortPromise]);
       } finally {
         if (abortListener) {
@@ -639,15 +649,14 @@ export async function withRateLimit(provider, connectionId, model, fn, signal = 
         }
       }
     } else {
-      return await limiter.schedule(scheduleOpts, fn);
+      return await limiter.schedule(scheduleOpts, () => fn(effectiveSignal));
     }
   } catch (err) {
-    // Only Bottleneck-owned failures are rewritten. Application code can throw
-    // the same text and must retain its original identity and semantics.
     if (
       err instanceof Bottleneck.BottleneckError &&
       /^This job timed out after \d+ ms\.$/.test(err.message)
     ) {
+      abortExecution();
       const key = getLimiterKey(provider, connectionId, model);
       logRateLimit(
         `⏰ [RATE-LIMIT] ${key} — limiter-managed execution expired after ${Math.ceil((executionExpirationMs || 0) / 1000)}s`
@@ -668,6 +677,7 @@ export async function withRateLimit(provider, connectionId, model, fn, signal = 
       err instanceof Bottleneck.BottleneckError &&
       err.message === "rate-limit-watchdog-wedge-reset"
     ) {
+      if (!limiter) throw err;
       const cleanup = limiterWatchdog.getEviction(limiter);
       if (!cleanup) throw err;
 
@@ -691,7 +701,42 @@ export async function withRateLimit(provider, connectionId, model, fn, signal = 
       throw markLocalRateLimitError(wedgeErr, RATE_LIMIT_QUEUE_WEDGED_CODE);
     }
     throw err;
+  } finally {
+    linked.dispose();
   }
+}
+
+interface LinkedAbortSignal {
+  signal: AbortSignal;
+  dispose: () => void;
+}
+
+/** Link a client abort and a limiter execution abort with removable listeners. */
+function createLinkedAbortSignal(
+  clientSignal: AbortSignal | null | undefined,
+  executionSignal: AbortSignal
+): LinkedAbortSignal {
+  const controller = new AbortController();
+  const forward = (source: AbortSignal) => {
+    if (!controller.signal.aborted) controller.abort(source.reason);
+  };
+  const clientListener = clientSignal ? () => forward(clientSignal) : null;
+  const executionListener = () => forward(executionSignal);
+
+  if (clientSignal) {
+    if (clientSignal.aborted) forward(clientSignal);
+    else clientSignal.addEventListener("abort", clientListener!, { once: true });
+  }
+  if (executionSignal.aborted) forward(executionSignal);
+  else executionSignal.addEventListener("abort", executionListener, { once: true });
+
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      if (clientSignal && clientListener) clientSignal.removeEventListener("abort", clientListener);
+      executionSignal.removeEventListener("abort", executionListener);
+    },
+  };
 }
 
 /**
