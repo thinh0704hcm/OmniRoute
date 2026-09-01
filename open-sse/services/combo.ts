@@ -931,7 +931,6 @@ async function handleComboChatInner({
       endpointPath,
       requestHeaders,
       relayOptions,
-      perTargetAdmission,
     });
   }
 
@@ -1491,25 +1490,11 @@ async function handleComboChatInner({
           }
         }
 
-        // #9654 Wave 2: per-target lane-aware admission probe. With virtual
-        // lanes on, a tenant whose lane queue is full should skip extra
-        // fan-out targets instead of piling more queued work onto the lane.
-        // Strictly non-blocking (maxWaitMs 0) and a no-op when lanes are off —
-        // see createPerTargetAdmissionHook for the full contract.
-        if (
-          perTargetAdmission &&
-          !(await perTargetAdmission({ modelStr, executionKey: target.executionKey, body }))
-        ) {
-          log.info("COMBO", `Skipping ${modelStr} — admission lane full (#9654)`);
-          recordComboDecision(traceInvocationId, {
-            step: target.executionKey,
-            target: modelStr,
-            decision: "skipped_before_dispatch",
-            reason: "admission_lane",
-          });
-          if (i > 0) fallbackCount++;
-          return null;
-        }
+        // Priority targets run serially under the parent request's admission
+        // lease. Probing the same tenant lane here double-counts that lease and,
+        // when the adaptive limit equals the parent cost, rejects every target
+        // before dispatch. Per-target admission remains on the genuinely
+        // parallel fusion/chaos paths, where it prevents fan-out amplification.
 
         // Retry loop for transient errors
         for (let retry = 0; retry <= maxRetries; retry++) {
@@ -2983,7 +2968,6 @@ async function handleRoundRobinCombo({
   endpointPath = null,
   requestHeaders = null,
   relayOptions,
-  perTargetAdmission = null,
 }: HandleRoundRobinOptions): Promise<Response> {
   const config = settings
     ? resolveComboConfig(combo, settings)
@@ -3355,16 +3339,8 @@ async function handleRoundRobinCombo({
         continue;
       }
 
-      // #9654 Wave 2: per-target lane-aware admission probe (see executeTarget
-      // for the full contract — strictly non-blocking, lanes-off no-op).
-      if (
-        perTargetAdmission &&
-        !(await perTargetAdmission({ modelStr, executionKey: target.executionKey, body }))
-      ) {
-        log.info("COMBO-RR", `Skipping ${modelStr} — admission lane full (#9654)`);
-        if (offset > 0) fallbackCount++;
-        continue;
-      }
+      // Round-robin selects one target at a time under the parent's admission
+      // lease, so a second per-target probe would double-count the same work.
 
       // Acquire semaphore slot (may wait in queue). Honor the connection's own
       // maxConcurrent cap when set; else fall back to the combo-level concurrency.
