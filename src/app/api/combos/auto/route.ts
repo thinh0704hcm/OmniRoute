@@ -8,8 +8,8 @@ import {
   AUTO_SUFFIX_VARIANTS,
   AUTO_TEMPLATE_VARIANTS,
   AUTO_FAMILY_IDS,
+  resolveBuiltinAutoRoute,
 } from "@omniroute/open-sse/services/autoCombo/builtinCatalog";
-import { parseAutoSuffix } from "@omniroute/open-sse/services/autoCombo/suffixComposition";
 
 const ALL_VARIANTS: Array<{ variant: AutoVariant | undefined; name: string }> = [
   { variant: undefined, name: "Auto" },
@@ -66,12 +66,12 @@ export async function GET(request: Request) {
     for (const modelStr of Object.keys(AUTO_TEMPLATE_VARIANTS)) {
       if (seenIds.has(modelStr)) continue;
       try {
-        const variant = AUTO_TEMPLATE_VARIANTS[modelStr];
-        const spec = modelStr === "auto/best-free" ? { tier: "free" as const } : undefined;
-        const virtual = await createVirtualAutoCombo(variant, spec);
+        const route = resolveBuiltinAutoRoute(modelStr);
+        if (!route.recognized) continue;
+        const virtual = await createVirtualAutoCombo(route.variant, route.spec);
 
-        const displayName = variant
-          ? `Auto ${variant.charAt(0).toUpperCase() + variant.slice(1)}`
+        const displayName = route.variant
+          ? `Auto ${route.variant.charAt(0).toUpperCase() + route.variant.slice(1)}`
           : "Auto Chat";
 
         combos.push({
@@ -103,21 +103,16 @@ export async function GET(request: Request) {
     for (const modelStr of AUTO_SUFFIX_VARIANTS) {
       if (seenIds.has(modelStr)) continue;
       try {
-        const suffix = modelStr.slice("auto/".length);
-        const parsed = parseAutoSuffix(suffix);
-        if (!parsed.valid) continue;
-
-        const virtual = await createVirtualAutoCombo(undefined, {
-          category: parsed.category,
-          tier: parsed.tier,
-        });
+        const route = resolveBuiltinAutoRoute(modelStr);
+        if (!route.recognized || !route.spec?.category) continue;
+        const virtual = await createVirtualAutoCombo(route.variant, route.spec);
 
         // Build a human-readable name from the category and tier
-        const catName = parsed.category
-          ? parsed.category.charAt(0).toUpperCase() + parsed.category.slice(1)
+        const catName = route.spec.category
+          ? route.spec.category.charAt(0).toUpperCase() + route.spec.category.slice(1)
           : "";
-        const tierName = parsed.tier
-          ? `${parsed.tier.charAt(0).toUpperCase() + parsed.tier.slice(1)}`
+        const tierName = route.spec.tier
+          ? `${route.spec.tier.charAt(0).toUpperCase() + route.spec.tier.slice(1)}`
           : "";
         const displayName = tierName ? `${catName} ${tierName}` : catName;
 
@@ -149,8 +144,10 @@ export async function GET(request: Request) {
     for (const modelStr of AUTO_FAMILY_IDS) {
       if (seenIds.has(modelStr)) continue;
       try {
-        const suffix = modelStr.slice("auto/".length);
-        const virtual = await createVirtualAutoCombo(undefined, { family: suffix });
+        const route = resolveBuiltinAutoRoute(modelStr);
+        if (!route.recognized || !route.spec?.family) continue;
+        const suffix = route.spec.family;
+        const virtual = await createVirtualAutoCombo(route.variant, route.spec);
 
         const displayName = `Auto ${suffix.charAt(0).toUpperCase() + suffix.slice(1)}`;
 
