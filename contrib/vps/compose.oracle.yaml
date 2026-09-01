@@ -1,0 +1,86 @@
+# Oracle production overlay. Apply after compose.yaml with project name "omniroute".
+# It intentionally mirrors the verified single-container production contract.
+services:
+  ts-gateway:
+    image: docker.io/tailscale/tailscale@sha256:fdbdb434c50a6d3a5ed73f2b15ef66228dd2d265c1729e55f9a663ae804c5453
+    container_name: ts-gateway
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_HOSTNAME: squrvq
+      TS_USERSPACE: "true"
+      TS_AUTH_ONCE: "true"
+    volumes:
+      - /home/ubuntu/ts-gateway/state:/var/lib/tailscale:rw
+
+  redis:
+    image: docker.io/library/redis:7.4.10-alpine
+    container_name: omniroute-parallel-redis
+    command:
+      [
+        "redis-server",
+        "--save",
+        "60",
+        "1",
+        "--loglevel",
+        "warning",
+        "--maxmemory",
+        "64mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+    ports: !override
+      - "${REDIS_BIND_HOST:-127.0.0.1}:6381:6379"
+    volumes: !override
+      - redis-data:/data
+
+  omniroute:
+    container_name: omniroute-parallel
+    environment:
+      PORT: "20130"
+      DASHBOARD_PORT: "20130"
+      API_PORT: "20131"
+      # The API bridge must accept Docker port-forward traffic from the host.
+      API_HOST: 0.0.0.0
+      LIVE_WS_PORT: "20133"
+      LIVE_WS_HOST: 127.0.0.1
+      OMNIROUTE_MEMORY_MB: "4096"
+      NODE_OPTIONS: --max-old-space-size=4096
+      # Keep admission adaptive and key-fair. A fixed heavy-in-flight cap is
+      # process-global, so a long deals call must not serialize every tenant.
+      OMNIROUTE_CHAT_ADMISSION_QUEUE_MS: "30000"
+      OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES: "4194304"
+      ADAPTIVE_ADMISSION_MODE: enforce
+      OMNIROUTE_CHAT_VIRTUAL_LANES: "1"
+      OMNIROUTE_BASE_URL: http://omniroute-parallel:20130
+      NEXT_PUBLIC_BASE_URL: https://squrvq.tail0bec0f.ts.net
+      OMNIROUTE_PUBLIC_BASE_URL: https://squrvq.tail0bec0f.ts.net
+      LIVE_WS_PUBLIC_URL: wss://squrvq.tail0bec0f.ts.net/live-ws
+      NEXT_PUBLIC_LIVE_WS_PUBLIC_URL: wss://squrvq.tail0bec0f.ts.net/live-ws
+      LIVE_WS_ALLOWED_ORIGINS: https://squrvq.tail0bec0f.ts.net
+      REDIS_URL: redis://omniroute-parallel-redis:6379
+      OMNIROUTE_BUILD_SHA: ${OMNIROUTE_BUILD_SHA:?required}
+    ports: !override
+      - "${OMNIROUTE_BIND_HOST:-127.0.0.1}:20130:20130"
+      - "${OMNIROUTE_API_BIND_HOST:-127.0.0.1}:20131:20131"
+    volumes: !override
+      - "${OMNIROUTE_DATA_DIR:-/home/ubuntu/.omniroute}:/app/data"
+    mem_limit: 6g
+    memswap_limit: 6g
+    cpus: "2.0"
+    pids_limit: 512
+    healthcheck:
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 45s
+
+volumes:
+  redis-data:
+    external: true
+    name: omniroute_omniroute-parallel-redis
+
+networks:
+  default:
+    name: omniroute_default
