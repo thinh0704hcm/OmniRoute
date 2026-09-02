@@ -39,8 +39,21 @@ function setConfig(cfg: SystemPromptConfig): void {
   _store[GLOBAL_KEY] = cfg;
 }
 
+export const SYSTEM_PROMPT_MAX_BYTES = (() => {
+  const raw = process.env.OMNIROUTE_SYSTEM_PROMPT_MAX_BYTES;
+  const n = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 4096;
+})();
+
+function promptBytes(s: string): number {
+  return Buffer.byteLength(s, "utf8");
+}
+
 /**
  * Set system prompt config (supports legacy `prompt` field for migration)
+ *
+ * Enforces a size budget so a global AGENTS.md paste does not inflate every
+ * request's admission cost past minLimit. Override via OMNIROUTE_SYSTEM_PROMPT_MAX_BYTES.
  */
 export function setSystemPromptConfig(config: Partial<SystemPromptConfig>) {
   const current = getConfig();
@@ -51,6 +64,13 @@ export function setSystemPromptConfig(config: Partial<SystemPromptConfig>) {
   const merged = { ...base, ...config };
   if (merged.prompt && !merged.suffixPrompt && !("suffixPrompt" in config)) {
     merged.suffixPrompt = merged.prompt;
+  }
+  const totalBytes =
+    promptBytes(merged.prefixPrompt || "") + promptBytes(merged.suffixPrompt || "");
+  if (totalBytes > SYSTEM_PROMPT_MAX_BYTES) {
+    throw new RangeError(
+      `System prompt too large (${totalBytes} bytes > ${SYSTEM_PROMPT_MAX_BYTES}); split or trim to avoid admission_oversized (cost≈${Math.ceil(totalBytes / 16384) + Math.ceil(totalBytes / 4096)} > minLimit)`
+    );
   }
   setConfig(merged);
 }
