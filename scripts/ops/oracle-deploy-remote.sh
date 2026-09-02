@@ -364,7 +364,7 @@ backup_gateway() {
   local img_ref
   img_ref="$(docker inspect "$TS_GATEWAY_CONTAINER" --format '{{.Config.Image}}')"
   local repo_digest
-  repo_digest="$(docker inspect "$TS_GATEWAY_CONTAINER" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+  repo_digest="$(docker image inspect "$img" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
   if test -z "$repo_digest" || ! printf '%s' "$repo_digest" | grep -q '@sha256:[a-f0-9]\{64\}$'; then
     fail "ts-gateway image is not digest-pinned (RepoDigests)"
   fi

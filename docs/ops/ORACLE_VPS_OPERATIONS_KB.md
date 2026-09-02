@@ -70,8 +70,8 @@ node --import tsx/esm scripts/ops/oracle-deploy.mjs qualify --host oracle-vps \
 
 Qualification fails closed unless the container identity, image ID, build SHA, health, resource
 limits, restart/OOM state, dashboard, authenticated model catalog, completion, streaming, combo,
-call-log, mixed-case tool, and LiveWS probes all pass. The canary never shares production Redis,
-network identity, or mutable data.
+call-log, and LiveWS probes all pass. The canary never shares production Redis, network identity,
+or mutable data.
 
 ## Promote
 

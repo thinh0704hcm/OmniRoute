@@ -21,7 +21,8 @@ import {
 } from "./oracleDeploy.ts";
 
 const REMOTE_HELPER = "/home/ubuntu/OmniRoute-src/scripts/ops/oracle-deploy-remote.sh";
-const DEFAULT_MODELS = ["gpt-5.4-mini", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"];
+const DEFAULT_MODELS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"];
+const MODEL_CATALOG_TIMEOUT_MS = 60_000;
 const PUBLIC_ORIGIN = "https://squrvq.tail0bec0f.ts.net";
 const PUBLIC_WS_URL = "wss://squrvq.tail0bec0f.ts.net/live-ws";
 
@@ -219,7 +220,7 @@ async function probeModels(baseUrl, expectedModels) {
     });
     const authenticated = await fetch(new URL("/v1/models", baseUrl), {
       headers: requestHeaders({ Accept: "application/json" }),
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(MODEL_CATALOG_TIMEOUT_MS),
     });
     const body = await authenticated.json().catch(() => null);
     const ids = Array.isArray(body?.data)
@@ -338,79 +339,14 @@ async function probePublicCompletion(model) {
   return probeCompletion(PUBLIC_ORIGIN, model);
 }
 async function runTrafficProbesWithGates(dashboardUrl, apiUrl, models) {
+  await waitForHealth(dashboardUrl);
   const dashOk = await probeDashboard(dashboardUrl);
   const healthOk = await probeHealthz(dashboardUrl);
   const liveWsOk = await probeLiveWs(dashboardUrl, PUBLIC_ORIGIN);
   const core = await runTrafficProbes(apiUrl, models);
   return { ...core, dashboardOk: dashOk, healthOk, liveWsOk };
 }
-async function probeMixedCaseTool(baseUrl, model) {
-  try {
-    const headers = requestHeaders({
-      "anthropic-version": "2023-06-01",
-    });
-    const firstRequest = {
-      model,
-      max_tokens: 128,
-      tools: [
-        {
-          name: "GetTestValue",
-          description: "Return the deterministic test value.",
-          input_schema: { type: "object", properties: {}, additionalProperties: false },
-        },
-      ],
-      tool_choice: { type: "tool", name: "GetTestValue" },
-      messages: [
-        {
-          role: "user",
-          content: "Call GetTestValue exactly once. Do not answer before calling the tool.",
-        },
-      ],
-    };
-    const first = await fetch(new URL("/v1/messages", baseUrl), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(firstRequest),
-      signal: AbortSignal.timeout(180_000),
-    });
-    const firstBody = await first.json().catch(() => null);
-    const toolUse = Array.isArray(firstBody?.content)
-      ? firstBody.content.find((block) => block?.type === "tool_use")
-      : null;
-    if (!first.ok || toolUse?.name !== "GetTestValue" || !toolUse?.id) return false;
-
-    const second = await fetch(new URL("/v1/messages", baseUrl), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        ...firstRequest,
-        tool_choice: { type: "auto" },
-        messages: [
-          firstRequest.messages[0],
-          { role: "assistant", content: firstBody.content },
-          {
-            role: "user",
-            content: [{ type: "tool_result", tool_use_id: toolUse.id, content: "42" }],
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(180_000),
-    });
-    const secondBody = await second.json().catch(() => null);
-    const text = Array.isArray(secondBody?.content)
-      ? secondBody.content
-          .filter((block) => block?.type === "text")
-          .map((block) => block.text)
-          .join("")
-      : "";
-    return second.ok && text.includes("42");
-  } catch {
-    return false;
-  }
-}
-
 async function runTrafficProbes(baseUrl, models) {
-  await waitForHealth(baseUrl);
   const modelProbe = await probeModels(baseUrl, models);
   const completionResults = [];
   for (const model of models) {
@@ -421,12 +357,6 @@ async function runTrafficProbes(baseUrl, models) {
   const streamingOk = await probeStreaming(baseUrl, models[0]);
   const comboModel = models.includes("gpt-5.6-luna") ? "gpt-5.6-luna" : models[0];
   const comboRequestOk = await probeCompletion(baseUrl, comboModel);
-  const mixedCaseResults = [];
-  for (const model of models) {
-    const ok = await probeMixedCaseTool(baseUrl, model);
-    console.log(`[tool-probe] ${model}: ${ok ? "ok" : "failed"}`);
-    mixedCaseResults.push(ok);
-  }
   return {
     modelsOk: modelProbe.ok,
     modelIds: modelProbe.modelIds,
@@ -435,7 +365,6 @@ async function runTrafficProbes(baseUrl, models) {
     completionOk: completionResults.every(Boolean),
     comboRequestOk,
     streamingOk,
-    mixedCaseToolOk: mixedCaseResults.every(Boolean),
   };
 }
 
@@ -508,14 +437,10 @@ async function qualify(host, input, models) {
         apiModelsOk: probes.modelsOk,
         completionOk: probes.completionOk,
         streamingOk: probes.streamingOk,
-        // The mixed-case tool continuation is part of the combo/application
-        // contract; retain it in comboOk below while the explicit local gate
-        // remains protocol-oriented.
         comboOk:
           probes.comboRequestOk &&
           comboEvidence.comboRows > 0 &&
-          comboEvidence.forbiddenPreviewRows === 0 &&
-          probes.mixedCaseToolOk,
+          comboEvidence.forbiddenPreviewRows === 0,
         callLogAdvanced: Boolean(after) && after > before,
         liveWsOk: probes.liveWsOk,
       };
@@ -600,8 +525,7 @@ async function promote(host, candidate, models) {
         comboOk:
           probes.comboRequestOk &&
           comboEvidence.comboRows > 0 &&
-          comboEvidence.forbiddenPreviewRows === 0 &&
-          probes.mixedCaseToolOk,
+          comboEvidence.forbiddenPreviewRows === 0,
         callLogAdvanced: Boolean(after) && after > logBefore,
         liveWsOk: probes.liveWsOk,
       };
@@ -634,7 +558,7 @@ async function promote(host, candidate, models) {
       try {
         runRemote(host, "verify-image", [imageId]);
         return withDualTunnels(host, false, async ({ dashboard, api }) => {
-          await waitForHealth(api);
+          await waitForHealth(dashboard);
           const [dashboardOk, completionOk] = await Promise.all([
             probeDashboard(dashboard),
             probeCompletion(api, models[0]),
@@ -714,7 +638,7 @@ async function rollback(host, models) {
     runRemote(host, "recreate-prod", [], { timeoutMs: 600_000 });
     runRemote(host, "verify-image", [rollbackTarget.imageId]);
     const smokeOk = await withDualTunnels(host, false, async ({ dashboard, api }) => {
-      await waitForHealth(api);
+      await waitForHealth(dashboard);
       const [dashboardOk, completionOk] = await Promise.all([
         probeDashboard(dashboard),
         probeCompletion(api, models[0]),

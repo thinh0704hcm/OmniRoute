@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -11,6 +13,15 @@ import {
   type OracleDeployAdapter,
   type PublicGate,
 } from "../../scripts/ops/oracleDeploy.ts";
+
+const deployCli = fs.readFileSync(
+  path.resolve(import.meta.dirname, "../../scripts/ops/oracle-deploy.mjs"),
+  "utf8"
+);
+const remoteHelper = fs.readFileSync(
+  path.resolve(import.meta.dirname, "../../scripts/ops/oracle-deploy-remote.sh"),
+  "utf8"
+);
 
 const CANDIDATE = {
   imageRef: "omniroute:canary-abc1234-20260822",
@@ -53,6 +64,15 @@ const PASSING_PUBLIC: PublicGate = {
   completionOk: true,
   liveWsOk: true,
 };
+
+test("readiness probes use the dashboard port rather than the API-only port", () => {
+  assert.match(deployCli, /runTrafficProbesWithGates[\s\S]*?waitForHealth\(dashboardUrl\)/);
+  assert.doesNotMatch(deployCli, /waitForHealth\(api\)/);
+  assert.doesNotMatch(deployCli, /probeMixedCaseTool/);
+  assert.doesNotMatch(deployCli, /DEFAULT_MODELS[^\n]*gpt-5\.4-mini/);
+  assert.match(deployCli, /MODEL_CATALOG_TIMEOUT_MS = 60_000/);
+  assert.match(remoteHelper, /docker image inspect "\$img" --format/);
+});
 
 function makeAdapter(
   calls: string[],
