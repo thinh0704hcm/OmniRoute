@@ -372,8 +372,7 @@ backup_gateway() {
   printf '%s\n' "$img" > "$dir/image.id"
   printf '%s\n' "$img_ref" > "$dir/image.ref"
   printf '%s\n' "$repo_digest" > "$dir/image.digest"
-  cp -a -- "$TS_GATEWAY_STATE_DIR" "$dir/state"
-  chmod -R u=rwX,go= "$dir/state"
+  snapshot_gateway_state "$dir/state"
   run_ts status --json > "$dir/tailscale-status.json"
   run_ts serve status --json > "$dir/serve-status.json"
   run_ts funnel status --json > "$dir/funnel-status.json"
@@ -382,6 +381,14 @@ backup_gateway() {
   normalize_json_file "$dir/funnel-status.json" > "$dir/funnel.normalized.json"
   chmod 600 "$dir"/*.json "$dir/image.*"
   printf '{"dir":%s,"tsGatewayImage":%s}\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$dir")" "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$repo_digest")"
+}
+
+snapshot_gateway_state() {
+  local destination="$1"
+  test ! -e "$destination" || fail "gateway state snapshot destination already exists"
+  sudo -n cp -a -- "$TS_GATEWAY_STATE_DIR" "$destination"
+  sudo -n chown -R "$(id -u):$(id -g)" "$destination"
+  chmod -R u=rwX,go= "$destination"
 }
 
 reconcile_gateway() {
@@ -477,8 +484,7 @@ adopt_gateway() {
   run_ts funnel status --json > "$dir/old.funnel.json"
   normalize_json_file "$dir/old.serve.json" > "$dir/old.serve.normalized.json"
   normalize_json_file "$dir/old.funnel.json" > "$dir/old.funnel.normalized.json"
-  cp -a -- "$TS_GATEWAY_STATE_DIR" "$dir/state"
-  chmod -R u=rwX,go= "$dir/state"
+  snapshot_gateway_state "$dir/state"
   docker tag "$old_id" "$TS_GATEWAY_ROLLBACK_TAG"
   test "$(docker image inspect "$TS_GATEWAY_ROLLBACK_TAG" --format '{{.Id}}')" = "$old_id" \
     || fail "gateway rollback tag did not resolve to the existing image"

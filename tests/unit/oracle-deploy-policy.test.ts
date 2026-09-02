@@ -72,6 +72,7 @@ test("readiness probes use the dashboard port rather than the API-only port", ()
   assert.doesNotMatch(deployCli, /DEFAULT_MODELS[^\n]*gpt-5\.4-mini/);
   assert.match(deployCli, /MODEL_CATALOG_TIMEOUT_MS = 60_000/);
   assert.match(remoteHelper, /docker image inspect "\$img" --format/);
+  assert.match(remoteHelper, /sudo -n cp -a -- "\$TS_GATEWAY_STATE_DIR" "\$destination"/);
 });
 
 function makeAdapter(
