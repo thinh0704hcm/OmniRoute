@@ -251,8 +251,8 @@ expected = {
         "squrvq.tail0bec0f.ts.net:443": {
             "Handlers": {
                 "/": {"Proxy": "http://127.0.0.1:20131"},
-                "/healthz": {"Proxy": "http://127.0.0.1:20130"},
-                "/live-ws": {"Proxy": "http://127.0.0.1:20130"},
+                "/healthz": {"Proxy": "http://127.0.0.1:20130/healthz"},
+                "/live-ws": {"Proxy": "http://127.0.0.1:20130/live-ws"},
             }
         }
     },
@@ -325,6 +325,58 @@ PY
     sleep 1
   done
   fail "ts-gateway did not become online"
+}
+
+apply_gateway_routes() {
+  local root_proxy="$1"
+  local health_proxy="$2"
+  local live_ws_proxy="$3"
+  run_ts funnel --bg --yes --https=443 --set-path=/ "$root_proxy" >/dev/null
+  run_ts funnel --bg --yes --https=443 --set-path=/healthz "$health_proxy" >/dev/null
+  run_ts funnel --bg --yes --https=443 --set-path=/live-ws "$live_ws_proxy" >/dev/null
+}
+
+apply_gateway_config_file() {
+  local config_path="$1"
+  local -a proxies
+  mapfile -t proxies < <(python3 - "$config_path" <<'PY'
+import json
+import sys
+from urllib.parse import urlparse
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    config = json.load(handle)
+host = "squrvq.tail0bec0f.ts.net:443"
+if config.get("TCP") != {"443": {"HTTPS": True}}:
+    raise SystemExit("gateway backup has an unexpected TCP contract")
+if config.get("AllowFunnel") != {host: True}:
+    raise SystemExit("gateway backup has an unexpected Funnel contract")
+handlers = ((config.get("Web") or {}).get(host) or {}).get("Handlers") or {}
+paths = ["/", "/healthz", "/live-ws"]
+if set(handlers) != set(paths):
+    raise SystemExit("gateway backup has unexpected handler paths")
+for path in paths:
+    proxy = (handlers.get(path) or {}).get("Proxy")
+    parsed = urlparse(proxy or "")
+    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.port is None:
+        raise SystemExit(f"gateway backup has unsafe proxy for {path}")
+    print(proxy)
+PY
+  )
+  test "${#proxies[@]}" -eq 3 || fail "gateway backup did not yield three routes"
+  apply_gateway_routes "${proxies[0]}" "${proxies[1]}" "${proxies[2]}"
+  local current
+  current="$(run_ts funnel status --json)"
+  python3 - "$current" "$config_path" <<'PY'
+import json
+import sys
+
+actual = json.loads(sys.argv[1])
+with open(sys.argv[2], encoding="utf-8") as handle:
+    expected = json.load(handle)
+if actual != expected:
+    raise SystemExit("restored Tailscale Funnel configuration did not verify")
+PY
 }
 
 reconcile_squrvq_env() {
@@ -417,34 +469,15 @@ snapshot_gateway_state() {
 reconcile_gateway() {
   # The public root is API-only. LiveWS enters through the dashboard listener,
   # whose standalone wrapper proxies the upgrade to the loopback-only daemon.
-  # Configure the full semantic contract atomically so no intermediate reset
-  # can leave the hostname pointing at the dashboard listener.
-  local config_path
-  config_path="$(mktemp "$STATE_DIR/serve-squrvq.XXXXXX.json")"
-  chmod 600 "$config_path"
-  cat > "$config_path" <<'JSON'
-{
-  "TCP": {"443": {"HTTPS": true}},
-  "Web": {
-    "squrvq.tail0bec0f.ts.net:443": {
-      "Handlers": {
-        "/": {"Proxy": "http://127.0.0.1:20131"},
-        "/healthz": {"Proxy": "http://127.0.0.1:20130"},
-        "/live-ws": {"Proxy": "http://127.0.0.1:20130"}
-      }
-    }
-  },
-  "AllowFunnel": {"squrvq.tail0bec0f.ts.net:443": true}
-}
-JSON
-  docker cp "$config_path" "$TS_GATEWAY_CONTAINER:/tmp/serve-squrvq.json"
-  rm -f -- "$config_path"
-  run_ts serve reset
-  run_ts funnel reset
-  run_ts serve set-config --all /tmp/serve-squrvq.json
+  # Update the three owned paths without resetting Funnel, so a rejected route
+  # cannot erase the currently working public configuration.
+  apply_gateway_routes \
+    "http://127.0.0.1:20131" \
+    "http://127.0.0.1:20130/healthz" \
+    "http://127.0.0.1:20130/live-ws"
   sleep 2
   local cfg
-  cfg="$(run_ts serve get-config --all)"
+  cfg="$(run_ts funnel status --json)"
   if test -z "$cfg"; then fail "funnel reconciliation produced no config"; fi
   if ! gateway_config_is_exact "$cfg"; then fail "funnel reconciliation produced an unexpected semantic config"; fi
   printf '%s\n' "ok"
@@ -453,7 +486,7 @@ JSON
 restore_gateway() {
   local dir="$1"
   test -n "$dir" || fail "restore_gateway requires backup dir"
-  test -f "$dir/serve.json" || fail "gateway backup serve.json missing: $dir"
+  test -f "$dir/funnel-status.json" || fail "gateway backup funnel-status.json missing: $dir"
   test -d "$dir/state" || fail "gateway state snapshot missing: $dir/state"
   test -f "$dir/image.digest" || fail "gateway backup image digest missing: $dir/image.digest"
   local restore_image
@@ -479,16 +512,7 @@ restore_gateway() {
     --env TS_USERSPACE=true --env TS_AUTH_ONCE=true \
     --volume "$TS_GATEWAY_STATE_DIR:/var/lib/tailscale" "$restore_image" >/dev/null
   wait_gateway_online
-  docker cp "$dir/serve.json" "$TS_GATEWAY_CONTAINER:/tmp/serve-restore.json"
-  run_ts serve reset
-  run_ts funnel reset
-  run_ts serve set-config --all /tmp/serve-restore.json
-  local restored_cfg expected_cfg
-  restored_cfg="$(run_ts serve get-config --all)"
-  expected_cfg="$(cat "$dir/serve.json")"
-  test "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), sort_keys=True, separators=(",", ":")))' "$restored_cfg")" = \
-    "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), sort_keys=True, separators=(",", ":")))' "$expected_cfg")" \
-    || fail "restored Tailscale Serve configuration did not verify"
+  apply_gateway_config_file "$dir/funnel-status.json"
   run_ts status --json >/dev/null
   verify_gateway_runtime "$restore_image"
   printf '%s\n' "ok"
@@ -550,13 +574,8 @@ adopt_gateway() {
       --env TS_STATE_DIR=/var/lib/tailscale --env TS_HOSTNAME=squrvq \
       --env TS_USERSPACE=true --env TS_AUTH_ONCE=true \
       --volume "$TS_GATEWAY_STATE_DIR:/var/lib/tailscale" "$old_ref" >/dev/null
-    docker cp "$dir/old.serve.json" "$TS_GATEWAY_CONTAINER:/tmp/serve-adoption-restore.json"
-    for _ in $(seq 1 30); do
-      if run_ts status --json >/dev/null 2>&1; then break; fi
-      sleep 1
-    done
-    run_ts status --json >/dev/null
-    run_ts serve set-config --all /tmp/serve-adoption-restore.json
+    wait_gateway_online
+    apply_gateway_config_file "$dir/old.funnel.json"
     fail "$adoption_failure; previous container restored"
   fi
   printf '{"backupDir":%s,"tsGatewayImage":%s}\n' \

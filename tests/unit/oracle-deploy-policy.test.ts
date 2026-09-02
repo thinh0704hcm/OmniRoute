@@ -74,14 +74,16 @@ test("readiness probes use the dashboard port rather than the API-only port", ()
   assert.match(remoteHelper, /docker image inspect "\$img" --format/);
   assert.match(remoteHelper, /sudo -n cp -a -- "\$TS_GATEWAY_STATE_DIR" "\$destination"/);
   assert.match(remoteHelper, /docker pull "\$TS_GATEWAY_IMAGE"/);
-  assert.doesNotMatch(remoteHelper, /serve set-config \/tmp\//);
+  assert.doesNotMatch(remoteHelper, /serve set-config/);
+  assert.match(remoteHelper, /cfg="\$\(run_ts funnel status --json\)"/);
   assert.match(remoteHelper, /restore_image="\$\(cat "\$dir\/image\.digest"\)"/);
   assert.doesNotMatch(remoteHelper, /"\$dir\/image\.\*"/);
-  assert.match(remoteHelper, /"\/live-ws": \{"Proxy": "http:\/\/127\.0\.0\.1:20130"\}/);
-  assert.doesNotMatch(remoteHelper, /"\/live-ws": \{"Proxy": "http:\/\/127\.0\.0\.1:20133"\}/);
+  assert.match(remoteHelper, /"\/live-ws": \{"Proxy": "http:\/\/127\.0\.0\.1:20130\/live-ws"\}/);
+  assert.doesNotMatch(remoteHelper, /127\.0\.0\.1:20133/);
+  assert.match(remoteHelper, /funnel --bg --yes --https=443 --set-path=\/live-ws/);
   assert.match(
     remoteHelper,
-    /docker run -d --name "\$TS_GATEWAY_CONTAINER"[\s\S]*?wait_gateway_online[\s\S]*?serve set-config --all \/tmp\/serve-restore\.json/
+    /docker run -d --name "\$TS_GATEWAY_CONTAINER"[\s\S]*?wait_gateway_online[\s\S]*?apply_gateway_config_file "\$dir\/funnel-status\.json"/
   );
 });
 
