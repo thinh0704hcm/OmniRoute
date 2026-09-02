@@ -718,41 +718,6 @@ finally:
 PY
     ;;
 
-  reconcile-combos)
-    ensure_layout
-    ops_image_ref="${1:-}"
-    requested_data_dir="${2:-}"
-    validate_immutable_image_ref "$ops_image_ref"
-    if test "$requested_data_dir" = "production"; then
-      target_data_dir="$(realpath -m -- "$DATA_DIR")"
-      runtime_user="1000:1000"
-    else
-      target_data_dir="$(canonical_canary_child "$requested_data_dir")"
-      runtime_user="$(id -u):$(id -g)"
-    fi
-    test -f "$target_data_dir/storage.sqlite" || fail "target database does not exist"
-    docker run --rm \
-      --user "$runtime_user" \
-      --network none \
-      --read-only \
-      --tmpfs /tmp:size=64m,mode=1777 \
-      --volume "$target_data_dir:/app/data" \
-      --workdir /app \
-      "$ops_image_ref" \
-      node scripts/ops/reconcile-canonical-combos.mjs \
-        --db /app/data/storage.sqlite --apply --adopt --json
-    docker run --rm \
-      --user "$runtime_user" \
-      --network none \
-      --read-only \
-      --tmpfs /tmp:size=64m,mode=1777 \
-      --volume "$target_data_dir:/app/data" \
-      --workdir /app \
-      "$ops_image_ref" \
-      node scripts/ops/reconcile-canonical-combos.mjs \
-        --db /app/data/storage.sqlite --check --json
-    ;;
-
   tag-rollback)
     expected_id="${1:-}"
     current_id="$(docker inspect "$PROD_CONTAINER" --format '{{.Image}}')"
@@ -885,6 +850,6 @@ PY
     ;;
 
   *)
-    fail "usage: $0 {dispatch-json|preflight|lock|unlock|lock-canary|unlock-canary|inspect-image|inspect-prod|inspect-canary|compose-hash|backup|prepare-canary|start-canary|stop-canary|delete-canary-data|call-log-max|combo-log-evidence|reconcile-combos|tag-rollback|tag-gateway-rollback|verify-rollback-tag|set-image|recreate-prod|verify-image|adopt-gateway|backup-gateway|reconcile-gateway|restore-gateway|reconcile-squrvq-env|backup-config|restore-config|write-manifest|read-manifest|status}"
+    fail "usage: $0 {dispatch-json|preflight|lock|unlock|lock-canary|unlock-canary|inspect-image|inspect-prod|inspect-canary|compose-hash|backup|prepare-canary|start-canary|stop-canary|delete-canary-data|call-log-max|combo-log-evidence|tag-rollback|tag-gateway-rollback|verify-rollback-tag|set-image|recreate-prod|verify-image|adopt-gateway|backup-gateway|reconcile-gateway|restore-gateway|reconcile-squrvq-env|backup-config|restore-config|write-manifest|read-manifest|status}"
     ;;
 esac

@@ -43,20 +43,16 @@ docker compose --project-name omniroute \
 
 ## Build immutable images
 
-The candidate and ops image must be built from the same clean commit and carry that commit in the
-OCI `org.opencontainers.image.revision` label. Floating tags such as `latest`, `next`, `main`, and
-`stable` are rejected.
+The candidate image must carry its commit in the OCI `org.opencontainers.image.revision` label.
+Floating tags such as `latest`, `next`, `main`, and `stable` are rejected.
 
 ```bash
 cd /home/ubuntu/OmniRoute-src
 sha="$(git rev-parse --short=10 HEAD)"
 date_tag="$(date -u +%Y%m%d)"
 candidate="omniroute:canary-$sha-$date_tag"
-ops_image="omniroute:ops-$sha-$date_tag"
 docker buildx build --target runner-base --build-arg "OMNIROUTE_BUILD_SHA=$sha" \
   --tag "$candidate" --load .
-docker buildx build --target ops --build-arg "OMNIROUTE_BUILD_SHA=$sha" \
-  --tag "$ops_image" --load .
 ```
 
 ## Inspect and qualify
@@ -69,7 +65,7 @@ the local gates, stops the canary, and deletes the copied canary data. Load
 cd /home/ubuntu/OmniRoute-src
 node --import tsx/esm scripts/ops/oracle-deploy.mjs status --host oracle-vps
 node --import tsx/esm scripts/ops/oracle-deploy.mjs qualify --host oracle-vps \
-  --image "$candidate" --ops-image "$ops_image" --sha "$sha"
+  --image "$candidate" --sha "$sha"
 ```
 
 Qualification fails closed unless the container identity, image ID, build SHA, health, resource
@@ -87,7 +83,7 @@ application image ID, prior gateway image, and effective Compose hash. It writes
 ```bash
 cd /home/ubuntu/OmniRoute-src
 node --import tsx/esm scripts/ops/oracle-deploy.mjs promote --host oracle-vps \
-  --image "$candidate" --ops-image "$ops_image" --sha "$sha"
+  --image "$candidate" --sha "$sha"
 ```
 
 Public verification requires `/healthz` 200, unauthenticated `/v1/models` 401, authenticated

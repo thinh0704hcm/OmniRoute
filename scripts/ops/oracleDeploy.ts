@@ -110,7 +110,6 @@ export interface OracleDeployAdapter {
   tagRollback(imageRef: string, imageId: string): Promise<unknown>;
   tagGatewayRollback(imageRef: string): Promise<unknown>;
   reconcileEnvironment(): Promise<unknown>;
-  reconcileConfiguration(): Promise<unknown>;
   writeCandidateImage(imageRef: string): Promise<unknown>;
   recreateProduction(): Promise<unknown>;
   probeLocalGates(candidate: CandidateImage): Promise<LocalRuntimeGate>;
@@ -349,7 +348,6 @@ function assertAdapterContract(adapter: OracleDeployAdapter): void {
     "tagRollback",
     "tagGatewayRollback",
     "reconcileEnvironment",
-    "reconcileConfiguration",
     "writeCandidateImage",
     "recreateProduction",
     "probeLocalGates",
@@ -416,7 +414,6 @@ export async function promoteWithRollback(
 
     // Configuration mutations begin only after the durable v2 pending marker.
     await adapter.reconcileEnvironment();
-    await adapter.reconcileConfiguration();
     await adapter.writeCandidateImage(candidate.imageRef);
     await adapter.recreateProduction();
 

@@ -80,7 +80,6 @@ function makeAdapter(
     tagRollback: async () => calls.push("tag-image"),
     tagGatewayRollback: async () => calls.push("tag-gateway"),
     reconcileEnvironment: async () => calls.push("env"),
-    reconcileConfiguration: async () => calls.push("combos"),
     writeCandidateImage: async () => calls.push("write-image"),
     recreateProduction: async () => calls.push("recreate"),
     probeLocalGates: async () => {
@@ -166,7 +165,6 @@ test("promotion writes pending before mutation and restores gateway/config/image
     "tag-gateway",
     "manifest:pending",
     "env",
-    "combos",
     "write-image",
     "recreate",
     "local",

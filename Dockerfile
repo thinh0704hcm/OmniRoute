@@ -218,13 +218,17 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-next-cache,targ
 # ── Runner base ────────────────────────────────────────────────────────────
 FROM base AS runner-base
 
+ARG OMNIROUTE_BUILD_SHA=""
+
 LABEL org.opencontainers.image.title="omniroute" \
   org.opencontainers.image.description="Unified AI proxy — route any LLM through one endpoint" \
   org.opencontainers.image.url="https://omniroute.online" \
   org.opencontainers.image.source="https://github.com/diegosouzapw/OmniRoute" \
-  org.opencontainers.image.licenses="MIT"
+  org.opencontainers.image.licenses="MIT" \
+  org.opencontainers.image.revision="${OMNIROUTE_BUILD_SHA}"
 
 ENV NODE_ENV=production
+ENV OMNIROUTE_BUILD_SHA="${OMNIROUTE_BUILD_SHA}"
 ENV PORT=20128
 ENV HOSTNAME=0.0.0.0
 # Runtime heap ceiling. 1024MB is enough for normal traffic but can be tight

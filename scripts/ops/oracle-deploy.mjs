@@ -3,8 +3,8 @@
  * Oracle Docker deployment orchestrator. Run from a trusted workstation:
  *
  *   node --import tsx/esm scripts/ops/oracle-deploy.mjs status
- *   node --import tsx/esm scripts/ops/oracle-deploy.mjs qualify --image <ref> --ops-image <ref> --sha <sha>
- *   node --import tsx/esm scripts/ops/oracle-deploy.mjs promote --image <ref> --ops-image <ref> --sha <sha>
+ *   node --import tsx/esm scripts/ops/oracle-deploy.mjs qualify --image <ref> --sha <sha>
+ *   node --import tsx/esm scripts/ops/oracle-deploy.mjs promote --image <ref> --sha <sha>
  *   node --import tsx/esm scripts/ops/oracle-deploy.mjs rollback
  *
  * The remote helper receives runtime values as argv and performs only fixed,
@@ -43,9 +43,6 @@ function parseArgs(argv) {
       index += 1;
     } else if (flag === "--sha") {
       args.sha = value;
-      index += 1;
-    } else if (flag === "--ops-image") {
-      args.opsImage = value;
       index += 1;
     } else if (flag === "--model") {
       args.models.push(value);
@@ -449,10 +446,7 @@ function requireCandidate(args) {
   if (!args.sha || !/^[a-f0-9]{7,40}$/.test(args.sha)) {
     throw new Error("--sha must be a 7-40 character lowercase Git SHA");
   }
-  if (!args.opsImage || !isImmutableOmniRouteImage(args.opsImage)) {
-    throw new Error("--ops-image must be an immutable digest or SHA-bearing tag");
-  }
-  return { imageRef: args.image, opsImageRef: args.opsImage, buildSha: args.sha };
+  return { imageRef: args.image, buildSha: args.sha };
 }
 
 function sanitizeFailure(error) {
@@ -482,16 +476,7 @@ async function qualify(host, input, models) {
         `image revision ${image.revision || "(missing)"} does not match ${input.buildSha}`
       );
     }
-    const opsImage = readRemoteJson(host, "inspect-image", [input.opsImageRef]);
-    if (opsImage.revision !== input.buildSha) {
-      throw new Error(
-        `ops image revision ${opsImage.revision || "(missing)"} does not match ${input.buildSha}`
-      );
-    }
     canaryDir = runRemote(host, "prepare-canary", [input.buildSha], {
-      timeoutMs: 600_000,
-    });
-    runRemote(host, "reconcile-combos", [input.opsImageRef, canaryDir], {
       timeoutMs: 600_000,
     });
     const databasePath = `${canaryDir}/storage.sqlite`;
@@ -584,10 +569,6 @@ async function promote(host, candidate, models) {
       return backup;
     },
     reconcileEnvironment: async () => runRemote(host, "reconcile-squrvq-env"),
-    reconcileConfiguration: async () =>
-      runRemote(host, "reconcile-combos", [candidate.opsImageRef, "production"], {
-        timeoutMs: 600_000,
-      }),
     writeCandidateImage: async (imageRef) =>
       runRemote(host, "set-image", [imageRef, candidate.buildSha]),
     recreateProduction: async () => runRemote(host, "recreate-prod", [], { timeoutMs: 600_000 }),
@@ -807,7 +788,6 @@ try {
           command: args.command,
           host: args.host,
           image: args.image ?? null,
-          opsImage: args.opsImage ?? null,
           sha: args.sha ?? null,
           models,
           remoteHelper: REMOTE_HELPER,
