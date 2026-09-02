@@ -379,7 +379,7 @@ backup_gateway() {
   run_ts serve get-config --all > "$dir/serve.json"
   normalize_json_file "$dir/serve.json" > "$dir/serve.normalized.json"
   normalize_json_file "$dir/funnel-status.json" > "$dir/funnel.normalized.json"
-  chmod 600 "$dir"/*.json "$dir/image.*"
+  chmod 600 "$dir"/*.json "$dir"/image.*
   printf '{"dir":%s,"tsGatewayImage":%s}\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$dir")" "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$repo_digest")"
 }
 

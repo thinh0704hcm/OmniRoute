@@ -76,6 +76,7 @@ test("readiness probes use the dashboard port rather than the API-only port", ()
   assert.match(remoteHelper, /docker pull "\$TS_GATEWAY_IMAGE"/);
   assert.doesNotMatch(remoteHelper, /serve set-config \/tmp\//);
   assert.match(remoteHelper, /restore_image="\$\(cat "\$dir\/image\.digest"\)"/);
+  assert.doesNotMatch(remoteHelper, /"\$dir\/image\.\*"/);
 });
 
 function makeAdapter(
