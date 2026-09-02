@@ -71,6 +71,8 @@ test("readiness probes use the dashboard port rather than the API-only port", ()
   assert.doesNotMatch(deployCli, /probeMixedCaseTool/);
   assert.doesNotMatch(deployCli, /DEFAULT_MODELS[^\n]*gpt-5\.4-mini/);
   assert.match(deployCli, /MODEL_CATALOG_TIMEOUT_MS = 60_000/);
+  assert.match(deployCli, /PUBLIC_COMPLETION_ATTEMPTS = 2/);
+  assert.match(deployCli, /attempt <= PUBLIC_COMPLETION_ATTEMPTS/);
   assert.match(remoteHelper, /docker image inspect "\$img" --format/);
   assert.match(remoteHelper, /sudo -n cp -a -- "\$TS_GATEWAY_STATE_DIR" "\$destination"/);
   assert.match(remoteHelper, /docker pull "\$TS_GATEWAY_IMAGE"/);

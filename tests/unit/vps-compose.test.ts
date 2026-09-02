@@ -136,7 +136,7 @@ test("Oracle canary mirrors enforcement and exposes only dashboard/API locally",
   assert.match(raw, /volumes: !override/);
 });
 
-test("Oracle gateway sends public API and LiveWS traffic to their dedicated listeners", () => {
+test("Oracle gateway keeps API public and proxies LiveWS through the standalone wrapper", () => {
   const raw = fs.readFileSync(ORACLE_REMOTE_SCRIPT_PATH, "utf8");
   const exactGatewayStart = raw.indexOf("gateway_config_is_exact() {");
   const exactGatewayEnd = raw.indexOf("\nverify_gateway_runtime()", exactGatewayStart);
@@ -150,10 +150,11 @@ test("Oracle gateway sends public API and LiveWS traffic to their dedicated list
 
   const exactGateway = raw.slice(exactGatewayStart, exactGatewayEnd);
   const reconcile = raw.slice(reconcileStart, reconcileEnd);
-  for (const section of [exactGateway, reconcile]) {
-    assert.match(section, /"\/": \{"Proxy": "http:\/\/127\.0\.0\.1:20131"\}/);
-    assert.match(section, /"\/healthz": \{"Proxy": "http:\/\/127\.0\.0\.1:20130"\}/);
-    assert.match(section, /"\/live-ws": \{"Proxy": "http:\/\/127\.0\.0\.1:20133"\}/);
-    assert.doesNotMatch(section, /"\/": \{"Proxy": "http:\/\/127\.0\.0\.1:20130"\}/);
-  }
+  assert.match(exactGateway, /"\/": \{"Proxy": "http:\/\/127\.0\.0\.1:20131"\}/);
+  assert.match(exactGateway, /"\/healthz": \{"Proxy": "http:\/\/127\.0\.0\.1:20130\/healthz"\}/);
+  assert.match(exactGateway, /"\/live-ws": \{"Proxy": "http:\/\/127\.0\.0\.1:20130\/live-ws"\}/);
+  assert.match(reconcile, /"http:\/\/127\.0\.0\.1:20131"/);
+  assert.match(reconcile, /"http:\/\/127\.0\.0\.1:20130\/healthz"/);
+  assert.match(reconcile, /"http:\/\/127\.0\.0\.1:20130\/live-ws"/);
+  assert.doesNotMatch(`${exactGateway}\n${reconcile}`, /127\.0\.0\.1:20133/);
 });

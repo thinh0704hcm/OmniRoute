@@ -23,6 +23,7 @@ import {
 const REMOTE_HELPER = "/home/ubuntu/OmniRoute-src/scripts/ops/oracle-deploy-remote.sh";
 const DEFAULT_MODELS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"];
 const MODEL_CATALOG_TIMEOUT_MS = 60_000;
+const PUBLIC_COMPLETION_ATTEMPTS = 2;
 const PUBLIC_ORIGIN = "https://squrvq.tail0bec0f.ts.net";
 const PUBLIC_WS_URL = "wss://squrvq.tail0bec0f.ts.net/live-ws";
 
@@ -336,7 +337,13 @@ async function probePublicModelsAuth(expectedModels) {
   };
 }
 async function probePublicCompletion(model) {
-  return probeCompletion(PUBLIC_ORIGIN, model);
+  for (let attempt = 1; attempt <= PUBLIC_COMPLETION_ATTEMPTS; attempt += 1) {
+    const ok = await probeCompletion(PUBLIC_ORIGIN, model);
+    console.log(`[public-probe] completion attempt ${attempt}: ${ok ? "ok" : "failed"}`);
+    if (ok) return true;
+    if (attempt < PUBLIC_COMPLETION_ATTEMPTS) await sleep(1_000);
+  }
+  return false;
 }
 async function runTrafficProbesWithGates(dashboardUrl, apiUrl, models) {
   await waitForHealth(dashboardUrl);
