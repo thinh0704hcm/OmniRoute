@@ -69,13 +69,13 @@ export const opencode_zenProvider: RegistryEntry = {
       supportsReasoning: true,
       targetFormat: "openai-responses",
     },
-    // Explicit wire-format overlay of the base opencode provider's muse-spark entry
-    // (targetFormat: openai-responses). Keep in sync with base on catalog syncs.
     {
       id: "muse-spark-1.2-contributor-free",
       name: "Muse Spark 1.2 Contributor Free",
+      contextLength: 1048576,
       supportsReasoning: true,
       targetFormat: "openai-responses",
+      supportedToolChoiceModes: ["auto"],
     },
 
     // ── DeepSeek ────────────────────────────────────────────────

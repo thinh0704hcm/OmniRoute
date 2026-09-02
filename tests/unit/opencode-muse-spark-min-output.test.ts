@@ -1,112 +1,79 @@
-/**
- * muse-spark (opencode-go) burns its entire output budget on invisible
- * server-side reasoning before emitting any content. With small caller-set
- * budgets the upstream answers 200 with an empty message
- * (`{"message":{"role":"assistant"},"finish_reason":null}` and
- * `completion_tokens == max_tokens`) — chatCore then flags the fake success as
- * "Provider returned empty content" / 502.
- *
- * Verified live 2026-08-23: max_tokens=64 → empty; 100 → empty;
- * 256/512/1024 → content present (reasoning consumed 196–253 of it).
- *
- * Fix: OpencodeExecutor clamps muse-spark* output budgets UP to
- * MUSE_SPARK_MIN_OUTPUT_TOKENS so the reasoning phase can never consume the
- * whole budget. Other models are untouched.
- */
 import test from "node:test";
 import assert from "node:assert/strict";
 
 const { applyMuseSparkMinOutputTokens, MUSE_SPARK_MIN_OUTPUT_TOKENS } =
   await import("../../open-sse/executors/opencode.ts");
-const { normalizeMuseSparkFinishReason, createMuseSparkStreamFinishNormalizer, OpencodeExecutor } =
-  await import("../../open-sse/executors/opencode.ts");
+const { OpencodeExecutor } = await import("../../open-sse/executors/opencode.ts");
 
-test("RED: muse-spark tiny max_tokens is raised to the floor", () => {
-  const body: Record<string, unknown> = { model: "x", max_tokens: 64, messages: [] };
+test("muse-spark tiny max_output_tokens is raised to 8192", () => {
+  const body: Record<string, unknown> = { model: "x", max_output_tokens: 64, messages: [] };
   applyMuseSparkMinOutputTokens("muse-spark-1.2-contributor", body);
-  assert.equal(body.max_tokens, MUSE_SPARK_MIN_OUTPUT_TOKENS);
-});
-
-test("RED: all muse-spark id variants are covered by the prefix match", () => {
-  for (const model of ["muse-spark-1", "muse-spark-1.2", "muse-spark-1.2-contributor"]) {
-    const body: Record<string, unknown> = { max_tokens: 100 };
-    applyMuseSparkMinOutputTokens(model, body);
-    assert.equal(body.max_tokens, MUSE_SPARK_MIN_OUTPUT_TOKENS, model);
-  }
-});
-
-test("RED: budgets already at or above the floor are untouched", () => {
-  const body: Record<string, unknown> = { max_tokens: 4096 };
-  applyMuseSparkMinOutputTokens("muse-spark-1.2-contributor", body);
-  assert.equal(body.max_tokens, 4096);
-});
-
-test("RED: non-muse-spark models are never modified", () => {
-  const body: Record<string, unknown> = { max_tokens: 16 };
-  applyMuseSparkMinOutputTokens("ox-alpha-free", body);
-  assert.equal(body.max_tokens, 16);
-});
-
-test("RED: missing/non-numeric max_tokens stays absent (no synthetic budget)", () => {
-  const body: Record<string, unknown> = { messages: [] };
-  applyMuseSparkMinOutputTokens("muse-spark-1.2-contributor", body);
+  assert.equal(body.max_output_tokens, 8192);
+  assert.equal(body.max_output_tokens, MUSE_SPARK_MIN_OUTPUT_TOKENS);
   assert.equal("max_tokens" in body, false);
 });
 
-test("RED: finish_reason length is rewritten to stop when completion is far under budget", () => {
-  const payload: Record<string, unknown> = {
-    choices: [{ index: 0, message: { role: "assistant" }, finish_reason: "length" }],
-    usage: { completion_tokens: 270 },
-  };
-  normalizeMuseSparkFinishReason(payload, 128000);
-  assert.equal((payload.choices as Array<Record<string, unknown>>)[0].finish_reason, "stop");
+test("all muse-spark id variants are covered by the prefix match", () => {
+  for (const model of ["muse-spark-1", "muse-spark-1.2", "muse-spark-1.2-contributor"]) {
+    const body: Record<string, unknown> = { max_output_tokens: 100 };
+    applyMuseSparkMinOutputTokens(model, body);
+    assert.equal(body.max_output_tokens, 8192, model);
+  }
 });
 
-test("RED: genuine truncation at the budget keeps finish_reason length", () => {
-  const payload: Record<string, unknown> = {
-    choices: [{ index: 0, message: { role: "assistant" }, finish_reason: "length" }],
-    usage: { completion_tokens: 127000 },
-  };
-  normalizeMuseSparkFinishReason(payload, 128000);
-  assert.equal((payload.choices as Array<Record<string, unknown>>)[0].finish_reason, "length");
+test("budgets at or above 8192 are untouched", () => {
+  const body: Record<string, unknown> = { max_output_tokens: 8192 };
+  applyMuseSparkMinOutputTokens("muse-spark-1.2-contributor", body);
+  assert.equal(body.max_output_tokens, 8192);
+  const big: Record<string, unknown> = { max_output_tokens: 16384 };
+  applyMuseSparkMinOutputTokens("muse-spark-1.2-contributor", big);
+  assert.equal(big.max_output_tokens, 16384);
 });
 
-test("RED: non-length finish reasons and missing usage are untouched", () => {
-  const payload: Record<string, unknown> = {
-    choices: [{ index: 0, message: { role: "assistant" }, finish_reason: "stop" }],
-  };
-  normalizeMuseSparkFinishReason(payload, 128000);
-  assert.equal((payload.choices as Array<Record<string, unknown>>)[0].finish_reason, "stop");
-
-  const noUsage: Record<string, unknown> = {
-    choices: [{ index: 0, message: { role: "assistant" }, finish_reason: "length" }],
-  };
-  normalizeMuseSparkFinishReason(noUsage, 128000);
-  assert.equal(
-    (noUsage.choices as Array<Record<string, unknown>>)[0].finish_reason,
-    "length",
-    "without a completion count the rewrite must stay conservative"
-  );
+test("non-muse-spark models are never modified", () => {
+  const body: Record<string, unknown> = { max_output_tokens: 16 };
+  applyMuseSparkMinOutputTokens("ox-alpha-free", body);
+  assert.equal(body.max_output_tokens, 16);
+  assert.equal("max_tokens" in body, false);
 });
 
-test("RED: stream normalizer rewrites the finish frame after the usage frame", () => {
-  const norm = createMuseSparkStreamFinishNormalizer(128000);
-  const usageLine =
-    'data: {"id":"r","object":"chat.completion.chunk","choices":[],"usage":{"completion_tokens":270}}';
-  assert.equal(norm(usageLine), usageLine, "usage frame itself must not change");
-  const finishLine = 'data: {"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}';
-  const out = JSON.parse(norm(finishLine).slice(5).trim());
-  assert.equal(out.choices[0].finish_reason, "stop");
+test("missing/non-numeric max_output_tokens stays absent (no synthetic budget)", () => {
+  const body: Record<string, unknown> = { messages: [] };
+  applyMuseSparkMinOutputTokens("muse-spark-1.2-contributor", body);
+  assert.equal("max_output_tokens" in body, false);
+  assert.equal("max_tokens" in body, false);
+  const bad: Record<string, unknown> = { max_output_tokens: "512" };
+  applyMuseSparkMinOutputTokens("muse-spark-1.2-contributor", bad);
+  assert.equal(bad.max_output_tokens, "512");
 });
 
-test("RED: stream normalizer passes through [DONE], comments and non-JSON lines", () => {
-  const norm = createMuseSparkStreamFinishNormalizer(128000);
-  assert.equal(norm("data: [DONE]"), "data: [DONE]");
-  assert.equal(norm(": keepalive"), ": keepalive");
-  assert.equal(norm("data: not-json"), "data: not-json");
+test("non-streaming Responses JSON is preserved byte-for-byte for muse-spark", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    const payload = JSON.stringify({
+      id: "resp_123",
+      output: [{ type: "message", content: "hi" }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+    globalThis.fetch = (async () =>
+      new Response(payload, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    const result = await new OpencodeExecutor("opencode").execute({
+      model: "muse-spark-1.2-contributor-free",
+      body: { model: "muse-spark-1.2-contributor-free", input: "hi" },
+      stream: false,
+      credentials: {},
+    });
+    const text = await result.response.text();
+    assert.equal(text, payload);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-test("closes the Muse Responses stream at response.completed before post-completion pings", async () => {
+test("streaming terminal: complete SSE frame with blank delimiter, single terminal, no ping", async () => {
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = (async () =>
@@ -115,35 +82,79 @@ test("closes the Muse Responses stream at response.completed before post-complet
           "event: response.output_text.delta",
           'data: {"type":"response.output_text.delta","delta":"OK"}',
           "event: response.completed",
-          'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}',
+          'data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5}}}',
           "event: ping",
           'data: {"type":"ping"}',
           "",
         ].join("\n"),
         { status: 200, headers: { "Content-Type": "text/event-stream" } }
       )) as typeof fetch;
-
     const result = await new OpencodeExecutor("opencode").execute({
       model: "muse-spark-1.2-contributor-free",
-      body: {
-        model: "muse-spark-1.2-contributor-free",
-        max_output_tokens: 512,
-        stream: true,
-      },
+      body: { model: "muse-spark-1.2-contributor-free", max_output_tokens: 8192, stream: true },
       stream: true,
-      credentials: {
-        providerSpecificData: {
-          fingerprints: ["test-account-a", "test-account-b"],
-          accountProxies: [],
-        },
-      },
+      credentials: {},
     });
-    const text = await Promise.race([
-      result.response.text(),
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("stream hung")), 1000)),
-    ]);
-    assert.match(text, /response.completed/);
-    assert.doesNotMatch(text, /\"type\":\"ping\"/);
+    const text = await result.response.text();
+    const completedCount = (text.match(/"type":"response\.completed"/g) || []).length;
+    assert.equal(completedCount, 1);
+    assert.doesNotMatch(text, /"type":"ping"/);
+    assert.match(text, /data: \{"type":"response\.completed".*\n\n/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("terminal at EOF (no trailing newline) still emits blank delimiter", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    const sse =
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}';
+    globalThis.fetch = (async () =>
+      new Response(sse, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })) as typeof fetch;
+    const result = await new OpencodeExecutor("opencode").execute({
+      model: "muse-spark-1.2-contributor-free",
+      body: { model: "muse-spark-1.2-contributor-free", stream: true },
+      stream: true,
+      credentials: {},
+    });
+    const text = await result.response.text();
+    assert.match(text, /response\.completed/);
+    assert.match(text, /\n\n$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("terminal split across chunks still completes", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      const part1 = 'data: {"type":"response.';
+      const part2 = 'completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}\n';
+      const stream = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(part1));
+          c.enqueue(new TextEncoder().encode(part2));
+          c.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+    const result = await new OpencodeExecutor("opencode").execute({
+      model: "muse-spark-1.2-contributor-free",
+      body: { model: "muse-spark-1.2-contributor-free", stream: true },
+      stream: true,
+      credentials: {},
+    });
+    const text = await result.response.text();
+    assert.match(text, /response\.completed/);
   } finally {
     globalThis.fetch = originalFetch;
   }

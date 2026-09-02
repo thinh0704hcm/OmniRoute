@@ -15,6 +15,7 @@
 
 import { getModelContextLimit } from "../../../src/lib/modelCapabilities";
 import { getHiddenModelsByProvider } from "../../../src/lib/db/models";
+import { getModelSupportedToolChoiceModes } from "../../config/providerModels.ts";
 import { getComboModelString, normalizeComboStep } from "../../../src/lib/combos/steps.ts";
 import { getProviderByAlias, getProviderById } from "../../../src/shared/constants/providers.ts";
 import { estimateTokens } from "../contextManager.ts";
@@ -453,10 +454,13 @@ export function getModelContextLimitForModelString(modelStr: string) {
   return getModelContextLimit(provider, model);
 }
 
+export type ToolChoiceMode = "auto" | "none" | "required" | "named" | null;
+
 export type RequestCompatibilityRequirements = {
   requiresTools: boolean;
   requiresVision: boolean;
   requiresStructuredOutput: boolean;
+  toolChoiceMode: ToolChoiceMode;
   estimatedInputTokens: number;
   requestedOutputTokens: number;
   requiredContextTokens: number;
@@ -494,6 +498,31 @@ function estimateRequestInputTokens(body: Record<string, unknown>): number {
   return Object.keys(estimatePayload).length > 0 ? estimateTokens(estimatePayload) : 0;
 }
 
+function classifyToolChoiceMode(body: Record<string, unknown>): ToolChoiceMode {
+  const tc = body.tool_choice;
+  if (tc === undefined || tc === null) return null;
+  if (tc === "auto") return "auto";
+  if (tc === "none") return "none";
+  if (tc === "required") return "required";
+  if (typeof tc === "string") return null;
+  if (typeof tc === "object" && !Array.isArray(tc)) {
+    const r = tc as Record<string, unknown>;
+    if (r.type === "auto" || r.type === "none") return r.type as ToolChoiceMode;
+    if (r.type === "any" || r.type === "required") return "required";
+    if (r.type === "function" || r.type === "tool") {
+      if (r.function && typeof r.function === "object") return "named";
+      if (typeof r.name === "string") return "named";
+      if (r.type === "function" || r.type === "tool") return "named";
+    }
+    if (
+      typeof r.name === "string" ||
+      (r.function && typeof (r.function as Record<string, unknown>).name === "string")
+    )
+      return "named";
+  }
+  return null;
+}
+
 function valueContainsImagePart(value: unknown): boolean {
   return containsMediaKind([{ content: [value] }], "image");
 }
@@ -504,12 +533,14 @@ export function deriveRequestCompatibilityRequirements(
   const estimatedInputTokens = estimateRequestInputTokens(body);
   const requestedOutputTokens = Math.max(
     getPositiveTokenCount(body.max_tokens),
-    getPositiveTokenCount(body.max_completion_tokens)
+    getPositiveTokenCount(body.max_completion_tokens),
+    getPositiveTokenCount(body.max_output_tokens)
   );
   return {
     requiresTools: requestRequiresTools(body),
     requiresVision: valueContainsImagePart(body.messages) || valueContainsImagePart(body.input),
     requiresStructuredOutput: requestRequiresStructuredOutput(body),
+    toolChoiceMode: classifyToolChoiceMode(body),
     estimatedInputTokens,
     requestedOutputTokens,
     requiredContextTokens: estimatedInputTokens + requestedOutputTokens,
@@ -536,7 +567,13 @@ function hasKnownCompatibleContextLimit(
   return evaluateContextLimit(capabilities, requirements, target.modelStr) === true;
 }
 
-const HARD_COMPAT_REASONS = new Set(["tools", "vision", "structured_output", "output_tokens"]);
+const HARD_COMPAT_REASONS = new Set([
+  "tools",
+  "vision",
+  "structured_output",
+  "output_tokens",
+  "tool_choice",
+]);
 
 /**
  * #8332: vision is a hard requirement, not a soft preference — a target whose vision
@@ -561,6 +598,20 @@ export function isVisionIncompatibleTarget(
  * pre-filter rejected, minus anything rejected for vision (#8332 — see
  * isVisionIncompatibleTarget).
  */
+export function isToolChoiceIncompatibleTarget(
+  target: ResolvedComboTarget,
+  requirements: RequestCompatibilityRequirements
+): boolean {
+  if (!requirements.toolChoiceMode) return false;
+  if (requirements.toolChoiceMode === "auto") return false;
+  const modes = getModelSupportedToolChoiceModes(
+    target.providerId || target.provider || "",
+    target.modelStr
+  );
+  if (!modes) return false;
+  return !modes.includes(requirements.toolChoiceMode);
+}
+
 export function computeCompatRejectedTargets(
   rankedTargets: ResolvedComboTarget[],
   compatKeptTargets: ResolvedComboTarget[],
@@ -569,7 +620,10 @@ export function computeCompatRejectedTargets(
   const requirements = deriveRequestCompatibilityRequirements(body);
   const keptSet = new Set(compatKeptTargets);
   return rankedTargets.filter(
-    (target) => !keptSet.has(target) && !isVisionIncompatibleTarget(target, requirements)
+    (target) =>
+      !keptSet.has(target) &&
+      !isVisionIncompatibleTarget(target, requirements) &&
+      !isToolChoiceIncompatibleTarget(target, requirements)
   );
 }
 
@@ -604,6 +658,16 @@ function getTargetCompatibilityFailures(
 
   if (requirements.requiresStructuredOutput && capabilities.structuredOutput === false) {
     failures.push("structured_output");
+  }
+
+  if (requirements.toolChoiceMode && requirements.toolChoiceMode !== "auto") {
+    const modes = getModelSupportedToolChoiceModes(
+      target.providerId || target.provider || "",
+      target.modelStr
+    );
+    if (modes && !modes.includes(requirements.toolChoiceMode)) {
+      failures.push("tool_choice");
+    }
   }
 
   if (exceedsKnownOutputLimit(requirements.requestedOutputTokens, capabilities.maxOutputTokens)) {
@@ -672,7 +736,9 @@ export function describeCapabilityFilterExhaustion(
     ? "tools"
     : unmet.includes("vision")
       ? "vision"
-      : unmet[0];
+      : unmet.includes("tool_choice")
+        ? "tool_choice"
+        : unmet[0];
   const toolCount = Array.isArray(body.tools) ? body.tools.length : 0;
   const name = comboName && comboName.trim().length > 0 ? comboName : "this combo";
   let message: string;
@@ -680,10 +746,9 @@ export function describeCapabilityFilterExhaustion(
     message = `No target in combo ${name} supports tool calling; request carried ${toolCount} tools`;
   } else if (primary === "vision") {
     message = `No target in combo ${name} has confirmed vision support for this image request`;
+  } else if (primary === "tool_choice") {
+    message = `No target in combo ${name} supports the requested tool_choice mode`;
   } else if (primary === "output_tokens") {
-    // #12229: name the real reason. Collapsing this into the structured-output
-    // message sent operators chasing response_format when the request's
-    // max_tokens simply exceeded every target's known output ceiling.
     const ceiling = highestKnownOutputLimit(
       rejected.filter((entry) => entry.reasons.includes("output_tokens")).map((e) => e.target)
     );
@@ -719,6 +784,7 @@ export function filterTargetsByRequestCompatibility(
     requirements.requiresTools ||
     requirements.requiresVision ||
     requirements.requiresStructuredOutput ||
+    requirements.toolChoiceMode !== null ||
     requirements.requiredContextTokens > 0;
   if (!needsFiltering) return targets;
 
@@ -766,26 +832,32 @@ export function filterTargetsByRequestCompatibility(
         .join(", ")}`
     );
 
-    // #8332: vision is never safe to guess — never resurrect vision-rejected targets.
-    if (requirements.requiresVision) {
-      const visionSafe = targets.filter(
-        (target) => !isVisionIncompatibleTarget(target, requirements)
+    if (
+      requirements.requiresVision ||
+      (requirements.toolChoiceMode && requirements.toolChoiceMode !== "auto")
+    ) {
+      const safe = targets.filter(
+        (target) =>
+          !isVisionIncompatibleTarget(target, requirements) &&
+          !isToolChoiceIncompatibleTarget(target, requirements)
       );
-      if (visionSafe.length === 0) {
+      if (safe.length === 0) {
         log.warn(
           "COMBO",
-          `${label}: all ${targets.length} targets lack confirmed vision; failing closed (#8488)`
+          `${label}: all ${targets.length} targets lack required capability; failing closed`
         );
         return [];
       }
       if (failOpen) {
+        // tool_choice is hard — never resurrect even under failOpen
+        if (requirements.toolChoiceMode && requirements.toolChoiceMode !== "auto") return safe;
         log.warn(
           "COMBO",
           `${label}: all targets filtered; compatFilterFailOpen restoring non-vision-rejected pool`
         );
-        return visionSafe;
+        return safe;
       }
-      return visionSafe;
+      return safe;
     }
 
     // Context/output-only exhaustion keeps the legacy fail-open path — the honest
