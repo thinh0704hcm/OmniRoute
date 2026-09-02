@@ -570,6 +570,11 @@
       "configSource": "trae",
       "provider": "trae"
     },
+    "uc": {
+      "className": "UcExecutor",
+      "configSource": "uc",
+      "provider": "uc"
+    },
     "v0": {
       "className": "V0VercelWebExecutor",
       "configSource": "<custom-config>",
@@ -671,6 +676,6 @@
       "provider": "zai-web"
     }
   },
-  "keyCount": 134,
+  "keyCount": 135,
   "sharedInstances": []
 }

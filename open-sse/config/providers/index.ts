@@ -211,6 +211,8 @@ import { veoaifree_webProvider } from "./registry/veoaifree-web/index.ts";
 import { codexProvider } from "./registry/codex/index.ts";
 import { codexAppServerProvider } from "./registry/codex-app-server/index.ts";
 import { maxaiProvider } from "./registry/maxai/index.ts";
+import { ucProvider } from "./registry/uc/index.ts";
+import { ucDirectProvider } from "./registry/uc-direct/index.ts";
 import { veniceProvider } from "./registry/venice/index.ts";
 import { kiroProvider } from "./registry/kiro/index.ts";
 import { openadapterProvider } from "./registry/openadapter/index.ts";
@@ -479,6 +481,8 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   codex: codexProvider,
   "codex-app-server": codexAppServerProvider,
   maxai: maxaiProvider,
+  uc: ucProvider,
+  "uc-direct": ucDirectProvider,
   venice: veniceProvider,
   kiro: kiroProvider,
   byteplus: byteplusProvider,

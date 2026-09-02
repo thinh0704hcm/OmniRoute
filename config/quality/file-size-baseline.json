@@ -1,4 +1,5 @@
 {
+  "_rebaseline_2026_09_02_11513_uc_provider": "PR #11513 (arminanton, feat/uc-native-standalone) own growth: open-sse/handlers/imageGeneration.ts 3243->3255 (+12) — the uc-image format branch for the UC persona provider's image surface. Additive at the existing per-format chokepoint, same rationale as _rebaseline_2026_09_02_11461_maxai_tls_profile.",
   "_rebaseline_2026_09_02_11461_maxai_tls_profile": "PR #11461 (arminanton, feat/maxai-provider) own growth, three files at existing per-provider chokepoints: open-sse/utils/proxyFetch.ts 1241->1261 (+20, the TLS_PROVIDER_PROFILE map giving MaxAI a Windows/firefox_150 impersonation profile instead of the tlsClient chrome_124/macos default); open-sse/handlers/imageGeneration.ts 3231->3243 (+12, the maxai-image format branch); src/app/api/providers/[id]/models/route.ts 2381->2429 (+48, live model listing via maxaiModels). Additive data, same no-split rationale as _rebaseline_2026_08_20_10531_freebuff_provider.",
   "_rebaseline_2026_09_02_11460_flat_rate_estimates": "PR #11460 (xiaoyaner0201, fix/11459-cc-cost-estimates) own growth: src/app/(dashboard)/dashboard/costs/CostOverviewTab.tsx 1283->1319 (+36) — the flat-rate estimate labelling and the includeFlatRateEstimates opt-in on the Costs dashboard. #11460 merged first so this ratchet re-tightening measures the real post-merge LOC; the cap still drops 2002->1319 (-683) versus the 2026-08-10 +30% loosening this PR reverses. Same own-growth rationale as _rebaseline_2026_08_20_10531_freebuff_provider.",
   "_rebaseline_2026_08_31_chatgpt_web_v4_vendor": "Pinned MIT vendor refresh from codex-chatgpt-web 0.1.16 to v4.0.6 (commit 09877fa21ffdbf20979623ef501046fc02a750d7). browser-worker.ts is preserved as the reviewed upstream browser protocol implementation; splitting the vendored file would destroy source parity and make future security/liveness updates unauditable. OmniRoute-specific DATA_DIR, Docker CDP, credential-marker, and XML decoding adaptations are covered by the ChatGPT Web Codex focused suite.",
@@ -407,7 +408,7 @@
     "open-sse/executors/cursor.ts": 1759,
     "open-sse/executors/muse-spark-web.ts": 1405,
     "open-sse/handlers/chatCore.ts": 5946,
-    "open-sse/handlers/imageGeneration.ts": 3243,
+    "open-sse/handlers/imageGeneration.ts": 3255,
     "open-sse/handlers/search.ts": 1789,
     "open-sse/mcp-server/schemas/tools.ts": 1621,
     "open-sse/mcp-server/server.ts": 1572,
