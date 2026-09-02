@@ -252,7 +252,7 @@ expected = {
             "Handlers": {
                 "/": {"Proxy": "http://127.0.0.1:20131"},
                 "/healthz": {"Proxy": "http://127.0.0.1:20130"},
-                "/live-ws": {"Proxy": "http://127.0.0.1:20133"},
+                "/live-ws": {"Proxy": "http://127.0.0.1:20130"},
             }
         }
     },
@@ -302,6 +302,29 @@ if dns != "squrvq.tail0bec0f.ts.net":
 if self.get("Online") is not True:
     raise SystemExit("ts-gateway is not online")
 PY
+}
+
+wait_gateway_online() {
+  local status
+  for _ in $(seq 1 60); do
+    status="$(run_ts status --json 2>/dev/null || true)"
+    if python3 - "$status" <<'PY'
+import json
+import sys
+
+try:
+    status = json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+self = status.get("Self") or {}
+raise SystemExit(0 if status.get("BackendState") == "Running" and self.get("Online") is True else 1)
+PY
+    then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "ts-gateway did not become online"
 }
 
 reconcile_squrvq_env() {
@@ -392,7 +415,8 @@ snapshot_gateway_state() {
 }
 
 reconcile_gateway() {
-  # The public root is API-only; health and LiveWS use their native listeners.
+  # The public root is API-only. LiveWS enters through the dashboard listener,
+  # whose standalone wrapper proxies the upgrade to the loopback-only daemon.
   # Configure the full semantic contract atomically so no intermediate reset
   # can leave the hostname pointing at the dashboard listener.
   local config_path
@@ -406,7 +430,7 @@ reconcile_gateway() {
       "Handlers": {
         "/": {"Proxy": "http://127.0.0.1:20131"},
         "/healthz": {"Proxy": "http://127.0.0.1:20130"},
-        "/live-ws": {"Proxy": "http://127.0.0.1:20133"}
+        "/live-ws": {"Proxy": "http://127.0.0.1:20130"}
       }
     }
   },
@@ -454,11 +478,7 @@ restore_gateway() {
     --env TS_STATE_DIR=/var/lib/tailscale --env TS_HOSTNAME=squrvq \
     --env TS_USERSPACE=true --env TS_AUTH_ONCE=true \
     --volume "$TS_GATEWAY_STATE_DIR:/var/lib/tailscale" "$restore_image" >/dev/null
-  for _ in $(seq 1 30); do
-    if run_ts status --json >/dev/null 2>&1; then break; fi
-    sleep 1
-  done
-  run_ts status --json >/dev/null
+  wait_gateway_online
   docker cp "$dir/serve.json" "$TS_GATEWAY_CONTAINER:/tmp/serve-restore.json"
   run_ts serve reset
   run_ts funnel reset

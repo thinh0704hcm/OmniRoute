@@ -77,6 +77,12 @@ test("readiness probes use the dashboard port rather than the API-only port", ()
   assert.doesNotMatch(remoteHelper, /serve set-config \/tmp\//);
   assert.match(remoteHelper, /restore_image="\$\(cat "\$dir\/image\.digest"\)"/);
   assert.doesNotMatch(remoteHelper, /"\$dir\/image\.\*"/);
+  assert.match(remoteHelper, /"\/live-ws": \{"Proxy": "http:\/\/127\.0\.0\.1:20130"\}/);
+  assert.doesNotMatch(remoteHelper, /"\/live-ws": \{"Proxy": "http:\/\/127\.0\.0\.1:20133"\}/);
+  assert.match(
+    remoteHelper,
+    /docker run -d --name "\$TS_GATEWAY_CONTAINER"[\s\S]*?wait_gateway_online[\s\S]*?serve set-config --all \/tmp\/serve-restore\.json/
+  );
 });
 
 function makeAdapter(
