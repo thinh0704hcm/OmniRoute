@@ -431,6 +431,12 @@ restore_gateway() {
   test -n "$dir" || fail "restore_gateway requires backup dir"
   test -f "$dir/serve.json" || fail "gateway backup serve.json missing: $dir"
   test -d "$dir/state" || fail "gateway state snapshot missing: $dir/state"
+  test -f "$dir/image.digest" || fail "gateway backup image digest missing: $dir/image.digest"
+  local restore_image
+  restore_image="$(cat "$dir/image.digest")"
+  validate_immutable_image_ref "$restore_image"
+  docker image inspect "$restore_image" >/dev/null \
+    || fail "gateway backup image is unavailable: $restore_image"
   local quarantine="$STATE_DIR/gateway_failed_$(date -u +%Y%m%dT%H%M%S)_$$"
   mkdir -p "$quarantine"
   chmod 700 "$quarantine"
@@ -443,7 +449,16 @@ restore_gateway() {
   mkdir -p "$(dirname "$TS_GATEWAY_STATE_DIR")"
   cp -a -- "$dir/state" "$TS_GATEWAY_STATE_DIR"
   chmod -R u=rwX,go= "$TS_GATEWAY_STATE_DIR"
-  compose_prod up -d --no-deps --pull never "$TS_GATEWAY_CONTAINER"
+  docker rm -f "$TS_GATEWAY_CONTAINER" >/dev/null 2>&1 || true
+  docker run -d --name "$TS_GATEWAY_CONTAINER" --network host --restart unless-stopped \
+    --env TS_STATE_DIR=/var/lib/tailscale --env TS_HOSTNAME=squrvq \
+    --env TS_USERSPACE=true --env TS_AUTH_ONCE=true \
+    --volume "$TS_GATEWAY_STATE_DIR:/var/lib/tailscale" "$restore_image" >/dev/null
+  for _ in $(seq 1 30); do
+    if run_ts status --json >/dev/null 2>&1; then break; fi
+    sleep 1
+  done
+  run_ts status --json >/dev/null
   docker cp "$dir/serve.json" "$TS_GATEWAY_CONTAINER:/tmp/serve-restore.json"
   run_ts serve reset
   run_ts funnel reset
@@ -455,6 +470,7 @@ restore_gateway() {
     "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), sort_keys=True, separators=(",", ":")))' "$expected_cfg")" \
     || fail "restored Tailscale Serve configuration did not verify"
   run_ts status --json >/dev/null
+  verify_gateway_runtime "$restore_image"
   printf '%s\n' "ok"
 }
 
