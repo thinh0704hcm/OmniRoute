@@ -417,7 +417,7 @@ JSON
   rm -f -- "$config_path"
   run_ts serve reset
   run_ts funnel reset
-  run_ts serve set-config /tmp/serve-squrvq.json
+  run_ts serve set-config --all /tmp/serve-squrvq.json
   sleep 2
   local cfg
   cfg="$(run_ts serve get-config --all)"
@@ -447,7 +447,7 @@ restore_gateway() {
   docker cp "$dir/serve.json" "$TS_GATEWAY_CONTAINER:/tmp/serve-restore.json"
   run_ts serve reset
   run_ts funnel reset
-  run_ts serve set-config /tmp/serve-restore.json
+  run_ts serve set-config --all /tmp/serve-restore.json
   local restored_cfg expected_cfg
   restored_cfg="$(run_ts serve get-config --all)"
   expected_cfg="$(cat "$dir/serve.json")"
@@ -488,12 +488,19 @@ adopt_gateway() {
   docker tag "$old_id" "$TS_GATEWAY_ROLLBACK_TAG"
   test "$(docker image inspect "$TS_GATEWAY_ROLLBACK_TAG" --format '{{.Id}}')" = "$old_id" \
     || fail "gateway rollback tag did not resolve to the existing image"
+  docker pull "$TS_GATEWAY_IMAGE" >/dev/null \
+    || fail "managed ts-gateway image could not be pulled before adoption"
+  docker image inspect "$TS_GATEWAY_IMAGE" >/dev/null \
+    || fail "managed ts-gateway image is unavailable after pull"
   docker stop "$TS_GATEWAY_CONTAINER" >/dev/null
   docker container rm "$TS_GATEWAY_CONTAINER" >/dev/null
+  local adoption_failure=""
   if ! compose_prod up -d --no-deps --pull never "$TS_GATEWAY_CONTAINER"; then
-    fail "managed ts-gateway failed to start during adoption"
+    adoption_failure="managed ts-gateway failed to start during adoption"
+  elif ! verify_gateway_runtime "$TS_GATEWAY_IMAGE"; then
+    adoption_failure="managed ts-gateway adoption verification failed"
   fi
-  if ! verify_gateway_runtime "$TS_GATEWAY_IMAGE"; then
+  if test -n "$adoption_failure"; then
     # Keep failed state quarantined and restore the complete state snapshot
     # before recreating the previous container image/spec.
     local quarantine="$STATE_DIR/gateway-adoption-failed_${stamp}"
@@ -508,8 +515,13 @@ adopt_gateway() {
       --env TS_USERSPACE=true --env TS_AUTH_ONCE=true \
       --volume "$TS_GATEWAY_STATE_DIR:/var/lib/tailscale" "$old_ref" >/dev/null
     docker cp "$dir/old.serve.json" "$TS_GATEWAY_CONTAINER:/tmp/serve-adoption-restore.json"
-    docker exec "$TS_GATEWAY_CONTAINER" tailscale serve set-config /tmp/serve-adoption-restore.json
-    fail "managed ts-gateway adoption verification failed; previous container restored"
+    for _ in $(seq 1 30); do
+      if run_ts status --json >/dev/null 2>&1; then break; fi
+      sleep 1
+    done
+    run_ts status --json >/dev/null
+    run_ts serve set-config --all /tmp/serve-adoption-restore.json
+    fail "$adoption_failure; previous container restored"
   fi
   printf '{"backupDir":%s,"tsGatewayImage":%s}\n' \
     "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$dir")" \
