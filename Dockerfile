@@ -118,22 +118,36 @@ RUN test -f package-lock.json \
 # to skip the GitHub fetch entirely on hosts where the Releases API serves a
 # renamed asset set the pinned postinstall.js cannot resolve (e.g. arm64 xgo-
 # renames post-1.15.x). Empty (default) = normal postinstall.js fetch path.
-# The blob travels in an ARG (never a COPY layer), so nothing touches the
-# build context and no .dockerignore exception is needed. ~21 MB base64 for
-# the 15 MB arm64 .so — acceptable for a bounded canary build.
-# Example: --build-arg TLS_CLIENT_PREBUILT_BLOB="$(base64 -w0 tls-client-linux-arm64-1.15.1.so)"
+# Two transports (the 15 MB .so is ~21 MB base64 — too large for an inline
+# --build-arg on hosts with a 2 MB ARG_MAX):
+#   1. BuildKit secret (preferred): --secret id=tlsblob,src=<b64 file>, with
+#      TLS_CLIENT_PREBUILT_BLOB=secret:tlsblob
+#   2. Inline ARG (small binaries / high ARG_MAX hosts):
+#      --build-arg TLS_CLIENT_PREBUILT_BLOB="$(base64 -w0 file.so)"
+# In both cases TLS_CLIENT_PREBUILT_BIN names the destination file. The blob
+# travels in a secret/ARG (never a COPY layer), so nothing touches the build
+# context and no .dockerignore exception is needed.
+# Example: --secret id=tlsblob,src=/tmp/tlsblob.b64
+#   with --build-arg TLS_CLIENT_PREBUILT_BLOB=secret:tlsblob
 #   with --build-arg TLS_CLIENT_PREBUILT_BIN=tls-client-linux-arm64-1.15.1.so
 ARG TLS_CLIENT_PREBUILT_BLOB=""
 ARG TLS_CLIENT_PREBUILT_BIN=""
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,target=/root/.npm \
+  --mount=type=secret,id=tlsblob,required=false \
   npm ci --include=optional --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
   && (cd node_modules/better-sqlite3 \
       && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild) \
   && node -e "require('better-sqlite3')(':memory:').close()" \
-  && (if [ -n "$TLS_CLIENT_PREBUILT_BIN" ] && [ -n "$TLS_CLIENT_PREBUILT_BLOB" ]; then \
+  && (if [ -n "$TLS_CLIENT_PREBUILT_BIN" ] && { [ -n "$TLS_CLIENT_PREBUILT_BLOB" ] || [ -f /run/secrets/tlsblob ]; }; then \
         mkdir -p node_modules/tls-client-node/bin \
-        && echo "$TLS_CLIENT_PREBUILT_BLOB" | base64 -d > "node_modules/tls-client-node/bin/$TLS_CLIENT_PREBUILT_BIN" \
+        && if [ -f /run/secrets/tlsblob ]; then \
+             cp /run/secrets/tlsblob /tmp/tlsblob.b64; \
+           else \
+             printf '%s' "$TLS_CLIENT_PREBUILT_BLOB" > /tmp/tlsblob.b64; \
+           fi \
+        && base64 -d /tmp/tlsblob.b64 > "node_modules/tls-client-node/bin/$TLS_CLIENT_PREBUILT_BIN" \
         && chmod 755 "node_modules/tls-client-node/bin/$TLS_CLIENT_PREBUILT_BIN" \
+        && rm -f /tmp/tlsblob.b64 \
         && echo "tls-client-node: using prebuilt binary $TLS_CLIENT_PREBUILT_BIN"; \
       else \
         node node_modules/tls-client-node/scripts/postinstall.js; \
