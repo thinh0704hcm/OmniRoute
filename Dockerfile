@@ -224,6 +224,11 @@ ARG OMNIROUTE_BUILD_WORKERS=2
 ENV CIRCLE_NODE_TOTAL=${OMNIROUTE_BUILD_WORKERS}
 
 COPY . ./
+# Prebuilt tls-client .so for TLS_CLIENT_PREBUILT_BIN (gitignored local dir
+# tls-prebuilt/, shipped inside COPY . above). Re-COPY explicitly so the file
+# is present even if a narrowing .dockerignore rule ever excludes it; the
+# wildcard keeps the build working when the dir is absent (default path).
+COPY tls-prebuilt/*.so ./tls-prebuilt/
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-next-cache,target=/app/.build/next/cache \
   mkdir -p /app/data \
   && npm run build \

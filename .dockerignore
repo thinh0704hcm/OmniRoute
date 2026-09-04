@@ -151,7 +151,6 @@ app.__qa_backup/
 cloud/
 electron/dist-electron
 # Prebuilt tls-client .so MUST reach the build context (see Dockerfile
-# TLS_CLIENT_PREBUILT_BIN). Negation must come last to win over any earlier
-# blanket rule.
+# TLS_CLIENT_PREBUILT_BIN). No earlier rule excludes *.so, so a plain
+# directory re-include suffices — file-level negations are unnecessary.
 !tls-prebuilt/
-!tls-prebuilt/*.so
