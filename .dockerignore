@@ -150,7 +150,3 @@ app.__qa_backup/
 .next-playwright/
 cloud/
 electron/dist-electron
-# Prebuilt tls-client .so MUST reach the build context (see Dockerfile
-# TLS_CLIENT_PREBUILT_BIN). No earlier rule excludes *.so, so a plain
-# directory re-include suffices — file-level negations are unnecessary.
-!tls-prebuilt/

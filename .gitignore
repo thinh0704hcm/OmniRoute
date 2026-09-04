@@ -296,8 +296,3 @@ docker-compose.yml.bak
 
 # check:install-upgrade work trees (~12 GB, disposable)
 /.install-upgrade/
-
-# Prebuilt tls-client .so for Docker builds on hosts where the Releases API
-# serves renamed assets (see Dockerfile TLS_CLIENT_PREBUILT_BIN). Local-only,
-# never tracked — contains a fetched binary blob.
-/tls-prebuilt/
