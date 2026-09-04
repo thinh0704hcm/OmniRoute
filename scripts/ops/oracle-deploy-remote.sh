@@ -250,7 +250,7 @@ expected = {
     "Web": {
         "squrvq.tail0bec0f.ts.net:443": {
             "Handlers": {
-                "/": {"Proxy": "http://127.0.0.1:20131"},
+                "/": {"Proxy": "http://127.0.0.1:20130"},
                 "/healthz": {"Proxy": "http://127.0.0.1:20130/healthz"},
                 "/live-ws": {"Proxy": "http://127.0.0.1:20130/live-ws"},
             }
@@ -467,12 +467,13 @@ snapshot_gateway_state() {
 }
 
 reconcile_gateway() {
-  # The public root is API-only. LiveWS enters through the dashboard listener,
-  # whose standalone wrapper proxies the upgrade to the loopback-only daemon.
-  # Update the three owned paths without resetting Funnel, so a rejected route
-  # cannot erase the currently working public configuration.
+  # The public root serves the dashboard (20130); the API bridge on 20131 is
+  # OpenAI-compatible only and 404s dashboard/monitoring paths. /v1/* works
+  # through either port since the dashboard serves API routes too. Update the
+  # three owned paths without resetting Funnel, so a rejected route cannot
+  # erase the currently working public configuration.
   apply_gateway_routes \
-    "http://127.0.0.1:20131" \
+    "http://127.0.0.1:20130" \
     "http://127.0.0.1:20130/healthz" \
     "http://127.0.0.1:20130/live-ws"
   sleep 2
