@@ -259,6 +259,19 @@ export function getModelsByProviderId(providerId: string): RegistryModel[] {
  * isn't found or has no override, so callers can fall through to the
  * provider-level/global defaults unchanged.
  */
+export function getModelSupportedToolChoiceModes(
+  aliasOrId: string,
+  modelId: string
+): readonly string[] | null {
+  const alias = PROVIDER_ID_TO_ALIAS[aliasOrId] || aliasOrId;
+  const prefixes = [`${aliasOrId}/`, `${alias}/`];
+  const prefix = prefixes.find((value) => modelId.startsWith(value));
+  const bareModelId = prefix ? modelId.slice(prefix.length) : modelId;
+  const found = PROVIDER_MODELS[alias]?.find((m) => m.id === bareModelId);
+  if (found?.supportedToolChoiceModes) return found.supportedToolChoiceModes;
+  return null;
+}
+
 export function getModelTimeoutMs(aliasOrId: string, modelId: string): number | undefined {
   // Callers (e.g. chatCore's timeout resolution) pass the raw provider id
   // ("codex"), not the public alias ("cx") that PROVIDER_MODELS is keyed by

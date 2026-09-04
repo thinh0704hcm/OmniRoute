@@ -125,7 +125,7 @@ function tryParseJson(raw: string): unknown {
  * Splits a tool_call `arguments` string that is actually multiple back-to-back JSON
  * objects glued together with no separator, into its individual object substrings.
  *
- * Root cause (observed on opencode/muse-spark-1.2-contributor-free via the zen
+ * Root cause (observed on opencode/muse-spark-1.3-contributor-free via the zen
  * provider): some upstreams never vary `index`/`id` across a 2nd/3rd/… tool_call of
  * the SAME name emitted in one turn, so every delta in `buildOpenAISummary` above
  * resolves to the same accumulator key and `arguments` ends up as N JSON objects

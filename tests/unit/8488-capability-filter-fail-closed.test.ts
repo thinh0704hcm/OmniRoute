@@ -349,3 +349,82 @@ test("#12229 exhaustion: output_tokens exclusion names max_tokens vs the model c
   assert.doesNotMatch(exhaustion!.message, /structured output/i);
   assert.equal(exhaustion!.terminalReason, "capability_mismatch");
 });
+
+test("tool_choice none/required/named excludes Muse, auto/omitted keeps it", async () => {
+  const {
+    filterTargetsByRequestCompatibility: f,
+    computeCompatRejectedTargets: cr,
+    describeCapabilityFilterExhaustion: desc,
+  } = await import("../../open-sse/services/combo/comboStructure.ts");
+  const targets = [
+    {
+      kind: "model" as const,
+      stepId: "s1",
+      executionKey: "oc>muse-spark-1.3-contributor-free",
+      modelStr: "opencode/muse-spark-1.3-contributor-free",
+      provider: "opencode",
+      providerId: null,
+      connectionId: null,
+      weight: 1,
+      label: null,
+    },
+    {
+      kind: "model" as const,
+      stepId: "s2",
+      executionKey: "openai>gpt-4o",
+      modelStr: "openai/gpt-4o",
+      provider: "openai",
+      providerId: null,
+      connectionId: null,
+      weight: 1,
+      label: null,
+    },
+  ];
+  const withTools = (tc: unknown) => ({
+    messages: [{ role: "user", content: "hi" }],
+    tools: [{ type: "function", function: { name: "x", parameters: {} } }],
+    tool_choice: tc,
+  });
+  // omitted/auto keeps Muse
+  assert.ok(
+    f(targets, { messages: [{ role: "user", content: "hi" }] }, log).some((t) =>
+      t.modelStr.includes("muse-spark")
+    )
+  );
+  assert.ok(f(targets, withTools("auto"), log).some((t) => t.modelStr.includes("muse-spark")));
+  assert.ok(
+    f(targets, withTools({ type: "auto" }), log).some((t) => t.modelStr.includes("muse-spark"))
+  );
+  // none/required/named excludes Muse
+  for (const tc of [
+    "none",
+    "required",
+    { type: "function", function: { name: "x" } },
+    { type: "tool", name: "x" },
+    { type: "any" },
+  ] as unknown[]) {
+    const kept = f(targets, withTools(tc), log);
+    assert.ok(
+      !kept.some((t) => t.modelStr.includes("muse-spark")),
+      `should exclude Muse for ${JSON.stringify(tc)}`
+    );
+    assert.ok(kept.some((t) => t.modelStr.includes("gpt-4o")));
+  }
+  // failOpen and last-resort do not resurrect
+  assert.ok(
+    !f(targets, withTools("required"), log, "x", { failOpen: true }).some((t) =>
+      t.modelStr.includes("muse-spark")
+    )
+  );
+  const kept = f(targets, withTools("required"), log);
+  const rejected = cr(targets, kept, withTools("required"));
+  assert.ok(!rejected.some((t) => t.modelStr.includes("muse-spark")));
+  // exhaustion sanitized — no tool name
+  const ex = desc(
+    targets.slice(0, 1),
+    withTools({ type: "function", function: { name: "secret_tool" } }),
+    "c"
+  );
+  assert.ok(ex && ex.unmet.includes("tool_choice"));
+  assert.doesNotMatch(ex!.message, /secret_tool/);
+});
