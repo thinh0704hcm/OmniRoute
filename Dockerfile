@@ -141,6 +141,17 @@ ARG TLS_CLIENT_PREBUILT_BIN=""
 ARG TLS_CLIENT_PREBUILT_CHUNKS="0"
 ARG TLS_CLIENT_PREBUILT_GZIP=""
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,target=/root/.npm \
+  --mount=type=secret,id=tls00 --mount=type=secret,id=tls01 --mount=type=secret,id=tls02 \
+  --mount=type=secret,id=tls03 --mount=type=secret,id=tls04 --mount=type=secret,id=tls05 \
+  --mount=type=secret,id=tls06 --mount=type=secret,id=tls07 --mount=type=secret,id=tls08 \
+  --mount=type=secret,id=tls09 --mount=type=secret,id=tls10 --mount=type=secret,id=tls11 \
+  --mount=type=secret,id=tls12 --mount=type=secret,id=tls13 --mount=type=secret,id=tls14 \
+  --mount=type=secret,id=tls15 --mount=type=secret,id=tls16 --mount=type=secret,id=tls17 \
+  --mount=type=secret,id=tls18 --mount=type=secret,id=tls19 --mount=type=secret,id=tls20 \
+  --mount=type=secret,id=tls21 --mount=type=secret,id=tls22 --mount=type=secret,id=tls23 \
+  --mount=type=secret,id=tls24 --mount=type=secret,id=tls25 --mount=type=secret,id=tls26 \
+  --mount=type=secret,id=tls27 --mount=type=secret,id=tls28 --mount=type=secret,id=tls29 \
+  --mount=type=secret,id=tls30 --mount=type=secret,id=tls31 \
   npm ci --include=optional --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
   && (cd node_modules/better-sqlite3 \
       && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild) \
