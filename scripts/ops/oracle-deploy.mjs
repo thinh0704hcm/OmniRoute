@@ -481,7 +481,17 @@ async function promote(host, candidate, models) {
       const runtime = readRemoteJson(host, "inspect-prod");
       const image = readRemoteJson(host, "inspect-image", [runtime.imageRef]);
       const composeHash = runRemote(host, "compose-hash");
-      previousBuildSha = image.revision || runtime.imageRef.match(/[a-f0-9]{7,40}/)?.[0] || null;
+      // Rollback tags (omniroute:rollback-canary) carry no SHA: resolve the
+      // previous build SHA from the image label first, so a second promote
+      // after a rollback restores against the true prior image instead of
+      // null (which fails closed at restorePreviousImage).
+      previousBuildSha =
+        image.revision ||
+        (runtime.imageId
+          ? readRemoteJson(host, "inspect-image", [runtime.imageId]).revision
+          : null) ||
+        runtime.imageRef.match(/[a-f0-9]{7,40}/)?.[0] ||
+        null;
       logBefore = runRemote(host, "call-log-max");
       return {
         imageRef: runtime.imageRef,
