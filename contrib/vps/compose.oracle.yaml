@@ -45,20 +45,27 @@ services:
       API_HOST: 0.0.0.0
       LIVE_WS_PORT: "20133"
       LIVE_WS_HOST: 127.0.0.1
-      OMNIROUTE_MEMORY_MB: "4096"
-      NODE_OPTIONS: --max-old-space-size=4096
+      OMNIROUTE_MEMORY_MB: "8192"
+      NODE_OPTIONS: --max-old-space-size=8192
       # Keep admission adaptive and key-fair. A fixed heavy-in-flight cap is
       # process-global, so a long deals call must not serialize every tenant.
       OMNIROUTE_CHAT_ADMISSION_QUEUE_MS: "30000"
       OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES: "4194304"
       ADAPTIVE_ADMISSION_MODE: enforce
+      # Four heavy lanes: a cost-70+ coding-agent replay holds ~70 of the 256
+      # adaptive budget, so lanes=1 serialized 2-3 concurrent replays while
+      # lanes=4 sustains 4 heavy lanes with fair round-robin between them.
+      # Per-lane queues are bounded (maxQueueCount/maxQueueCost each) and the
+      # shared adaptive limit still binds — lanes add fairness, not capacity.
+      OMNIROUTE_CHAT_VIRTUAL_LANES: "4"
       # Cost-94+ coding-agent bodies (200KB+, 54 tools) exceed the default
       # initial aggregate budget (64) whenever a stream holds the gate busy —
       # the 503 "Request too large for current capacity" that killed xhigh
       # sessions. 256 absorbs them into the bounded queue instead of the
       # terminal oversized path; the per-request maxLimit ceiling still binds.
-      ADAPTIVE_ADMISSION_INITIAL_LIMIT: "256"
-      OMNIROUTE_CHAT_VIRTUAL_LANES: "1"
+      ADAPTIVE_ADMISSION_INITIAL_LIMIT: "384"
+      ADAPTIVE_ADMISSION_MAX_QUEUE_COUNT: "256"
+      ADAPTIVE_ADMISSION_MAX_QUEUE_COST: "4000"
       OMNIROUTE_BASE_URL: http://omniroute-parallel:20130
       NEXT_PUBLIC_BASE_URL: https://squrvq.tail0bec0f.ts.net
       OMNIROUTE_PUBLIC_BASE_URL: https://squrvq.tail0bec0f.ts.net
@@ -72,10 +79,10 @@ services:
       - "${OMNIROUTE_API_BIND_HOST:-127.0.0.1}:20131:20131"
     volumes: !override
       - "${OMNIROUTE_DATA_DIR:-/home/ubuntu/.omniroute}:/app/data"
-    mem_limit: 6g
-    memswap_limit: 6g
-    cpus: "2.0"
-    pids_limit: 512
+    mem_limit: 12g
+    memswap_limit: 12g
+    cpus: "4.0"
+    pids_limit: 1024
     healthcheck:
       interval: 30s
       timeout: 8s
