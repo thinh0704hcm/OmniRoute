@@ -128,7 +128,7 @@ RUN test -f package-lock.json \
 ARG TLS_CLIENT_PREBUILT_DIR=""
 ARG TLS_CLIENT_PREBUILT_BIN=""
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,target=/root/.npm \
-  --mount=type=bind,source=/tmp/tlsbin,target=/tls-prebuilt,readonly,required=false \
+  --mount=type=bind,source=/tmp/tlsbin,target=/tls-prebuilt,readonly \
   npm ci --include=optional --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
   && (cd node_modules/better-sqlite3 \
       && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild) \
