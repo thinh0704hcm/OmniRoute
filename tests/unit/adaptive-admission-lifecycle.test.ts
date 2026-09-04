@@ -447,4 +447,250 @@ describe("response lifecycle helpers", () => {
     assert.equal(cancelCount, 1);
     runtime.dispose();
   });
+
+  it("60s SSE retains lease for 60s but records only response-ready latency and does not collapse currentLimit", async () => {
+    const runtime = makeRuntime(clock, {
+      config: {
+        ...DEFAULT_ADAPTIVE_ADMISSION_CONFIG,
+        mode: "enforce",
+        minLimit: 8,
+        maxLimit: 1000,
+        initialLimit: 64,
+        windowMs: 1_000,
+        cost: {
+          baseCost: 1,
+          bodyBytesPerUnit: 1_000_000,
+          tokensPerUnit: 1_000_000,
+          messagesPerUnit: 1_000_000,
+          toolsPerUnit: 1_000_000,
+          fanoutPerUnit: 1_000_000,
+          streamingClassCost: 1,
+          nonStreamingClassCost: 1,
+          maxRequestCost: 1000,
+        },
+      },
+    });
+    const limitBefore = runtime.snapshot().currentLimit;
+    assert.equal(limitBefore, 64);
+
+    const admitted = await runtime.acquire({
+      tenantKey: "sse-long",
+      body: { messages: [{ role: "user", content: "stream me" }], stream: true },
+      streaming: true,
+    });
+    assert.equal(admitted.status, "admitted");
+    if (admitted.status !== "admitted") throw new Error("expected admitted");
+    const admittedAtMs = (admitted as { admittedAtMs: number }).admittedAtMs;
+    const readyMs = admittedAtMs;
+
+    let produceDone = false;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (produceDone) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(new TextEncoder().encode("data: chunk\n\n"));
+        produceDone = true;
+      },
+    });
+
+    clock.nowMs = readyMs;
+    const wrapped = runtime.attachResponseLifecycle(
+      new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+      admitted.lease,
+      { admittedAtMs: readyMs, nowMs: clock.now }
+    );
+
+    assert.equal(runtime.snapshot().activeCount, 1, "lease held while SSE streams");
+
+    clock.nowMs = readyMs + 60_000;
+    for (let i = 0; i < 60; i++) {
+      clock.advance(1_000);
+    }
+    assert.equal(runtime.snapshot().activeCount, 1, "lease still held after 60s of streaming");
+    const limitDuringStream = runtime.snapshot().currentLimit;
+    assert.ok(
+      limitDuringStream >= limitBefore * 0.9,
+      `currentLimit must not collapse while SSE is streaming: before=${limitBefore} during=${limitDuringStream}`
+    );
+
+    const concurrent = await runtime.acquire({
+      tenantKey: "probe-large",
+      body: {},
+      streaming: true,
+    });
+    if (concurrent.status === "admitted") {
+      concurrent.lease.release("success");
+    }
+    assert.equal(
+      concurrent.status,
+      "admitted",
+      "representative large request must admit alongside active 60s stream"
+    );
+    if (concurrent.status === "admitted") {
+      assert.notEqual(concurrent.code, "admission_oversized");
+    }
+
+    const responseDone = await wrapped.text();
+    assert.match(responseDone, /chunk/);
+
+    const releasedLease = admitted.lease as unknown as { released: boolean };
+    assert.equal(releasedLease.released, true);
+
+    const snapAfter = runtime.snapshot();
+    assert.equal(snapAfter.activeCount, 0);
+
+    const soloLarge = await runtime.acquire({
+      tenantKey: "probe-large-after",
+      body: {},
+      streaming: true,
+    });
+    assert.equal(
+      soloLarge.status,
+      "admitted",
+      "large request must admit alone after SSE completes"
+    );
+    if (soloLarge.status === "admitted") soloLarge.lease.release("success");
+
+    runtime.dispose();
+  });
+
+  it("60s SSE records response-ready latency, not stream duration", async () => {
+    const controllerClock = new FakeClock();
+    const controllerRuntime = makeRuntime(controllerClock, {
+      config: {
+        ...DEFAULT_ADAPTIVE_ADMISSION_CONFIG,
+        mode: "enforce",
+        minLimit: 8,
+        maxLimit: 1000,
+        initialLimit: 64,
+        windowMs: 1_000,
+        cost: {
+          baseCost: 1,
+          bodyBytesPerUnit: 1_000_000,
+          tokensPerUnit: 1_000_000,
+          messagesPerUnit: 1_000_000,
+          toolsPerUnit: 1_000_000,
+          fanoutPerUnit: 1_000_000,
+          streamingClassCost: 1,
+          nonStreamingClassCost: 1,
+          maxRequestCost: 1000,
+        },
+      },
+    });
+
+    const admitted = await controllerRuntime.acquire({
+      tenantKey: "latency-probe",
+      body: {},
+      streaming: true,
+    });
+    assert.equal(admitted.status, "admitted");
+    if (admitted.status !== "admitted") throw new Error("expected admitted");
+    const admittedAtMs = (admitted as { admittedAtMs: number }).admittedAtMs;
+
+    controllerClock.nowMs = admittedAtMs + 15;
+
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("data: hi\n\n"));
+        controller.close();
+      },
+    });
+
+    let recordedLatency: number | undefined;
+    const originalRelease = admitted.lease.release.bind(admitted.lease);
+    (admitted.lease as { release: typeof originalRelease }).release = (outcome, meta) => {
+      recordedLatency = meta?.latencyMs;
+      originalRelease(outcome, meta);
+    };
+
+    const wrapped = controllerRuntime.attachResponseLifecycle(
+      new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+      admitted.lease,
+      { admittedAtMs, nowMs: controllerClock.now }
+    );
+
+    controllerClock.nowMs = admittedAtMs + 60_015;
+    await wrapped.text();
+
+    assert.equal(
+      recordedLatency,
+      15,
+      "latency must be response-ready (15ms), not stream duration (60s)"
+    );
+    assert.ok(
+      (controllerRuntime.snapshot().shortLatencyEwma ?? 0) < 1000,
+      "EWMA must not be polluted by 60s stream duration"
+    );
+    controllerRuntime.dispose();
+  });
+});
+
+describe("queued streaming dispatch retains the streaming class", () => {
+  it("a streaming request admitted from the fair queue keeps util-capped accounting", async () => {
+    const queueClock = new FakeClock();
+    const runtime = makeRuntime(queueClock, {
+      config: {
+        ...DEFAULT_ADAPTIVE_ADMISSION_CONFIG,
+        mode: "enforce",
+        minLimit: 8,
+        maxLimit: 1000,
+        initialLimit: 20,
+        windowMs: 1_000,
+        defaultMaxWaitMs: 5_000,
+        cost: {
+          baseCost: 1,
+          bodyBytesPerUnit: 1_000_000,
+          tokensPerUnit: 1_000_000,
+          messagesPerUnit: 1_000_000,
+          toolsPerUnit: 1_000_000,
+          fanoutPerUnit: 1_000_000,
+          streamingClassCost: 1,
+          nonStreamingClassCost: 1,
+          maxRequestCost: 1000,
+        },
+      },
+    });
+    try {
+      const holder = await runtime.acquire({
+        tenantKey: "holder",
+        body: {},
+        streaming: true,
+        maxWaitMs: 0,
+      });
+      assert.equal(holder.status, "admitted");
+      if (holder.status !== "admitted") return;
+
+      const queued = runtime.acquire({
+        tenantKey: "streamer",
+        body: {},
+        streaming: true,
+        maxWaitMs: 5_000,
+      });
+      await Promise.resolve();
+      holder.lease.release("success", { latencyMs: 10 });
+
+      const admitted = await queued;
+      assert.equal(admitted.status, "admitted");
+      if (admitted.status !== "admitted") return;
+
+      queueClock.advance(60_000);
+      const during = runtime.snapshot();
+      assert.ok(
+        during.utilization < 0.5,
+        `queued streaming lease must stay util-capped while held, got utilization=${during.utilization} (activeCost=${during.activeCost})`
+      );
+      assert.ok(
+        during.activeCost > 0,
+        "capacity accounting must still hold the full streaming lease cost"
+      );
+      admitted.lease.release("success", { latencyMs: 10 });
+    } finally {
+      runtime.dispose();
+    }
+  });
 });
