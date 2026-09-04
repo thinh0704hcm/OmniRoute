@@ -629,3 +629,68 @@ describe("response lifecycle helpers", () => {
     controllerRuntime.dispose();
   });
 });
+
+describe("queued streaming dispatch retains the streaming class", () => {
+  it("a streaming request admitted from the fair queue keeps util-capped accounting", async () => {
+    const queueClock = new FakeClock();
+    const runtime = makeRuntime(queueClock, {
+      config: {
+        ...DEFAULT_ADAPTIVE_ADMISSION_CONFIG,
+        mode: "enforce",
+        minLimit: 8,
+        maxLimit: 1000,
+        initialLimit: 20,
+        windowMs: 1_000,
+        defaultMaxWaitMs: 5_000,
+        cost: {
+          baseCost: 1,
+          bodyBytesPerUnit: 1_000_000,
+          tokensPerUnit: 1_000_000,
+          messagesPerUnit: 1_000_000,
+          toolsPerUnit: 1_000_000,
+          fanoutPerUnit: 1_000_000,
+          streamingClassCost: 1,
+          nonStreamingClassCost: 1,
+          maxRequestCost: 1000,
+        },
+      },
+    });
+    try {
+      const holder = await runtime.acquire({
+        tenantKey: "holder",
+        body: {},
+        streaming: true,
+        maxWaitMs: 0,
+      });
+      assert.equal(holder.status, "admitted");
+      if (holder.status !== "admitted") return;
+
+      const queued = runtime.acquire({
+        tenantKey: "streamer",
+        body: {},
+        streaming: true,
+        maxWaitMs: 5_000,
+      });
+      await Promise.resolve();
+      holder.lease.release("success", { latencyMs: 10 });
+
+      const admitted = await queued;
+      assert.equal(admitted.status, "admitted");
+      if (admitted.status !== "admitted") return;
+
+      queueClock.advance(60_000);
+      const during = runtime.snapshot();
+      assert.ok(
+        during.utilization < 0.5,
+        `queued streaming lease must stay util-capped while held, got utilization=${during.utilization} (activeCost=${during.activeCost})`
+      );
+      assert.ok(
+        during.activeCost > 0,
+        "capacity accounting must still hold the full streaming lease cost"
+      );
+      admitted.lease.release("success", { latencyMs: 10 });
+    } finally {
+      runtime.dispose();
+    }
+  });
+});

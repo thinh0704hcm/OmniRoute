@@ -72,6 +72,7 @@ interface QueuedPayload {
   reject: (err: Error) => void;
   signal?: AbortSignal;
   onAbort?: () => void;
+  streaming?: boolean;
 }
 
 let leaseSeq = 0;
@@ -185,7 +186,7 @@ export class AdaptiveAdmissionController {
       if (next.mode !== "enforce") {
         this.clearEntryTimer(entry);
         this.detachAbort(entry);
-        entry.payload.resolve(this.admit(entry.cost));
+        entry.payload.resolve(this.admit(entry.cost, "none", entry.payload.streaming));
         continue;
       }
       // Cost above the new enforce limit must fail closed immediately, never strand until deadline.
@@ -536,6 +537,7 @@ export class AdaptiveAdmissionController {
         resolve: (v) => settle.resolve(v),
         reject: (e) => settle.reject(e),
         signal: request.signal,
+        streaming: this.isStreamingRequest(request),
       },
     };
 
@@ -635,7 +637,7 @@ export class AdaptiveAdmissionController {
         this.rejectedCount += 1;
         continue;
       }
-      entry.payload.resolve(this.admit(entry.cost));
+      entry.payload.resolve(this.admit(entry.cost, "none", entry.payload.streaming));
     }
     this.dispatchLanes();
   }
@@ -673,7 +675,7 @@ export class AdaptiveAdmissionController {
           this.rejectedCount += 1;
           continue;
         }
-        entry.payload.resolve(this.admit(entry.cost));
+        entry.payload.resolve(this.admit(entry.cost, "none", entry.payload.streaming));
         break; // yield to next lane for fairness
       }
       this.removeEmptyLane(key);
