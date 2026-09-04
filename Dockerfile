@@ -162,10 +162,11 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,targe
              : > /tmp/tlsblob.b64; \
              i=0; \
              while [ "$i" -lt "$TLS_CLIENT_PREBUILT_CHUNKS" ]; do \
-               if [ -f "/run/secrets/tls$i" ]; then \
-                 cat "/run/secrets/tls$i" >> /tmp/tlsblob.b64; \
+               chunk="tls$(printf '%02d' "$i")"; \
+               if [ -f "/run/secrets/$chunk" ]; then \
+                 cat "/run/secrets/$chunk" >> /tmp/tlsblob.b64; \
                else \
-                 echo "tls-client-node: missing secret chunk tls$i" >&2; exit 1; \
+                 echo "tls-client-node: missing secret chunk $chunk" >&2; exit 1; \
                fi; \
                i=$((i + 1)); \
              done; \
