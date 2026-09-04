@@ -36,7 +36,7 @@ const ACCOUNT_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const ACCOUNT_C = "cccccccccccccccccccccccccccccccc";
 
 const EMPTY_BODY =
-  '{"id":"chatcmpl_44fn2g6e7kk","object":"chat.completion","created":1787419957,"model":"muse-spark-1.2-contributor-free","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":null}]}';
+  '{"id":"chatcmpl_44fn2g6e7kk","object":"chat.completion","created":1787419957,"model":"muse-spark-1.3-contributor-free","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":null}]}';
 const ERROR_BODY = JSON.stringify({
   error: { message: "bad request", type: "invalid_request_error" },
 });

@@ -122,6 +122,7 @@ import { blackbox_webProvider } from "./registry/blackbox/web/index.ts";
 import { uncloseaiProvider } from "./registry/uncloseai/index.ts";
 import { nscaleProvider } from "./registry/nscale/index.ts";
 import { chatgpt_web_codexProvider } from "./registry/chatgpt-web-codex/index.ts";
+import { chatgpt_webProvider } from "./registry/chatgpt-web/index.ts";
 import { openrouterProvider } from "./registry/openrouter/index.ts";
 import { cheaperinferenceProvider } from "./registry/cheaperinference/index.ts";
 import { openvectaProvider } from "./registry/openvecta/index.ts";
@@ -269,6 +270,7 @@ import { voidAiProvider } from "./registry/void-ai/index.ts";
 import { helixmindProvider } from "./registry/helixmind/index.ts";
 import { tabitokenProvider } from "./registry/tabitoken/index.ts";
 import { logfareProvider } from "./registry/logfare/index.ts";
+import { seekaiProvider } from "./registry/seekai/index.ts";
 
 export const REGISTRY: Record<string, RegistryEntry> = {
   aimlapi: aimlapiProvider,
@@ -391,6 +393,7 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   uncloseai: uncloseaiProvider,
   nscale: nscaleProvider,
   "chatgpt-web-codex": chatgpt_web_codexProvider,
+  "chatgpt-web": chatgpt_webProvider,
   openrouter: openrouterProvider,
   cheaperinference: cheaperinferenceProvider,
   openvecta: openvectaProvider,
@@ -542,4 +545,5 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   helixmind: helixmindProvider,
   tabitoken: tabitokenProvider,
   logfare: logfareProvider,
+  seekai: seekaiProvider,
 };

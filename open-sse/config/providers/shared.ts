@@ -94,6 +94,12 @@ export interface RegistryModel {
    * variants are derived by `resolveScoresAs` and need no entry here.
    */
   scoresAs?: string;
+  /**
+   * Provider-specific semantic support for tool_choice. When present, declares
+   * which tool_choice modes this provider actually supports (auto/none/required/named).
+   * Omitted means unknown — do not assume support.
+   */
+  supportedToolChoiceModes?: readonly string[];
 }
 
 // Reasoning models reject temperature, top_p, penalties, logprobs, n.

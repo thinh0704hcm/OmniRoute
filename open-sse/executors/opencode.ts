@@ -169,85 +169,14 @@ export function resolveOpencodeTargetFormat(provider: string, model: string): st
  * Floor raised budgets only — explicit large budgets and non-muse-spark models
  * are untouched, and no budget is synthesized when the caller set none.
  */
-export const MUSE_SPARK_MIN_OUTPUT_TOKENS = 512;
+export const MUSE_SPARK_MIN_OUTPUT_TOKENS = 8192;
 
 export function applyMuseSparkMinOutputTokens(model: string, body: Record<string, unknown>): void {
   if (!model.startsWith("muse-spark")) return;
-  const current = body.max_tokens;
+  const current = body.max_output_tokens;
   if (typeof current !== "number" || !Number.isFinite(current)) return;
   if (current >= MUSE_SPARK_MIN_OUTPUT_TOKENS) return;
-  body.max_tokens = MUSE_SPARK_MIN_OUTPUT_TOKENS;
-}
-
-/**
- * muse-spark's gateway reports `finish_reason:"length"` whenever its hidden
- * reasoning consumed part of the output budget — even when the visible
- * completion is tiny relative to the requested budget (observed: ~270
- * completion tokens on a 128000-token request). OpenAI-protocol clients map a
- * "length" stop onto the caller's own max-tokens cap, so Claude Code aborts a
- * fully-delivered answer with "response exceeded the 128000 output token
- * maximum".
- *
- * Rewrite `length` → `stop` when the reported completion count proves the real
- * token limit was never reached (<90% of the caller's budget). Genuine
- * truncations at the budget are preserved. Streaming frames carry usage before
- * the terminal finish frame, so the completion count is known in time.
- */
-export function normalizeMuseSparkFinishReason(
-  payload: Record<string, unknown>,
-  requestedBudget: number | null,
-  /** Streaming: usage arrives in an earlier frame than the finish frame — caller passes the tracked count here. */
-  completionOverride?: number | null
-): void {
-  const choices = Array.isArray(payload.choices) ? payload.choices : [];
-  for (const choice of choices) {
-    if (!choice || typeof choice !== "object") continue;
-    const record = choice as Record<string, unknown>;
-    if (record.finish_reason !== "length") continue;
-    if (requestedBudget === null || requestedBudget === undefined) continue;
-    const usage = payload.usage as Record<string, unknown> | undefined;
-    const completion =
-      typeof completionOverride === "number"
-        ? completionOverride
-        : typeof usage?.completion_tokens === "number"
-          ? usage.completion_tokens
-          : null;
-    if (completion === null) continue;
-    if (completion < Math.floor(requestedBudget * 0.9)) {
-      record.finish_reason = "stop";
-    }
-  }
-}
-
-/** SSE line normalizer for muse-spark streams: tracks usage, rewrites finish frames. */
-export function createMuseSparkStreamFinishNormalizer(
-  requestedBudget: number | null
-): (dataLine: string) => string {
-  let completionTokens: number | null = null;
-  return (line: string): string => {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("data:") || trimmed.includes("[DONE]")) return line;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed.slice(5).trim());
-    } catch {
-      return line;
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return line;
-    const payload = parsed as Record<string, unknown>;
-    const usage = payload.usage as Record<string, unknown> | undefined;
-    if (usage && typeof usage.completion_tokens === "number") {
-      completionTokens = usage.completion_tokens;
-    }
-    const hadFinish = Array.isArray(payload.choices)
-      ? (payload.choices as Array<Record<string, unknown>>).some(
-          (c) => c && c.finish_reason === "length"
-        )
-      : false;
-    if (!hadFinish) return line;
-    normalizeMuseSparkFinishReason(payload, requestedBudget, completionTokens);
-    return `data: ${JSON.stringify(payload)}`;
-  };
+  body.max_output_tokens = MUSE_SPARK_MIN_OUTPUT_TOKENS;
 }
 
 function isResponsesTerminalLine(line: string): boolean {
@@ -340,12 +269,6 @@ export class OpencodeExecutor extends BaseExecutor {
     markAccountSuccess(account);
   }
 
-  /**
-   * Rewrite muse-spark's bogus `finish_reason:"length"` (see the
-   * normalizeMuseSparkFinishReason note) to `"stop"` on both streaming and
-   * non-streaming success responses. Non-muse-spark models pass through
-   * untouched.
-   */
   private normalizeMuseSparkResponse(
     input: ExecuteInput,
     result: ExecutorExecuteResult
@@ -353,63 +276,36 @@ export class OpencodeExecutor extends BaseExecutor {
     const model = String(input.model ?? "");
     if (!model.startsWith("muse-spark")) return result;
     if (!("response" in result) || !result.response?.ok || !result.response.body) return result;
-    const bodyObj =
-      input.body && typeof input.body === "object" && !Array.isArray(input.body)
-        ? (input.body as Record<string, unknown>)
-        : null;
-    const rawBudget = bodyObj?.max_tokens;
-    const budget = typeof rawBudget === "number" && Number.isFinite(rawBudget) ? rawBudget : null;
     const response = result.response;
     const isSse = response.headers.get("content-type")?.includes("event-stream") ?? false;
 
-    if (!isSse) {
-      // Non-streaming JSON: rewrite in a buffered pass.
-      const stream = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          try {
-            const text = await response.clone().text();
-            let out = text;
-            try {
-              const parsed = JSON.parse(text) as Record<string, unknown>;
-              normalizeMuseSparkFinishReason(parsed, budget);
-              out = JSON.stringify(parsed);
-            } catch {
-              /* not JSON — forward verbatim */
-            }
-            controller.enqueue(new TextEncoder().encode(out));
-          } catch (err) {
-            controller.error(err);
-            return;
-          }
-          controller.close();
-        },
-      });
-      return {
-        ...result,
-        response: new Response(stream, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        }),
-      };
-    }
+    if (!isSse) return result;
 
-    // Streaming SSE: line-buffered passthrough with finish_reason rewriting.
-    const normalizer = createMuseSparkStreamFinishNormalizer(budget);
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
     let buffer = "";
     const reader = response.body.getReader();
     let closed = false;
+    let terminalEmitted = false;
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        const emitTerminal = (line: string) => {
+          if (terminalEmitted) return;
+          terminalEmitted = true;
+          controller.enqueue(encoder.encode(line + "\n"));
+          controller.enqueue(encoder.encode("\n"));
+        };
         try {
           while (!closed) {
             const { done, value } = await reader.read();
             if (done) {
               buffer += decoder.decode();
               if (buffer.length > 0 && !closed) {
-                controller.enqueue(encoder.encode(normalizer(buffer)));
+                if (isResponsesTerminalLine(buffer) && !terminalEmitted) {
+                  emitTerminal(buffer);
+                } else if (!terminalEmitted || !isResponsesTerminalLine(buffer)) {
+                  if (!terminalEmitted) controller.enqueue(encoder.encode(buffer + "\n"));
+                }
               }
               if (!closed) {
                 closed = true;
@@ -422,18 +318,15 @@ export class OpencodeExecutor extends BaseExecutor {
             const lines = buffer.split("\n");
             buffer = lines.pop() ?? "";
             for (const line of lines) {
-              const normalized = normalizer(line);
-              controller.enqueue(encoder.encode(normalized + "\n"));
+              if (terminalEmitted) continue;
               if (isResponsesTerminalLine(line)) {
-                // OpenCode Zen sends a ping after response.completed and may keep
-                // the HTTP connection alive. The Responses terminal event is
-                // authoritative; do not let those post-completion pings hold Chat
-                // Completions open.
+                emitTerminal(line);
                 closed = true;
                 void reader.cancel().catch(() => undefined);
                 controller.close();
                 return;
               }
+              controller.enqueue(encoder.encode(line + "\n"));
             }
           }
         } catch (err) {
