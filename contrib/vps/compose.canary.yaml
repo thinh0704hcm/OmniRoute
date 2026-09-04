@@ -17,10 +17,10 @@ services:
       LIVE_WS_PORT: "20133"
       LIVE_WS_HOST: 127.0.0.1
       ADAPTIVE_ADMISSION_MODE: enforce
-      ADAPTIVE_ADMISSION_INITIAL_LIMIT: "256"
-      OMNIROUTE_CHAT_VIRTUAL_LANES: "1"
-      OMNIROUTE_MEMORY_MB: "4096"
-      NODE_OPTIONS: --max-old-space-size=4096
+      ADAPTIVE_ADMISSION_INITIAL_LIMIT: "384"
+      OMNIROUTE_CHAT_VIRTUAL_LANES: "4"
+      OMNIROUTE_MEMORY_MB: "8192"
+      NODE_OPTIONS: --max-old-space-size=8192
       OMNIROUTE_BASE_URL: http://omniroute-canary:20130
       REDIS_URL: redis://redis:6379
       OMNIROUTE_BUILD_SHA: ${OMNIROUTE_BUILD_SHA:?required}
@@ -29,10 +29,10 @@ services:
       - "127.0.0.1:30131:20131"
     volumes: !override
       - "${OMNIROUTE_CANARY_DATA_DIR:?required}:/app/data"
-    mem_limit: 6g
-    memswap_limit: 6g
-    cpus: "2.0"
-    pids_limit: 512
+    mem_limit: 12g
+    memswap_limit: 12g
+    cpus: "4.0"
+    pids_limit: 1024
     healthcheck:
       interval: 15s
       timeout: 8s

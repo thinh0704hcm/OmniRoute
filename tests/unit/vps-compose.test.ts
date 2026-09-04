@@ -129,8 +129,8 @@ test("Oracle canary mirrors enforcement and exposes only dashboard/API locally",
   assert.deepEqual(service?.ports, ["127.0.0.1:30130:20130", "127.0.0.1:30131:20131"]);
   assert.equal(service?.environment?.LIVE_WS_HOST, "127.0.0.1");
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MODE, "enforce");
-  assert.equal(service?.environment?.OMNIROUTE_CHAT_VIRTUAL_LANES, "1");
-  assert.equal(service?.cpus, "2.0");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_VIRTUAL_LANES, "4");
+  assert.equal(service?.cpus, "4.0");
   assert.deepEqual(service?.volumes, ["${OMNIROUTE_CANARY_DATA_DIR:?required}:/app/data"]);
   assert.match(raw, /ports: !override/);
   assert.match(raw, /volumes: !override/);
