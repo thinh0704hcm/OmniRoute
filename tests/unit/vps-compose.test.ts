@@ -82,7 +82,7 @@ test("VPS environment example uses a versioned image rather than a floating chan
   assert.match(env, /^REQUIRE_API_KEY=true$/m);
 });
 
-test("Oracle overlay exposes only dashboard/API on loopback, squrvq origins, and 2-CPU enforcement", () => {
+test("Oracle overlay exposes only dashboard/API on loopback, squrvq origins, and 4-CPU enforcement", () => {
   const raw = fs.readFileSync(ORACLE_COMPOSE_PATH, "utf8");
   const parsed = loadCompose(raw);
   const service = parsed.services?.omniroute;
@@ -102,7 +102,7 @@ test("Oracle overlay exposes only dashboard/API on loopback, squrvq origins, and
   assert.equal(service?.environment?.LIVE_WS_HOST, "127.0.0.1");
   assert.equal(service?.environment?.API_HOST, "0.0.0.0");
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MODE, "enforce");
-  assert.equal(service?.environment?.OMNIROUTE_CHAT_VIRTUAL_LANES, "1");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_VIRTUAL_LANES, "4");
   assert.equal(service?.environment?.NEXT_PUBLIC_BASE_URL, "https://squrvq.tail0bec0f.ts.net");
   assert.equal(service?.environment?.OMNIROUTE_PUBLIC_BASE_URL, "https://squrvq.tail0bec0f.ts.net");
   assert.equal(service?.environment?.LIVE_WS_PUBLIC_URL, "wss://squrvq.tail0bec0f.ts.net/live-ws");
@@ -112,9 +112,9 @@ test("Oracle overlay exposes only dashboard/API on loopback, squrvq origins, and
   );
   assert.equal(service?.environment?.LIVE_WS_ALLOWED_ORIGINS, "https://squrvq.tail0bec0f.ts.net");
   assert.equal(service?.environment?.OMNIROUTE_BUILD_SHA, "${OMNIROUTE_BUILD_SHA:?required}");
-  assert.equal(service?.mem_limit, "6g");
-  assert.equal(service?.memswap_limit, "6g");
-  assert.equal(service?.cpus, "2.0");
+  assert.equal(service?.mem_limit, "12g");
+  assert.equal(service?.memswap_limit, "12g");
+  assert.equal(service?.cpus, "4.0");
   assert.doesNotMatch(raw, /OMNIROUTE_WS_BIND_HOST/);
   assert.doesNotMatch(raw, /:20133/);
 });

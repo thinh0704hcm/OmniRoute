@@ -134,8 +134,11 @@ const TAG_PATTERN = /^[a-z0-9][a-z0-9._/-]*:[a-zA-Z0-9_.-]+$/;
 const SHA_BEARING_TAG_PATTERN = /(?:^|[-_.])[a-f0-9]{7,40}(?:[-_.]|$)/;
 export const ROLLBACK_IMAGE_REF = "omniroute:rollback-canary";
 export const ROLLBACK_GATEWAY_IMAGE_REF = "ts-gateway:rollback";
-const EXPECTED_MEMORY_BYTES = 6 * 1024 * 1024 * 1024;
-const EXPECTED_NANO_CPUS = 2_000_000_000;
+// Extreme-limits host (4c/12g): the local gate must expect the NEW envelope,
+// not the old 2c/6g one. These flow from compose.oracle.yaml (mem_limit,
+// cpus) — update together or qualify fails closed on resource identity.
+const EXPECTED_MEMORY_BYTES = 12 * 1024 * 1024 * 1024;
+const EXPECTED_NANO_CPUS = 4_000_000_000;
 
 export function isImmutableOmniRouteImage(imageRef: string): boolean {
   const ref = imageRef.trim();
