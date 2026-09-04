@@ -114,21 +114,22 @@ RUN test -f package-lock.json \
 # in production (TlsClientUnavailableError, #7802). Run it explicitly here so
 # a broken/rate-limited fetch fails the BUILD loudly instead of shipping a
 # broken image.
-# TLS_CLIENT_PREBUILT_BIN (build-arg): absolute host path to a pre-fetched
-# platform .so, bind-mounted at build time to skip the GitHub fetch entirely.
-# Used on hosts where the Releases API serves a renamed asset set the pinned
-# postinstall.js cannot resolve (e.g. arm64 xgo- renames post-1.15.x).
-# Example: --mount=type=bind,source=/tmp/tlsbin,target=/tlsbin,readonly
-#   with --build-arg TLS_CLIENT_PREBUILT_BIN=/tlsbin/tls-client-linux-arm64-1.15.1.so
+# TLS_CLIENT_PREBUILT_BIN (build-arg): filename of a pre-fetched platform .so
+# inside the build context subdirectory ./tls-prebuilt/ (gitignored), to skip
+# the GitHub fetch entirely. Used on hosts where the Releases API serves a
+# renamed asset set the pinned postinstall.js cannot resolve (e.g. arm64 xgo-
+# renames post-1.15.x). Empty (default) = normal postinstall.js fetch path.
+# Example: mkdir -p tls-prebuilt && cp tls-client-linux-arm64-1.15.1.so tls-prebuilt/
+#   with --build-arg TLS_CLIENT_PREBUILT_BIN=tls-client-linux-arm64-1.15.1.so
 ARG TLS_CLIENT_PREBUILT_BIN=""
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,target=/root/.npm \
   npm ci --include=optional --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
   && (cd node_modules/better-sqlite3 \
       && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild) \
   && node -e "require('better-sqlite3')(':memory:').close()" \
-  && (if [ -n "$TLS_CLIENT_PREBUILT_BIN" ] && [ -f "$TLS_CLIENT_PREBUILT_BIN" ]; then \
+  && (if [ -n "$TLS_CLIENT_PREBUILT_BIN" ] && [ -f "tls-prebuilt/$TLS_CLIENT_PREBUILT_BIN" ]; then \
         mkdir -p node_modules/tls-client-node/bin \
-        && cp "$TLS_CLIENT_PREBUILT_BIN" node_modules/tls-client-node/bin/ \
+        && cp "tls-prebuilt/$TLS_CLIENT_PREBUILT_BIN" node_modules/tls-client-node/bin/ \
         && echo "tls-client-node: using prebuilt binary $TLS_CLIENT_PREBUILT_BIN"; \
       else \
         node node_modules/tls-client-node/scripts/postinstall.js; \

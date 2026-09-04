@@ -150,3 +150,8 @@ app.__qa_backup/
 .next-playwright/
 cloud/
 electron/dist-electron
+# Prebuilt tls-client .so MUST reach the build context (see Dockerfile
+# TLS_CLIENT_PREBUILT_BIN). Negation must come last to win over any earlier
+# blanket rule.
+!tls-prebuilt/
+!tls-prebuilt/*.so
