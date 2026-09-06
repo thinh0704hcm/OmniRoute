@@ -16,3 +16,20 @@ test("opencode-zen paid muse-spark has no invented context limit", () => {
   assert.equal(paid!.targetFormat, "openai-responses");
   assert.equal(paid!.contextLength, undefined);
 });
+
+// Both versions remain in the live Zen catalog; preserve existing client IDs.
+test("both OpenCode aliases retain Muse 1.2 and expose Muse 1.3 contributor contracts", async () => {
+  const { opencodeProvider } =
+    await import("../../open-sse/config/providers/registry/opencode/index.ts");
+  for (const provider of [opencodeProvider, opencode_zenProvider]) {
+    for (const version of ["1.2", "1.3"]) {
+      const model = provider.models.find(
+        (entry) => entry.id === `muse-spark-${version}-contributor-free`
+      );
+      assert.ok(model);
+      assert.equal(model.targetFormat, "openai-responses");
+      assert.equal(model.contextLength, 1048576);
+      assert.deepEqual(model.supportedToolChoiceModes, ["auto"]);
+    }
+  }
+});

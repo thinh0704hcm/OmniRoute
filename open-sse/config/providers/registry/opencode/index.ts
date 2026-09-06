@@ -44,6 +44,15 @@ export const opencodeProvider: RegistryEntry = {
       targetFormat: "openai-responses",
       supportedToolChoiceModes: ["auto"],
     },
+
+    {
+      id: "muse-spark-1.3-contributor-free",
+      name: "Muse Spark 1.3 Contributor Free",
+      contextLength: 1048576,
+      supportsReasoning: true,
+      targetFormat: "openai-responses",
+      supportedToolChoiceModes: ["auto"],
+    },
     { id: "deepseek-v4-flash-free", name: "DeepSeek V4 Flash Free", supportsReasoning: true },
     // #6998: 2026-07-14 refresh — the upstream free tier rotated its lineup;
     // minimax-m3-free, minimax-m2.5-free, ling-2.6-1t-free,

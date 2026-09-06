@@ -103,89 +103,12 @@ RUN test -f package-lock.json \
 # node-gyp comes from npm's own bundled copy (deterministic, already in the image)
 # instead of `npx --yes`, which would install an arbitrary registry version
 # on-demand and run its lifecycle scripts (Sonar docker:S6505).
-#
-# tls-client-node (claude-web/grok-web/lmarena/perplexity-web TLS
-# impersonation) hits the same --ignore-scripts wall: its own postinstall.js
-# fetches a platform .so/.dylib/.dll from the bogdanfinn/tls-client GitHub
-# Releases API and is never invoked when npm ci skips lifecycle scripts. Unlike
-# better-sqlite3 above, that script never throws on failure — it only
-# `console.warn`s and exits 0 — so a rate-limited or offline build would
-# otherwise succeed silently with an empty bin/ and only fail at first request
-# in production (TlsClientUnavailableError, #7802). Run it explicitly here so
-# a broken/rate-limited fetch fails the BUILD loudly instead of shipping a
-# broken image.
-# TLS_CLIENT_PREBUILT_BLOB (build-arg): base64 of a pre-fetched platform .so,
-# optionally gzip-compressed (TLS_CLIENT_PREBUILT_GZIP=1), to skip the GitHub
-# fetch entirely on hosts where the Releases API serves a renamed asset set
-# the pinned postinstall.js cannot resolve (e.g. arm64 xgo- renames
-# post-1.15.x). Empty (default) = normal postinstall.js fetch path.
-# Two transports (the 15 MB .so is ~21 MB base64 — too large for an inline
-# --build-arg on hosts with a 2 MB ARG_MAX, and over the 500 KiB secret cap,
-# so split into ≤500 KiB numbered chunks):
-#   --secret id=tls0,src=<chunk0> --secret id=tls1,src=<chunk1> ...
-#   with --build-arg TLS_CLIENT_PREBUILT_CHUNKS=<count>
-# Chunk files: split -b 400k -d tlsblob.b64 tls-chunk- ; the build
-# reassembles in numeric order before decoding. Set TLS_CLIENT_PREBUILT_GZIP=1
-# when the blob is gzip-compressed (recommended: 15 MB -> 7 MB -> ~10 MB
-# base64 -> ~25 chunks; uncompressed ~21 MB base64 -> ~53 chunks).
-# In all cases TLS_CLIENT_PREBUILT_BIN names the destination file. Blobs
-# travel in secrets (never a COPY layer), so nothing touches the build context
-# and no .dockerignore exception is needed.
-# Example: split -b 400k -d /tmp/tlsblob.b64 /tmp/tlschunk/tls-
-#   with --secret id=tls0,src=/tmp/tlschunk/tls-00 ... (one --secret per chunk)
-#   with --build-arg TLS_CLIENT_PREBUILT_CHUNKS=25
-#   with --build-arg TLS_CLIENT_PREBUILT_GZIP=1
-#   with --build-arg TLS_CLIENT_PREBUILT_BIN=tls-client-linux-arm64-1.15.1.so
-ARG TLS_CLIENT_PREBUILT_BLOB=""
-ARG TLS_CLIENT_PREBUILT_BIN=""
-ARG TLS_CLIENT_PREBUILT_CHUNKS="0"
-ARG TLS_CLIENT_PREBUILT_GZIP=""
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,target=/root/.npm \
-  --mount=type=secret,id=tls00 --mount=type=secret,id=tls01 --mount=type=secret,id=tls02 \
-  --mount=type=secret,id=tls03 --mount=type=secret,id=tls04 --mount=type=secret,id=tls05 \
-  --mount=type=secret,id=tls06 --mount=type=secret,id=tls07 --mount=type=secret,id=tls08 \
-  --mount=type=secret,id=tls09 --mount=type=secret,id=tls10 --mount=type=secret,id=tls11 \
-  --mount=type=secret,id=tls12 --mount=type=secret,id=tls13 --mount=type=secret,id=tls14 \
-  --mount=type=secret,id=tls15 --mount=type=secret,id=tls16 --mount=type=secret,id=tls17 \
-  --mount=type=secret,id=tls18 --mount=type=secret,id=tls19 --mount=type=secret,id=tls20 \
-  --mount=type=secret,id=tls21 --mount=type=secret,id=tls22 --mount=type=secret,id=tls23 \
-  --mount=type=secret,id=tls24 --mount=type=secret,id=tls25 --mount=type=secret,id=tls26 \
-  --mount=type=secret,id=tls27 --mount=type=secret,id=tls28 --mount=type=secret,id=tls29 \
-  --mount=type=secret,id=tls30 --mount=type=secret,id=tls31 \
   npm ci --include=optional --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
   && (cd node_modules/better-sqlite3 \
       && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild) \
   && node -e "require('better-sqlite3')(':memory:').close()" \
-  && (if [ -n "$TLS_CLIENT_PREBUILT_BIN" ] && { [ -n "$TLS_CLIENT_PREBUILT_BLOB" ] || [ "$TLS_CLIENT_PREBUILT_CHUNKS" -gt 0 ] 2>/dev/null; }; then \
-        mkdir -p node_modules/tls-client-node/bin \
-        && if [ "$TLS_CLIENT_PREBUILT_CHUNKS" -gt 0 ] 2>/dev/null; then \
-             : > /tmp/tlsblob.b64; \
-             i=0; \
-             while [ "$i" -lt "$TLS_CLIENT_PREBUILT_CHUNKS" ]; do \
-               chunk="tls$(printf '%02d' "$i")"; \
-               if [ -f "/run/secrets/$chunk" ]; then \
-                 cat "/run/secrets/$chunk" >> /tmp/tlsblob.b64; \
-               else \
-                 echo "tls-client-node: missing secret chunk $chunk" >&2; exit 1; \
-               fi; \
-               i=$((i + 1)); \
-             done; \
-           else \
-             printf '%s' "$TLS_CLIENT_PREBUILT_BLOB" > /tmp/tlsblob.b64; \
-           fi \
-        && if [ -n "$TLS_CLIENT_PREBUILT_GZIP" ]; then \
-             base64 -d /tmp/tlsblob.b64 | gzip -dc > "node_modules/tls-client-node/bin/$TLS_CLIENT_PREBUILT_BIN"; \
-           else \
-             base64 -d /tmp/tlsblob.b64 > "node_modules/tls-client-node/bin/$TLS_CLIENT_PREBUILT_BIN"; \
-           fi \
-        && chmod 755 "node_modules/tls-client-node/bin/$TLS_CLIENT_PREBUILT_BIN" \
-        && rm -f /tmp/tlsblob.b64 \
-        && echo "tls-client-node: using prebuilt binary $TLS_CLIENT_PREBUILT_BIN"; \
-      else \
-        node node_modules/tls-client-node/scripts/postinstall.js; \
-      fi) \
-  && (test -n "$(find node_modules/tls-client-node/bin -mindepth 1 -print -quit 2>/dev/null)" \
-      || (echo "tls-client-node native binary missing after postinstall — GitHub API fetch likely rate-limited or failed (#7802)" >&2 && exit 1))
+  && node -e "const wreq=require('wreq-js'); if(typeof wreq.createTransport!=='function') process.exit(1)"
 
 # Build with Turbopack (stable in Next 16, the repo default). The v3.8.27-era
 # TurbopackInternalError panic ("entered unreachable code: there must be a path to a
@@ -412,7 +335,18 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-cache,targe
   && git config --system url."https://github.com/".insteadOf "ssh://git@github.com/"
 
 # Install CLI tools globally. Separate layer from apt for better cache reuse.
+# Pinned to exact versions per Diego's diagnosis in #12576 — floating
+# `@latest` causes two CI failures:
+#   1. `openclaw` ships a breaking major ~weekly; overnight builds silently
+#      advance to a version that no longer matches the tested combo stack.
+#   2. `codex` / `claude-code` dev pre-releases (`@next`, dist-tags) mutate
+#      API surface without notice; reproducible builds need a SHA-pinned dev
+#      build, not the floating `@latest`.
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,target=/root/.npm \
-  npm install -g --no-audit --no-fund @openai/codex @anthropic-ai/claude-code droid openclaw@latest
+  npm install -g --no-audit --no-fund \
+    @openai/codex@0.153.2 \
+    @anthropic-ai/claude-code@2.1.260 \
+    droid@0.212.0 \
+    openclaw@2026.9.1
 
 USER node

@@ -78,6 +78,15 @@ export const opencode_zenProvider: RegistryEntry = {
       supportedToolChoiceModes: ["auto"],
     },
 
+    {
+      id: "muse-spark-1.3-contributor-free",
+      name: "Muse Spark 1.3 Contributor Free",
+      contextLength: 1048576,
+      supportsReasoning: true,
+      targetFormat: "openai-responses",
+      supportedToolChoiceModes: ["auto"],
+    },
+
     // ── DeepSeek ────────────────────────────────────────────────
     // #10788: same tier vocabulary as opencode-go's DeepSeek rows — the Zen
     // upstream accepts the identical effort set on these models.

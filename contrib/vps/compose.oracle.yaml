@@ -52,7 +52,7 @@ services:
       OMNIROUTE_CHAT_ADMISSION_QUEUE_MS: "30000"
       OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES: "4194304"
       ADAPTIVE_ADMISSION_MODE: enforce
-      # Four heavy lanes: a cost-70+ coding-agent replay holds ~70 of the 256
+      # Four heavy lanes: a cost-70+ coding-agent replay holds ~70 of the 384
       # adaptive budget, so lanes=1 serialized 2-3 concurrent replays while
       # lanes=4 sustains 4 heavy lanes with fair round-robin between them.
       # Per-lane queues are bounded (maxQueueCount/maxQueueCost each) and the
