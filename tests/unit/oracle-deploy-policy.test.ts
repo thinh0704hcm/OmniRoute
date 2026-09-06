@@ -79,6 +79,14 @@ test("readiness probes use the dashboard port rather than the API-only port", ()
   assert.match(deployCli, /PUBLIC_COMPLETION_ATTEMPTS = 2/);
   assert.match(deployCli, /attempt <= PUBLIC_COMPLETION_ATTEMPTS/);
   assert.match(remoteHelper, /docker image inspect "\$img" --format/);
+  // verify-image asserts identity + health only: resource shape (mem/cpus)
+  // is pinned by the compose overlay + vps-compose test, never by a byte
+  // literal here — a stale literal once failed closed a healthy rollback.
+  // (HostConfig.Memory/NanoCpus still appear in read-only status probes.)
+  assert.doesNotMatch(
+    remoteHelper,
+    /verify-image\)[\s\S]{0,800}?HostConfig\.(Memory|NanoCpus)/
+  );
   assert.match(remoteHelper, /sudo -n cp -a -- "\$TS_GATEWAY_STATE_DIR" "\$destination"/);
   assert.match(remoteHelper, /docker pull "\$TS_GATEWAY_IMAGE"/);
   assert.doesNotMatch(remoteHelper, /serve set-config/);

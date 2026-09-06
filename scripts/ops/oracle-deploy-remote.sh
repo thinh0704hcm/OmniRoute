@@ -848,8 +848,6 @@ PY
     test "$(docker inspect "$PROD_CONTAINER" --format '{{.State.Health.Status}}')" = "healthy"
     test "$(docker inspect "$PROD_CONTAINER" --format '{{.RestartCount}}')" = "0"
     test "$(docker inspect "$PROD_CONTAINER" --format '{{.State.OOMKilled}}')" = "false"
-    test "$(docker inspect "$PROD_CONTAINER" --format '{{.HostConfig.Memory}}')" = "6442450944"
-    test "$(docker inspect "$PROD_CONTAINER" --format '{{.HostConfig.NanoCpus}}')" = "2000000000"
     ;;
 
   adopt-gateway)
