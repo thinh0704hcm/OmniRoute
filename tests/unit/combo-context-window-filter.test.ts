@@ -212,6 +212,24 @@ test("output-token limits remain a hard compatibility requirement", () => {
   );
 });
 
+test("Responses max_output_tokens participates in output/context filtering", () => {
+  saveModelsDevCapabilities({
+    "unit-responses-limit": {
+      insufficient: capabilityEntryWithLimits(128_000, 128_000, 128),
+      sufficient: capabilityEntryWithLimits(128_000, 128_000, 4_096),
+    },
+  });
+  const out = filterTargetsByRequestCompatibility(
+    [target("unit-responses-limit/insufficient"), target("unit-responses-limit/sufficient")],
+    { messages: [{ role: "user", content: "hello" }], max_output_tokens: 512 },
+    noopLog
+  );
+  assert.deepEqual(
+    out.map((e) => e.modelStr),
+    ["unit-responses-limit/sufficient"]
+  );
+});
+
 test("combo dispatches requests that only an approximate estimate marks oversized", async () => {
   saveModelsDevCapabilities({
     "unit-known-context": {

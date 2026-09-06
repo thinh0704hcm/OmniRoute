@@ -1,19 +1,15 @@
-import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
+import { buildErrorBody, errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import type { AutoVariant } from "@omniroute/open-sse/services/autoCombo/autoPrefix.ts";
 import {
   AUTO_TEMPLATE_VARIANTS,
-  VALID_AUTO_VARIANTS,
+  resolveBuiltinAutoRoute,
 } from "@omniroute/open-sse/services/autoCombo/builtinCatalog.ts";
-import {
-  parseAutoSuffix,
-  type AutoCategory,
-  type AutoTier,
+import type {
+  AutoCategory,
+  AutoTier,
 } from "@omniroute/open-sse/services/autoCombo/suffixComposition.ts";
-import {
-  isValidModelFamily,
-  type ModelFamily,
-} from "@omniroute/open-sse/services/autoCombo/modelFamily.ts";
+import type { ModelFamily } from "@omniroute/open-sse/services/autoCombo/modelFamily.ts";
 import { getCachedSettings } from "@/lib/db/readCache";
 import * as log from "../utils/logger";
 
@@ -29,36 +25,60 @@ export type AutoRoutingState = {
 function classifyAutoModel(
   model: string
 ): Pick<AutoRoutingState, "variant" | "spec" | "recognizedBuiltInAuto"> {
-  const recognizedBuiltInAuto =
-    model === "auto" || Object.prototype.hasOwnProperty.call(AUTO_TEMPLATE_VARIANTS, model);
-  if (Object.prototype.hasOwnProperty.call(AUTO_TEMPLATE_VARIANTS, model)) {
-    // auto/best-free must carry spec.tier="free" so virtualFactory applies the
-    // free-tier candidate filter (excludes paid backends). Mirrors the
-    // hardcoded spec in builtinCatalog.ts:createBuiltinAutoCombo. Without this,
-    // chat.ts routes auto/best-free as plain auto/cheap (no tier filter).
-    const spec = model === "auto/best-free" ? { tier: "free" as const } : undefined;
-    return { variant: AUTO_TEMPLATE_VARIANTS[model], spec, recognizedBuiltInAuto: true };
-  }
-  if (!model.startsWith("auto/")) return { recognizedBuiltInAuto };
+  const route = resolveBuiltinAutoRoute(model);
+  return {
+    recognizedBuiltInAuto: route.recognized,
+    ...(route.variant ? { variant: route.variant } : {}),
+    ...(route.spec ? { spec: route.spec } : {}),
+  };
+}
 
-  const suffix = model.slice(5);
-  if (VALID_AUTO_VARIANTS.has(suffix as AutoVariant)) {
-    return { recognizedBuiltInAuto: true };
-  }
-  const parsedSuffix = parseAutoSuffix(suffix);
-  if (parsedSuffix.valid) {
-    return {
-      recognizedBuiltInAuto: true,
-      spec: { category: parsedSuffix.category, tier: parsedSuffix.tier },
-    };
-  }
-  if (isValidModelFamily(suffix)) {
-    return {
-      recognizedBuiltInAuto: true,
-      spec: { family: suffix as ModelFamily },
-    };
-  }
-  return { recognizedBuiltInAuto };
+const BUILTIN_AUTO_TARGET_TIMEOUT_MS = 60_000;
+const BUILTIN_AUTO_MAX_GLOBAL_ATTEMPTS = 6;
+const BUILTIN_AUTO_COMBO_TIMEOUT_MS = 300_000;
+
+type VirtualAutoComboShape = {
+  models?: unknown[];
+  config?: Record<string, unknown>;
+};
+
+export function rejectEmptyVirtualAutoCombo(combo: VirtualAutoComboShape): Response | null {
+  if (Array.isArray(combo.models) && combo.models.length > 0) return null;
+  return new Response(
+    JSON.stringify(
+      buildErrorBody(
+        HTTP_STATUS.SERVICE_UNAVAILABLE,
+        "No eligible model is available for this auto routing request.",
+        undefined,
+        { code: "auto_candidate_pool_empty", type: "server_error" }
+      )
+    ),
+    { status: HTTP_STATUS.SERVICE_UNAVAILABLE, headers: { "Content-Type": "application/json" } }
+  );
+}
+
+export function hardenBuiltinAutoCombo<T extends VirtualAutoComboShape>(combo: T): T {
+  const configuredTargetTimeout = Number(combo.config?.targetTimeoutMs);
+  const configuredMaxAttempts = Number(combo.config?.maxGlobalAttempts);
+  const configuredComboTimeout = Number(combo.config?.comboTimeoutMs);
+  return {
+    ...combo,
+    config: {
+      ...combo.config,
+      targetTimeoutMs:
+        Number.isFinite(configuredTargetTimeout) && configuredTargetTimeout > 0
+          ? Math.min(configuredTargetTimeout, BUILTIN_AUTO_TARGET_TIMEOUT_MS)
+          : BUILTIN_AUTO_TARGET_TIMEOUT_MS,
+      maxGlobalAttempts:
+        Number.isFinite(configuredMaxAttempts) && configuredMaxAttempts > 0
+          ? Math.min(Math.floor(configuredMaxAttempts), BUILTIN_AUTO_MAX_GLOBAL_ATTEMPTS)
+          : BUILTIN_AUTO_MAX_GLOBAL_ATTEMPTS,
+      comboTimeoutMs:
+        Number.isFinite(configuredComboTimeout) && configuredComboTimeout > 0
+          ? Math.min(configuredComboTimeout, BUILTIN_AUTO_COMBO_TIMEOUT_MS)
+          : BUILTIN_AUTO_COMBO_TIMEOUT_MS,
+    },
+  };
 }
 
 async function applyAutoPrefix(
@@ -66,6 +86,10 @@ async function applyAutoPrefix(
   state: Pick<AutoRoutingState, "variant" | "spec">,
   settings: Record<string, unknown>
 ): Promise<Pick<AutoRoutingState, "variant" | "spec">> {
+  if (Object.prototype.hasOwnProperty.call(AUTO_TEMPLATE_VARIANTS, model)) {
+    log.info("AUTO", `Zero-config routing variant: ${state.variant || "default"} (model=${model})`);
+    return state;
+  }
   try {
     const { parseAutoPrefix } =
       await import("@omniroute/open-sse/services/autoCombo/autoPrefix.ts");
@@ -138,9 +162,13 @@ export async function createVirtualAutoCombo(
     // #7819 (Level 2): scope candidate exclusions to this API key + the
     // requested auto channel (e.g. "auto/best-coding"). Omitted for any
     // caller that doesn't pass apiKeyId — routing stays unfiltered.
-    const virtualCombo = await createVirtual(state.variant, state.spec, apiKeyId, state.model);
+    const virtualCombo = hardenBuiltinAutoCombo(
+      await createVirtual(state.variant, state.spec, apiKeyId, state.model)
+    );
     virtualCombo.name = state.model;
     virtualCombo.id = state.model;
+    const emptyPoolResponse = rejectEmptyVirtualAutoCombo(virtualCombo);
+    if (emptyPoolResponse) return emptyPoolResponse;
     log.info(
       "AUTO",
       `Virtual auto-combo created: ${virtualCombo.name} (${virtualCombo.candidatePool?.length || 0} candidates)`

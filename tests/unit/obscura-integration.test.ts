@@ -113,7 +113,7 @@ describe("obscura engine", () => {
   });
 
   it("connects to an external endpoint without owning its process", async (t) => {
-    void t;  
+    void t;
     killSharedObscuraServer();
     if (!HAS_OBSCURA) {
       t.skip("obscura binary not installed");

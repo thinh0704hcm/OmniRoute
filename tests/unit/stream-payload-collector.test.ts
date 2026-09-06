@@ -218,7 +218,7 @@ test("buildStreamSummaryFromEvents keeps two genuinely different interleaved too
   assert.equal(toolCalls[1].function.arguments, '{"path":"b"}');
 });
 
-// opencode/muse-spark-1.2-contributor-free (zen provider): the upstream SSE stream
+// opencode/muse-spark-1.3-contributor-free (zen provider): the upstream SSE stream
 // never varies `index`/`id` for a 2nd/3rd tool_call of the SAME name in one turn —
 // every delta lands on the same accumulator key, so 3 distinct `task` calls
 // concatenate into a single malformed `arguments` string containing 3 back-to-back
@@ -248,7 +248,7 @@ test("buildStreamSummaryFromEvents splits a tool_call whose arguments are multip
   const summary = collector.buildStreamSummaryFromEvents(
     events,
     "openai",
-    "opencode/muse-spark-1.2-contributor-free"
+    "opencode/muse-spark-1.3-contributor-free"
   ) as ToolCallSummary;
   const toolCalls = summary.choices[0].message.tool_calls;
 

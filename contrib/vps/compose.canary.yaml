@@ -1,0 +1,48 @@
+# Isolated Oracle canary overlay. Apply to compose.yaml only (not compose.oracle.yaml)
+# with project name "omniroute-canary" and a WAL-consistent copied data directory.
+services:
+  redis:
+    image: docker.io/library/redis:7.4.10-alpine
+    container_name: omniroute-canary-redis
+
+  omniroute:
+    container_name: omniroute-canary
+    user: "${OMNIROUTE_RUNTIME_UID:-1000}:${OMNIROUTE_RUNTIME_GID:-1000}"
+    environment:
+      PORT: "20130"
+      DASHBOARD_PORT: "20130"
+      API_PORT: "20131"
+      # The API bridge must accept Docker port-forward traffic from the host.
+      API_HOST: 0.0.0.0
+      LIVE_WS_PORT: "20133"
+      LIVE_WS_HOST: 127.0.0.1
+      ADAPTIVE_ADMISSION_MODE: shadow
+      ADAPTIVE_ADMISSION_INITIAL_LIMIT: "768"
+      ADAPTIVE_ADMISSION_MAX_QUEUE_COUNT: "512"
+      ADAPTIVE_ADMISSION_MAX_QUEUE_COST: "8000"
+      ADAPTIVE_ADMISSION_MAX_WAIT_MS: "60000"
+      OMNIROUTE_CHAT_VIRTUAL_LANES: "4"
+      OMNIROUTE_MEMORY_MB: "8192"
+      NODE_OPTIONS: --max-old-space-size=8192
+      OMNIROUTE_BASE_URL: http://omniroute-canary:20130
+      REDIS_URL: redis://redis:6379
+      # Cold catalog builds on a fresh canary exceed the 8s in-app default
+      # (upstream #12628; warm production answers in ~6.5s), so raise the
+      # server-side wait to the 60s schema ceiling — inside the 60s probe
+      # budget pinned in scripts/ops/oracle-deploy.mjs.
+      CATALOG_BUILD_TIMEOUT_MS: "60000"
+      OMNIROUTE_BUILD_SHA: ${OMNIROUTE_BUILD_SHA:?required}
+    ports: !override
+      - "127.0.0.1:30130:20130"
+      - "127.0.0.1:30131:20131"
+    volumes: !override
+      - "${OMNIROUTE_CANARY_DATA_DIR:?required}:/app/data"
+    mem_limit: 12g
+    memswap_limit: 12g
+    cpus: "4.0"
+    pids_limit: 1024
+    healthcheck:
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 45s

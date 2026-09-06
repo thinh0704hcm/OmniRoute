@@ -167,10 +167,10 @@ test("Responses requests use a UUID x-opencode-session for Muse compatibility", 
     null,
     true,
     null,
-    "muse-spark-1.2-contributor-free",
+    "muse-spark-1.3-contributor-free",
     undefined,
     {
-      model: "muse-spark-1.2-contributor-free",
+      model: "muse-spark-1.3-contributor-free",
       input: [],
     }
   );

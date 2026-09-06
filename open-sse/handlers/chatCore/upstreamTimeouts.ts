@@ -123,10 +123,7 @@ export function getExecutorTimeoutMs(
     // Defensive backstop for direct callers: resolveConnectionTimeoutMs is the
     // gate (it rejects out-of-range values so the chain falls through); this
     // clamp only caps values a future caller could pass unvetted.
-    return Math.min(
-      Math.max(0, Math.floor(connectionTimeoutMs)),
-      MAX_PROVIDER_SPECIFIC_TIMEOUT_MS
-    );
+    return Math.min(Math.max(0, Math.floor(connectionTimeoutMs)), MAX_PROVIDER_SPECIFIC_TIMEOUT_MS);
   }
   const modelOverride = resolveModelTimeoutOverride(provider, model);
   if (modelOverride !== undefined) return modelOverride;
@@ -251,6 +248,7 @@ export async function executeWithUpstreamStartTimeout<T>({
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let abortListener: (() => void) | null = null;
   let timeoutAbortListener: (() => void) | null = null;
+  let abortPromiseListener: (() => void) | null = null;
 
   const abortCombined = (source: AbortSignal) => {
     if (combinedController.signal.aborted) return;
@@ -272,7 +270,8 @@ export async function executeWithUpstreamStartTimeout<T>({
   });
 
   const abortPromise = new Promise<never>((_, reject) => {
-    signal.addEventListener("abort", () => reject(createAbortError(signal)), { once: true });
+    abortPromiseListener = () => reject(createAbortError(signal));
+    signal.addEventListener("abort", abortPromiseListener, { once: true });
   });
 
   try {
@@ -283,5 +282,6 @@ export async function executeWithUpstreamStartTimeout<T>({
     if (timeoutAbortListener) {
       timeoutController.signal.removeEventListener("abort", timeoutAbortListener);
     }
+    if (abortPromiseListener) signal.removeEventListener("abort", abortPromiseListener);
   }
 }

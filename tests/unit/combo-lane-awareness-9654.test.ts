@@ -208,16 +208,15 @@ test("probe forwards the abort signal", async () => {
   assert.equal(runtime.acquireCalls[0].signal, ac.signal, "probe must forward the parent signal");
 });
 
-// ── Integration: combo priority skips lane-full targets ────────────────────
+// ── Integration: serial strategies use the parent's existing lease ─────────
 
-test("priority combo: lane-full target is skipped before dispatch, healthy target serves", async () => {
+test("priority combo: per-target hook is not applied to serial dispatch", async () => {
   const calls: string[] = [];
   const handleSingleModel = async (_b: Body, m: string) => {
     calls.push(m);
     return okResponse(`ans-${m}`);
   };
-  // Lane full for the FIRST target only → it must be skipped, second serves.
-  const perTargetAdmission: PerTargetAdmissionHook = async (t) => t.modelStr !== "p/first";
+  const perTargetAdmission: PerTargetAdmissionHook = async () => false;
 
   const res = await handleComboChat({
     body: { messages: [{ role: "user", content: "hi" }] },
@@ -229,44 +228,40 @@ test("priority combo: lane-full target is skipped before dispatch, healthy targe
     perTargetAdmission,
   });
 
-  assert.deepEqual(calls, ["p/second"], "lane-full first target must be skipped");
+  assert.deepEqual(calls, ["p/first"], "the parent lease must cover the serial target");
   assert.equal(res.status, 200);
 });
 
-test("priority combo: all targets lane-full falls through to the exhausted path", async () => {
+test("priority combo: fallback remains available under the parent lease", async () => {
   const calls: string[] = [];
   const handleSingleModel = async (_b: Body, m: string) => {
     calls.push(m);
     return okResponse(`ans-${m}`);
   };
-  const perTargetAdmission: PerTargetAdmissionHook = async () => false; // every target skipped
+  const perTargetAdmission: PerTargetAdmissionHook = async () => false;
 
   const res = await handleComboChat({
     body: { messages: [{ role: "user", content: "hi" }] },
     combo: priorityCombo(["p/first", "p/second"]),
     handleSingleModel,
+    isModelAvailable: async (model) => model !== "p/first",
     log,
     settings: {},
     allCombos: [],
     perTargetAdmission,
   });
 
-  assert.equal(calls.length, 0, "no target may be dispatched when every lane is full");
-  assert.ok(
-    [503, 502].includes(res.status),
-    `expected a service-unavailable status, got ${res.status}`
-  );
+  assert.deepEqual(calls, ["p/second"]);
+  assert.equal(res.status, 200);
 });
 
-// ── Integration: round-robin skips lane-full targets ───────────────────────
-
-test("round-robin: lane-full target is skipped, next target serves", async () => {
+test("round-robin: per-target hook is not applied to single-target dispatch", async () => {
   const calls: string[] = [];
   const handleSingleModel = async (_b: Body, m: string) => {
     calls.push(m);
     return okResponse(`ans-${m}`);
   };
-  const perTargetAdmission: PerTargetAdmissionHook = async (t) => t.modelStr !== "p/first";
+  const perTargetAdmission: PerTargetAdmissionHook = async () => false;
 
   const res = await handleComboChat({
     body: { messages: [{ role: "user", content: "hi" }] },
@@ -278,7 +273,7 @@ test("round-robin: lane-full target is skipped, next target serves", async () =>
     perTargetAdmission,
   });
 
-  assert.deepEqual(calls, ["p/second"], "round-robin must skip the lane-full first target");
+  assert.deepEqual(calls, ["p/first"], "the parent lease must cover the selected target");
   assert.equal(res.status, 200);
 });
 
