@@ -24,6 +24,10 @@ services:
       OMNIROUTE_CHAT_VIRTUAL_LANES: "4"
       OMNIROUTE_MEMORY_MB: "8192"
       NODE_OPTIONS: --max-old-space-size=8192
+      UV_THREADPOOL_SIZE: "8"
+      OMNIROUTE_CHAT_ADMISSION_HEALTHY_HEADROOM: "4"
+      OMNIROUTE_CHAT_ADMISSION_QUEUE_MS: "60000"
+      OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES: "33554432"
       OMNIROUTE_BASE_URL: http://omniroute-canary:20130
       REDIS_URL: redis://redis:6379
       # Cold catalog builds on a fresh canary exceed the 8s in-app default

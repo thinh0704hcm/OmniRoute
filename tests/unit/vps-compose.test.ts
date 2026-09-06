@@ -106,6 +106,10 @@ test("Oracle overlay exposes only dashboard/API on loopback, squrvq origins, and
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MAX_QUEUE_COUNT, "512");
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MAX_QUEUE_COST, "8000");
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MAX_WAIT_MS, "60000");
+  assert.equal(service?.environment?.UV_THREADPOOL_SIZE, "8");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_ADMISSION_HEALTHY_HEADROOM, "4");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_ADMISSION_QUEUE_MS, "60000");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES, "33554432");
   assert.equal(service?.environment?.OMNIROUTE_CHAT_VIRTUAL_LANES, "4");
   assert.equal(service?.environment?.NEXT_PUBLIC_BASE_URL, "https://squrvq.tail0bec0f.ts.net");
   assert.equal(service?.environment?.OMNIROUTE_PUBLIC_BASE_URL, "https://squrvq.tail0bec0f.ts.net");
@@ -137,6 +141,10 @@ test("Oracle canary mirrors enforcement and exposes only dashboard/API locally",
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MAX_QUEUE_COUNT, "512");
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MAX_QUEUE_COST, "8000");
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MAX_WAIT_MS, "60000");
+  assert.equal(service?.environment?.UV_THREADPOOL_SIZE, "8");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_ADMISSION_HEALTHY_HEADROOM, "4");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_ADMISSION_QUEUE_MS, "60000");
+  assert.equal(service?.environment?.OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES, "33554432");
   assert.equal(service?.environment?.OMNIROUTE_CHAT_VIRTUAL_LANES, "4");
   assert.equal(service?.environment?.CATALOG_BUILD_TIMEOUT_MS, "60000");
   assert.equal(service?.cpus, "4.0");

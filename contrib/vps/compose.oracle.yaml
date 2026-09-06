@@ -47,10 +47,19 @@ services:
       LIVE_WS_HOST: 127.0.0.1
       OMNIROUTE_MEMORY_MB: "8192"
       NODE_OPTIONS: --max-old-space-size=8192
+      # UV threadpool sized to the 4-core box: DNS + SQLite + crypto off the
+      # event loop instead of the default 4 contending with request handling.
+      UV_THREADPOOL_SIZE: "8"
+      # No-limit structural chat admission on 4c/12g: the byte budget already
+      # scales with the real heap ceiling, so uncap the legacy request-count
+      # lease (unset default already skips it), widen the healthy-heap
+      # headroom to 4 (one per core), and stretch the bounded wait to 60s so
+      # bursts serialize instead of 503ing. Heap-pressure shed still binds.
+      OMNIROUTE_CHAT_ADMISSION_HEALTHY_HEADROOM: "4"
       # Keep admission adaptive and key-fair. A fixed heavy-in-flight cap is
       # process-global, so a long deals call must not serialize every tenant.
-      OMNIROUTE_CHAT_ADMISSION_QUEUE_MS: "30000"
-      OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES: "4194304"
+      OMNIROUTE_CHAT_ADMISSION_QUEUE_MS: "60000"
+      OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES: "33554432"
       ADAPTIVE_ADMISSION_MODE: shadow
       # Four heavy lanes: a cost-70+ coding-agent replay holds ~70 of the 384
       # adaptive budget, so lanes=1 serialized 2-3 concurrent replays while
