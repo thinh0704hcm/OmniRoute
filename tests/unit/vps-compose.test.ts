@@ -106,6 +106,7 @@ test("Oracle overlay exposes only dashboard/API on loopback, squrvq origins, and
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MAX_QUEUE_COUNT, "512");
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MAX_QUEUE_COST, "8000");
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MAX_WAIT_MS, "60000");
+  assert.equal(service?.environment?.CATALOG_BUILD_TIMEOUT_MS, "60000");
   assert.equal(service?.environment?.UV_THREADPOOL_SIZE, "8");
   assert.equal(service?.environment?.OMNIROUTE_CHAT_ADMISSION_HEALTHY_HEADROOM, "4");
   assert.equal(service?.environment?.OMNIROUTE_CHAT_ADMISSION_QUEUE_MS, "60000");

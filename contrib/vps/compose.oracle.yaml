@@ -80,6 +80,10 @@ services:
       ADAPTIVE_ADMISSION_MAX_QUEUE_COUNT: "512"
       ADAPTIVE_ADMISSION_MAX_QUEUE_COST: "8000"
       ADAPTIVE_ADMISSION_MAX_WAIT_MS: "60000"
+      # Cold catalog builds after a recreate exceed the 8s in-app default
+      # (upstream #12628; observed 500 on fresh promote probes). Same 60s
+      # value as the canary overlay — inside the 60s probe budget.
+      CATALOG_BUILD_TIMEOUT_MS: "60000"
       OMNIROUTE_BASE_URL: http://omniroute-parallel:20130
       NEXT_PUBLIC_BASE_URL: https://squrvq.tail0bec0f.ts.net
       OMNIROUTE_PUBLIC_BASE_URL: https://squrvq.tail0bec0f.ts.net
