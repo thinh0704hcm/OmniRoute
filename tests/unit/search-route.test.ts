@@ -469,3 +469,87 @@ test("v1 search POST falls back to duckduckgo-free when no provider is configure
     globalThis.fetch = originalFetch;
   }
 });
+
+test("v1 search POST tries providers[] in order, first results win", async () => {
+  await seedConnection("serper-search", { apiKey: "serper-key" });
+  await seedConnection("firecrawl", { apiKey: "fc-key" });
+
+  const originalFetch = globalThis.fetch;
+  const called: string[] = [];
+
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    called.push(target);
+    if (target.includes("google.serper.dev")) {
+      return new Response(JSON.stringify({ organic: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        data: {
+          web: [
+            {
+              title: "FC result",
+              url: "https://fc.example/hit",
+              description: "fc snippet",
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  };
+
+  try {
+    const response = await searchRoute.POST(
+      new Request("http://localhost/api/v1/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: "ordered failover",
+          providers: ["serper-search", "firecrawl"],
+          max_results: 1,
+        }),
+      })
+    );
+    const body = (await response.json()) as any;
+
+    assert.equal(response.status, 200);
+    assert.equal(body.provider, "firecrawl");
+    assert.equal(body.results[0].title, "FC result");
+    assert.ok(
+      called.some((u) => u.includes("google.serper.dev")),
+      "first leg must be attempted"
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("v1 search POST rejects provider and providers together", async () => {
+  const response = await searchRoute.POST(
+    new Request("http://localhost/api/v1/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: "conflict",
+        provider: "firecrawl",
+        providers: ["firecrawl"],
+      }),
+    })
+  );
+  assert.equal(response.status, 400);
+});
+
+test("v1 search POST rejects unknown provider id inside providers[]", async () => {
+  const response = await searchRoute.POST(
+    new Request("http://localhost/api/v1/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "unknown leg", providers: ["nope-search"] }),
+    })
+  );
+  assert.equal(response.status, 400);
+});

@@ -14,6 +14,7 @@ import {
   SEARCH_PROVIDERS,
   getSearchCredentialFallbacks,
 } from "@omniroute/open-sse/config/searchRegistry.ts";
+import { backfillPublishedAt } from "@omniroute/open-sse/handlers/search/dateBackfill.ts";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import * as log from "@/sse/utils/logger";
@@ -134,6 +135,9 @@ async function postHandler(request: Request, context: unknown) {
   const body = validation.data;
   if (body.provider === "x_search") body.provider = "x-search";
   if (body.provider === "x-search") body.search_type = "x";
+  if (body.provider && body.providers) {
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Set either `provider` or `providers`, not both");
+  }
 
   // Enforce API key policies — use "search" as model identifier for consistent policy config
   const policy = await enforceApiKeyPolicy(request, "search");
@@ -143,7 +147,26 @@ async function postHandler(request: Request, context: unknown) {
   const blockedProviders = settings?.blockedProviders || [];
 
   // Resolve provider and credentials
-  if (body.provider) {
+  if (body.providers) {
+    for (const pid of body.providers) {
+      if (isProviderBlockedByIdOrAlias(pid, blockedProviders)) {
+        return errorResponse(
+          HTTP_STATUS.FORBIDDEN,
+          `Search provider ${pid} is blocked by security policy`
+        );
+      }
+      const resolved = resolveSearchProvider(pid);
+      if (!resolved) {
+        return errorResponse(HTTP_STATUS.BAD_REQUEST, `Unknown search provider: ${pid}`);
+      }
+      if (!supportsSearchType(resolved, body.search_type)) {
+        return errorResponse(
+          HTTP_STATUS.BAD_REQUEST,
+          `Search provider ${pid} does not support search_type: ${body.search_type}`
+        );
+      }
+    }
+  } else if (body.provider) {
     if (isProviderBlockedByIdOrAlias(body.provider, blockedProviders)) {
       return errorResponse(
         HTTP_STATUS.FORBIDDEN,
@@ -161,6 +184,14 @@ async function postHandler(request: Request, context: unknown) {
       );
     }
   }
+
+  // Ordered failover chain: one shared 12s budget across all legs so stacked
+  // per-provider timeouts can never exceed it. First 2xx with >=1 result wins.
+  const ORDERED_CHAIN_TIMEOUT_MS = 12_000;
+  const orderedChainSignal =
+    body.providers && body.providers.length > 0
+      ? AbortSignal.timeout(ORDERED_CHAIN_TIMEOUT_MS)
+      : undefined;
 
   let providerConfig = selectProvider(body.provider, body.search_type);
   if (
@@ -193,7 +224,37 @@ async function postHandler(request: Request, context: unknown) {
     credentials: RateLimitedCredentials;
   } | null = null;
 
-  if (body.provider) {
+  if (body.providers && body.providers.length > 0) {
+    // Ordered failover — resolve to the first leg with credentials; the
+    // per-leg execution loop below walks the same order under one budget.
+    let resolvedLeg: { id: string; creds: Record<string, any> } | null = null;
+    for (const pid of body.providers) {
+      const legConfig = resolveSearchProvider(pid)!;
+      const legCreds = await resolveSearchExecutionCredentials(legConfig);
+      if (isAllRateLimitedCredentials(legCreds)) {
+        firstRateLimitedCredentials ??= { providerId: legConfig.id, credentials: legCreds };
+        continue;
+      }
+      if (legCreds) {
+        resolvedLeg = { id: legConfig.id, creds: legCreds };
+        break;
+      }
+    }
+    if (!resolvedLeg) {
+      if (firstRateLimitedCredentials) {
+        return rateLimitedProviderResponse(
+          firstRateLimitedCredentials.providerId,
+          firstRateLimitedCredentials.credentials
+        );
+      }
+      return errorResponse(
+        HTTP_STATUS.BAD_REQUEST,
+        `No credentials configured for any search provider in: ${body.providers.join(", ")}. Add an API key in the dashboard.`
+      );
+    }
+    providerConfig = resolveSearchProvider(resolvedLeg.id)!;
+    credentials = resolvedLeg.creds;
+  } else if (body.provider) {
     // Explicit provider — single credential lookup (with fallback)
     const explicitCredentials = await resolveSearchExecutionCredentials(providerConfig);
     if (isAllRateLimitedCredentials(explicitCredentials)) {
@@ -330,7 +391,8 @@ async function postHandler(request: Request, context: unknown) {
   // Clamp max_results to provider limit
   const clampedMaxResults = Math.min(body.max_results, providerConfig.maxMaxResults);
 
-  // Cache key — includes all fields that affect results
+  // Cache key — includes all fields that affect results. The ordered
+  // provider chain joins the key so different orders never collide.
   const cacheKey = computeCacheKey(
     body.query,
     providerConfig.id,
@@ -344,40 +406,118 @@ async function postHandler(request: Request, context: unknown) {
       time_range: body.time_range,
       content: body.content,
       provider_options: body.provider_options,
+      provider_chain: body.providers?.join(">"),
+      backfill_dates: body.backfill_dates || undefined,
     }
   );
 
   const ttl = providerConfig.cacheTTLMs ?? SEARCH_CACHE_DEFAULT_TTL_MS;
 
+  // Ordered-chain legs after the primary, each with credentials resolved up
+  // front so the execution loop never blocks on credential I/O mid-chain.
+  const chainLegs: Array<{ id: string; creds: Record<string, any> }> = [];
+  if (body.providers && body.providers.length > 0) {
+    const seen = new Set([providerConfig.id]);
+    for (const pid of body.providers) {
+      const legConfig = resolveSearchProvider(pid)!;
+      if (seen.has(legConfig.id)) continue;
+      seen.add(legConfig.id);
+      const legCreds = await resolveSearchExecutionCredentials(legConfig);
+      if (legCreds && !isAllRateLimitedCredentials(legCreds)) {
+        chainLegs.push({ id: legConfig.id, creds: legCreds });
+      }
+    }
+  }
+
+  async function executeLeg(legId: string, legCreds: Record<string, any>) {
+    const legConfig = resolveSearchProvider(legId)!;
+    const legMax = Math.min(body.max_results, legConfig.maxMaxResults);
+    return handleSearch({
+      query: body.query,
+      provider: legConfig.id,
+      maxResults: legMax,
+      searchType: body.search_type,
+      country: body.country,
+      language: body.language,
+      timeRange: body.time_range,
+      offset: body.offset,
+      domainFilter: buildDomainFilter(body.filters),
+      contentOptions: body.content,
+      strictFilters: body.strict_filters,
+      providerOptions: body.provider_options,
+      credentials: legCreds,
+      alternateProvider: alternateProviderId,
+      alternateCredentials,
+      deadlineSignal: orderedChainSignal,
+      log,
+      connectionId: legCreds?.connectionId || undefined,
+      apiKeyId: policy.apiKeyInfo?.id || undefined,
+    });
+  }
+
   try {
     const { data: searchResult, cached } = await getOrCoalesce(cacheKey, ttl, async () => {
-      const result = await handleSearch({
-        query: body.query,
-        provider: providerConfig.id,
-        maxResults: clampedMaxResults,
-        searchType: body.search_type,
-        country: body.country,
-        language: body.language,
-        timeRange: body.time_range,
-        offset: body.offset,
-        domainFilter: buildDomainFilter(body.filters),
-        contentOptions: body.content,
-        strictFilters: body.strict_filters,
-        providerOptions: body.provider_options,
-        credentials,
-        alternateProvider: alternateProviderId,
-        alternateCredentials,
-        log,
-        connectionId: credentials?.connectionId || undefined,
-        apiKeyId: policy.apiKeyInfo?.id || undefined,
-      });
+      if (chainLegs.length === 0) {
+        const result = await handleSearch({
+          query: body.query,
+          provider: providerConfig.id,
+          maxResults: clampedMaxResults,
+          searchType: body.search_type,
+          country: body.country,
+          language: body.language,
+          timeRange: body.time_range,
+          offset: body.offset,
+          domainFilter: buildDomainFilter(body.filters),
+          contentOptions: body.content,
+          strictFilters: body.strict_filters,
+          providerOptions: body.provider_options,
+          credentials,
+          alternateProvider: alternateProviderId,
+          alternateCredentials,
+          deadlineSignal: orderedChainSignal,
+          log,
+          connectionId: credentials?.connectionId || undefined,
+          apiKeyId: policy.apiKeyInfo?.id || undefined,
+        });
 
-      if (!result.success) {
-        throw new SearchError(result.error || "Search failed", result.status || 502);
+        if (!result.success) {
+          throw new SearchError(result.error || "Search failed", result.status || 502);
+        }
+
+        return result.data!;
       }
 
-      return result.data!;
+      // Ordered failover: first 2xx with >=1 result wins; per-leg failures
+      // accumulate into errors[] so callers see which legs were tried.
+      const legErrors: Array<{ provider: string; code: string; message: string }> = [];
+      for (const leg of [{ id: providerConfig.id, creds: credentials! }, ...chainLegs]) {
+        if (orderedChainSignal?.aborted) break;
+        const result = await executeLeg(leg.id, leg.creds);
+        if (result.success && (result.data?.results?.length ?? 0) > 0) {
+          if (legErrors.length > 0) result.data!.errors = [...legErrors, ...result.data!.errors];
+          return result.data!;
+        }
+        legErrors.push({
+          provider: leg.id,
+          code: "leg_failed",
+          message: result.error || "No results",
+        });
+      }
+      throw new SearchError(
+        legErrors.length > 0
+          ? `All search providers failed: ${legErrors.map((e) => e.provider).join(", ")}`
+          : "Search failed",
+        502
+      );
     });
+
+    // Opt-in date backfill: fills null published_at from result pages inside
+    // the shared chain budget. Skipped on cache hits (stored post-backfill).
+    if (body.backfill_dates && !cached) {
+      searchResult.results = await backfillPublishedAt(searchResult.results, {
+        signal: orderedChainSignal,
+      });
+    }
 
     // Record cost for budget tracking (skip cache hits — no provider cost)
     if (!cached && policy.apiKeyInfo?.id && searchResult.usage?.search_cost_usd > 0) {

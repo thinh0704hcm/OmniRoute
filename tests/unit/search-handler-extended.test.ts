@@ -117,7 +117,7 @@ test("handleSearch builds Brave news requests and normalizes favicon metadata", 
     assert.equal(capturedHeaders["X-Subscription-Token"], "brave-key");
     assert.equal(result.success, true);
     assert.equal(result.data.results[0].favicon_url, "https://news.example.com/favicon.ico");
-    assert.equal(result.data.results[0].published_at, "2026-04-05");
+    assert.equal(result.data.results[0].published_at, "2026-04-05T00:00:00.000Z");
   } finally {
     globalThis.fetch = originalFetch;
   }
