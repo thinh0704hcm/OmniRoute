@@ -202,11 +202,7 @@ export function createSSEDataLineNormalizer(): SSEDataLineNormalizer {
         const normalizedLine = line.replace(CR_STRIP_RE, "");
         const trimmed = normalizedLine.trim();
 
-        if (
-          trimmed &&
-          SSE_FIELD_RE.test(trimmed) &&
-          hasSelfDescribingPendingDataPayload()
-        ) {
+        if (trimmed && SSE_FIELD_RE.test(trimmed) && hasSelfDescribingPendingDataPayload()) {
           flush(output);
         }
 
@@ -220,7 +216,9 @@ export function createSSEDataLineNormalizer(): SSEDataLineNormalizer {
   };
 }
 
-export function createSSEEventPrefixBuffer(options?: { forwardEvent?: boolean }): SSEEventPrefixBuffer {
+export function createSSEEventPrefixBuffer(options?: {
+  forwardEvent?: boolean;
+}): SSEEventPrefixBuffer {
   let lines: string[] = [];
   let emitted = false;
   // The `event:` line is only part of the SSE framing for protocols that define
@@ -282,6 +280,17 @@ function hasOpenAICompatibleStreamValue(parsed: Record<string, unknown>): boolea
     }
     if (typeof delta.reasoning_text === "string" && delta.reasoning_text.length > 0) {
       return true;
+    }
+    // Bare `delta.reasoning` (plain string or {text/content} object): some
+    // free backends stream thinking here instead of reasoning_content. A
+    // reasoning-only stream is live signal, not silence — without this the
+    // quality peek treats 60s+ of real thinking as an empty wedge.
+    if (typeof delta.reasoning === "string" && delta.reasoning.length > 0) return true;
+    if (isRecord(delta.reasoning)) {
+      const text =
+        (delta.reasoning as Record<string, unknown>).text ??
+        (delta.reasoning as Record<string, unknown>).content;
+      if (typeof text === "string" && text.length > 0) return true;
     }
     return Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0;
   });
