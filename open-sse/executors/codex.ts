@@ -1376,9 +1376,14 @@ export class CodexExecutor extends BaseExecutor {
         : null;
     const explicitReasoning = normalizeEffortValue(reasoningRecord?.effort);
     const requestReasoningEffort = normalizeEffortValue(body.reasoning_effort);
-    const fallbackReasoningEffort = allowConnectionReasoningDefaults
-      ? requestDefaults.reasoningEffort || "medium"
-      : undefined;
+    // An explicit `none` (canonical effort, reasoning_effort, or reasoning.effort)
+    // must never be resurrected by the connection-default `medium` fallback —
+    // otherwise effort=none still reasons for 60s+ invisibly.
+    const clientAskedNone = explicitReasoning === "none" || requestReasoningEffort === "none";
+    const fallbackReasoningEffort =
+      !clientAskedNone && allowConnectionReasoningDefaults
+        ? requestDefaults.reasoningEffort || "medium"
+        : undefined;
     // Issue #2331: model suffix aliases (for example gpt-5.5-xhigh) represent an
     // explicit model selection, so they must override client-injected defaults such
     // as OpenCode's automatic reasoning.effort=medium for GPT-5-family requests.

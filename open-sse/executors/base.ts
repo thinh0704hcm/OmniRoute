@@ -211,6 +211,13 @@ export type ExecuteInput = {
   ) => Promise<void> | void;
   /** When true, skip the intra-URL 429 retry in execute() so the caller handles fallback. */
   skipUpstreamRetry?: boolean;
+  /** Stream timing marks: stamped around the upstream fetch so Server-Timing
+   * can split gateway queue wait from upstream TTFB. Optional — executors
+   * that dispatch outside execute() (custom transports) simply omit it. */
+  timing?: {
+    markUpstreamStart(): void;
+    markUpstreamFirstByte(): void;
+  } | null;
   /** Delegated Context Editing (Claude only): when enabled, attach the
    * `context_management.clear_tool_uses` strategy so the provider clears stale
    * tool-use blocks server-side. Honored only on the genuine `claude` path. */
@@ -719,6 +726,7 @@ export class BaseExecutor {
       skipUpstreamRetry = false,
       onCredentialsRefreshed,
       contextEditing,
+      timing,
     } = input;
     const fallbackCount = this.getFallbackCount();
     let lastError: unknown = null;
@@ -949,7 +957,13 @@ export class BaseExecutor {
             : requestOptions;
 
           try {
-            return await fetch(requestUrl, optionsWithSignal);
+            timing?.markUpstreamStart();
+            const upstreamResponse = await fetch(requestUrl, optionsWithSignal);
+            // First byte received (headers + body stream open) — stamped even
+            // when the body turns out to be keepalives; the SSE transform
+            // filters those later without moving this mark.
+            timing?.markUpstreamFirstByte();
+            return upstreamResponse;
           } finally {
             if (timeoutId) clearTimeout(timeoutId);
           }

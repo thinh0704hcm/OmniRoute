@@ -1651,6 +1651,10 @@ async function handleComboChatInner({
 
             // Copy-on-write, not a deep clone (#7847 — 9.53 MiB at 3 targets). Writes here are
             // top-level scalars. Invariant: tests/unit/combo-attempt-body-isolation-7847.test.ts.
+            // Reasoning fields are folded pre-dispatch (normalizeReasoningRequest runs in
+            // handleSingleModelChat with the resolved provider), so the shallow copy
+            // carries reasoning_effort/reasoning/thinking by reference-sharing the
+            // top-level keys — never strip them here.
             let attemptBody = { ...(body as Record<string, unknown>) } as typeof body;
 
             // Proactive Context Compression for fallbacks (Zero-Latency optimization)

@@ -432,7 +432,8 @@ async function postHandler(request: Request, context: unknown) {
   async function executeLeg(legId: string, legCreds: Record<string, any>) {
     const legConfig = resolveSearchProvider(legId)!;
     const legMax = Math.min(body.max_results, legConfig.maxMaxResults);
-    return handleSearch({
+    const legStart = Date.now();
+    const legOutcome = await handleSearch({
       query: body.query,
       provider: legConfig.id,
       maxResults: legMax,
@@ -453,6 +454,7 @@ async function postHandler(request: Request, context: unknown) {
       connectionId: legCreds?.connectionId || undefined,
       apiKeyId: policy.apiKeyInfo?.id || undefined,
     });
+    return { legId, ms: Date.now() - legStart, outcome: legOutcome };
   }
 
   try {
@@ -489,12 +491,30 @@ async function postHandler(request: Request, context: unknown) {
 
       // Ordered failover: first 2xx with >=1 result wins; per-leg failures
       // accumulate into errors[] so callers see which legs were tried.
+      // Per-leg timings ride on metrics.legs so wedge-vs-slow is readable
+      // without log access.
+      const legTimings: Array<{
+        provider: string;
+        ms: number;
+        results: number;
+        error?: string;
+      }> = [];
       const legErrors: Array<{ provider: string; code: string; message: string }> = [];
       for (const leg of [{ id: providerConfig.id, creds: credentials! }, ...chainLegs]) {
         if (orderedChainSignal?.aborted) break;
-        const result = await executeLeg(leg.id, leg.creds);
+        const { legId, ms, outcome: result } = await executeLeg(leg.id, leg.creds);
+        legTimings.push({
+          provider: legId,
+          ms,
+          results: result.success ? (result.data?.results?.length ?? 0) : 0,
+          ...(result.success ? {} : { error: result.error || "failed" }),
+        });
         if (result.success && (result.data?.results?.length ?? 0) > 0) {
           if (legErrors.length > 0) result.data!.errors = [...legErrors, ...result.data!.errors];
+          result.data!.metrics = {
+            ...result.data!.metrics,
+            legs: legTimings,
+          };
           return result.data!;
         }
         legErrors.push({
@@ -535,9 +555,21 @@ async function postHandler(request: Request, context: unknown) {
       usage: cached ? { queries_used: 0, search_cost_usd: 0 } : searchResult.usage,
     };
 
+    // Observability headers: wedge-vs-slow and quota state without log access.
+    // Quota-remaining is provider-reported where available; legs[] in the body
+    // carries per-provider timings for ordered chains.
+    const responseHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...CORS_HEADERS,
+      "X-Search-Provider": String(searchResult.provider ?? providerConfig.id),
+      "X-Search-Cached": cached ? "hit" : "miss",
+      "X-Search-Cost-Usd": String(searchResult.usage?.search_cost_usd ?? 0),
+      "X-Search-Upstream-Ms": String(searchResult.metrics?.upstream_latency_ms ?? 0),
+    };
+
     return new Response(JSON.stringify(response), {
       status: 200,
-      headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+      headers: responseHeaders,
     });
   } catch (err: any) {
     if (err instanceof SearchError) {

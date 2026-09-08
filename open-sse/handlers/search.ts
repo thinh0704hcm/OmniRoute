@@ -450,6 +450,19 @@ function buildExaRequest(
   if (includes.length) body.includeDomains = includes;
   if (excludes.length) body.excludeDomains = excludes;
   if (params.searchType === "news") body.category = "news";
+  // Recency signal: Exa honors startDate (ISO date). Mirror the Linkup
+  // fromDate math so time_range=week actually narrows to the last 7 days
+  // instead of returning undated evergreen hits.
+  if (params.timeRange && params.timeRange !== "any") {
+    const today = new Date();
+    const from = new Date(today);
+    if (params.timeRange === "hour" || params.timeRange === "day")
+      from.setUTCDate(from.getUTCDate() - 1);
+    if (params.timeRange === "week") from.setUTCDate(from.getUTCDate() - 7);
+    if (params.timeRange === "month") from.setUTCMonth(from.getUTCMonth() - 1);
+    if (params.timeRange === "year") from.setUTCFullYear(from.getUTCFullYear() - 1);
+    body.startDate = from.toISOString().slice(0, 10);
+  }
   return {
     url: config.baseUrl,
     init: {

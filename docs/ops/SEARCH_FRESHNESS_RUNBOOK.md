@@ -66,14 +66,32 @@ curl -s https://squrvq.tail0bec0f.ts.net/v1/search \
 
 ## Provider date coverage (verified 2026-09-07)
 
-| Provider | Date fields read | Live result |
-|---|---|---|
-| `exa-search` | `publishedDate`, `published_date`, `date` | Real ISO dates |
-| `tavily-search` | `published_date`, `publishedDate`, `date` | Upstream dependent |
+| Provider         | Date fields read                                                  | Live result                    |
+| ---------------- | ----------------------------------------------------------------- | ------------------------------ |
+| `exa-search`     | `publishedDate`, `published_date`, `date`                         | Real ISO dates                 |
+| `tavily-search`  | `published_date`, `publishedDate`, `date`                         | Upstream dependent             |
 | `searxng-search` | `publishedDate`, `published_date`, `published`, `date`, `updated` | Instance dependent (see above) |
-| `firecrawl` | `date`, `published_at`, `metadata.publishedTime` | Upstream dependent |
-| `ollama-search` | Any common date key when present | Usually null upstream |
+| `firecrawl`      | `date`, `published_at`, `metadata.publishedTime`                  | Upstream dependent             |
+| `ollama-search`  | Any common date key when present                                  | Usually null upstream          |
 
 All dates normalize to canonical ISO-8601 via `normalizePublishedAt`
 (`open-sse/handlers/search/publishedAt.ts`); unparseable values become null
 rather than leaking garbage strings.
+
+## Observability (wedge vs slow)
+
+- Success responses carry `X-Search-Provider`, `X-Search-Cached`
+  (`hit`/`miss`), `X-Search-Cost-Usd`, `X-Search-Upstream-Ms` headers, and
+  `metrics.legs[]` (`{provider, ms, results, error?}`) for ordered chains.
+- Rate-limited legs return `X-Quota-Remaining: 0` + `X-Quota-Provider`
+  (plus the existing `Retry-After`) — an ollama 1000/mo exhaustion reads as
+  an explicit quota signal, not silent thin results.
+- Chat streams record `queueMs` (receipt→dispatch) and `upstreamTtfbMs`
+  (dispatch→first upstream byte) in call logs next to `ttft`. Read:
+  `upstream` large + no deltas = wedged upstream; `queue` large =
+  gateway-side; both small = normal slow model.
+- `effort: "none"` / `"low"` on `/v1/chat/completions` now survives to the
+  upstream body (combo fan-out preserves it; ZAI/GLM floor and Codex
+  `medium` fallback no longer resurrect reasoning over an explicit `none`).
+  `Server-Timing` header emission is intentionally deferred — the marks are
+  stamped (executor + stream transform) and land in call logs first.

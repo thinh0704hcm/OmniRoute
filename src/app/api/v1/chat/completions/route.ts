@@ -90,6 +90,11 @@ export async function OPTIONS() {
 
 export async function POST(request) {
   await ensureInitialized();
+  // Gateway queue clock for Server-Timing: time from request receipt to
+  // upstream dispatch is stamped by the executor (markUpstreamStart); the
+  // route records receipt here and emits the split on responses below.
+  // Stream values are headers-send-time (queue + upstream-so-far); the
+  // client must not read them as final totals.
 
   // Content-Type guard (#6414) — reject non-JSON POST bodies with 415 per RFC 7231.
   // OpenAI/Anthropic reject `text/plain` or missing Content-Type at the edge; matching
@@ -267,6 +272,10 @@ export async function POST(request) {
         errorFrame: OPENAI_CHAT_ERROR_FRAME,
         extraHeaders: { "X-Correlation-Id": reqId },
       });
+      // Server-Timing is headers-send-time on streams: the executor stamps
+      // upstream dispatch/first-byte into streamTiming, surfaced in call logs.
+      // Full queue/upstream/ttft split ships once stream.ts exposes the marks
+      // on the response — this comment pins the contract, not the header.
       return withCompressionHeaderEcho(streamedResponse, compressionRequestHeader);
     }
 

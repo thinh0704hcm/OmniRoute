@@ -116,7 +116,15 @@ function applyZaiGlm53OpenAIDefaults<T>(
 
   const editableForEffort = mutate();
   if (effortMatch) editableForEffort.model = baseModel;
-  if (record.reasoning_effort === undefined && record.reasoning === undefined) {
+  const clientAskedNone =
+    record.reasoning_effort === "none" ||
+    (record.reasoning &&
+      typeof record.reasoning === "object" &&
+      !Array.isArray(record.reasoning) &&
+      (record.reasoning as Record<string, unknown>).effort === "none") ||
+    record.effort === "none" ||
+    record.thinking === false;
+  if (record.reasoning_effort === undefined && record.reasoning === undefined && !clientAskedNone) {
     // GLM-5.3 always reasons (thinking cannot be disabled upstream), so a
     // request with no effort — Pi "off", plain API calls — maps to the floor
     // tier "low" per the declared-tier clamp convention (none/minimal → low),
