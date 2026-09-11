@@ -4,6 +4,7 @@ import {
   createResourcePressureTracker,
   resolveResourcePressureThresholds,
   type PressureReason,
+  type PressureSeverity,
   type ResourcePressureState,
   type ResourcePressureThresholds,
   type ResourceSignals,
@@ -45,6 +46,16 @@ export type ResourcePressureRuntimeOptions = {
 export type ResourcePressureRuntime = {
   check: () => ResourcePressureGuardResult | null;
   getObservation: () => ResourcePressureObservation;
+  /**
+   * Staleness-bounded severity read for callers that run BEFORE the guard
+   * (`chatBodyAdmission` admits, then the handler calls `check()`).
+   *
+   * Mirrors `check()`'s own freshness rule: a sample older than `maxStaleMs`
+   * reports "normal" instead of acting on data the guard itself already refuses
+   * to trust. It also schedules a refresh, which is what lets a latched
+   * `critical` clear — see the deadlock note in `severity()` below.
+   */
+  severity: () => PressureSeverity;
   whenRefreshSettled: () => Promise<void>;
   dispose: () => void;
 };
@@ -210,6 +221,12 @@ export function createResourcePressureRuntime(
     schedule(refresh);
   };
 
+  /**
+   * Age of the cached sample. `lastRefreshAtMs` starts at -Infinity, so an
+   * unobserved runtime reports Infinity — never "fresh".
+   */
+  const cacheAgeMs = (now: number): number => Math.max(0, now - lastRefreshAtMs);
+
   return {
     check() {
       let heapUsedMb = 0;
@@ -232,8 +249,7 @@ export function createResourcePressureRuntime(
         };
         return immediate;
       }
-      const cacheAge = lastSignals ? Math.max(0, now - lastRefreshAtMs) : Number.POSITIVE_INFINITY;
-      if (cacheAge > maxStaleMs || state.severity !== "critical") {
+      if (cacheAgeMs(now) > maxStaleMs || state.severity !== "critical") {
         return null;
       }
       return buildCriticalGuard(
@@ -241,9 +257,30 @@ export function createResourcePressureRuntime(
         describeCachedPressure({
           signals: lastSignals,
           recoveryStreak: state.recoveryStreak,
-          cacheAgeMs: cacheAge,
+          cacheAgeMs: cacheAgeMs(now),
         })
       );
+    },
+    /**
+     * Deadlock this exists to break: admission (`admitChatRequest`) reads the
+     * cached severity BEFORE the request can reach the handler that calls
+     * `check()` — the only thing that refreshes the sample. Unbounded, a cached
+     * `critical` therefore sheds every request forever: each shed returns before
+     * the handler, so no refresh ever runs, so the latch never clears (observed
+     * in production: hours of 503 `resource_pressure` with every live signal —
+     * cgroup ratio, V8 heap, PSI — reading normal, and no guard trip in the logs
+     * because the guard was never reached).
+     *
+     * Bounding the read to the same `maxStaleMs` the guard already applies, and
+     * scheduling a refresh here, makes the state self-healing: a stale latch
+     * stops shedding, the next admitted request refreshes, and a genuinely
+     * pressured host re-latches within its sustained-sample window.
+     */
+    severity() {
+      const now = nowMs();
+      if (now >= nextRefreshAtMs) scheduleRefresh();
+      if (cacheAgeMs(now) > maxStaleMs) return "normal";
+      return state.severity;
     },
     getObservation: () => ({ signals: lastSignals, state }),
     whenRefreshSettled: async () => {
@@ -265,6 +302,17 @@ export function checkResourcePressureGuard(): ResourcePressureGuardResult | null
 
 export function getResourcePressureObservation(): ResourcePressureObservation {
   return defaultRuntime.getObservation();
+}
+
+/**
+ * Staleness-bounded severity for pre-guard callers (see
+ * `ResourcePressureRuntime.severity`). `chatBodyAdmission` must use this rather
+ * than `getResourcePressureObservation().state.severity`: the raw observation
+ * carries no freshness bound, so a latched `critical` would shed every request
+ * forever without ever reaching the handler that refreshes it.
+ */
+export function getResourcePressureSeverity(): PressureSeverity {
+  return defaultRuntime.severity();
 }
 
 /** Replaces and disposes the process singleton when configuration is reloaded. */
