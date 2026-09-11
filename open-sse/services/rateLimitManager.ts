@@ -786,7 +786,7 @@ export async function withRateLimit(
       err instanceof Bottleneck.BottleneckError &&
       /^This job timed out after \d+ ms\.$/.test(err.message)
     ) {
-      abortExecution(err);
+      abortExecution();
       const key = getLimiterKey(provider, connectionId, model);
       logRateLimit(
         `⏰ [RATE-LIMIT] ${key} — limiter-managed execution expired after ${Math.ceil((executionExpirationMs || 0) / 1000)}s`

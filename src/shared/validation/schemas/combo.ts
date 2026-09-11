@@ -215,6 +215,11 @@ export const comboRuntimeConfigSchema = z
     fallbackCompressionMode: compressionModeSchema.optional(),
     fallbackCompressionThreshold: z.coerce.number().int().min(0).max(2_000_000).optional(),
     predictiveTtftMs: z.coerce.number().int().min(0).max(300000).optional(),
+    // Streaming first-content (TTFT) failover budget. Zod strips undeclared
+    // keys, so a knob missing here is silently dropped between storage and the
+    // runtime: the value stays visible in the combo API's response while the
+    // engine sees only the default. Keep this in sync with DEFAULT_COMBO_CONFIG.
+    firstContentTimeoutMs: z.coerce.number().int().min(0).max(300000).optional(),
     relayMode: z.enum(["schema-locked", "standard"]).optional(),
     // Auto-Combo / LKGP Extensions
     candidatePool: z.array(z.string().min(1)).optional(),

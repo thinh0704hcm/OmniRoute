@@ -80,6 +80,10 @@ import {
   toRetryAfterDisplayValue,
 } from "./validateQuality.ts";
 import {
+  raceFirstContentDeadline,
+  resolveFirstContentBudgetMs,
+} from "./firstContentDeadline.ts";
+import {
   TRANSIENT_FOR_SEMAPHORE,
   MAX_FALLBACK_WAIT_MS,
   COMBO_LOOP_SAFETY_TIMEOUT_MS,
@@ -680,11 +684,14 @@ export async function handleRoundRobinCombo({
             } catch {
               rrClone = result;
             }
-            const quality = await validateResponseQuality(
-              rrClone,
-              clientRequestedStream,
-              log,
-              config.responseValidation
+            const quality = await raceFirstContentDeadline(
+              validateResponseQuality(
+                rrClone,
+                clientRequestedStream,
+                log,
+                config.responseValidation
+              ),
+              resolveFirstContentBudgetMs(config, clientRequestedStream)
             );
             releaseQualityClone(rrClone, result, quality);
             if (!quality.valid) {
