@@ -1,10 +1,17 @@
+---
+title: "Pool Optimization"
+version: 3.8.51
+lastUpdated: 2026-09-11
+---
+
 # Pool optimization
 
 How the `pool-*` combos are ordered, what evidence drives that order, and how to
 supply better evidence.
 
 The maintained tooling is `scripts/ops/optimize-pools.mjs`. It reads the live DB,
-ranks every leaf pool's members, and (with `--apply`) rewrites the member order.
+ranks every leaf pool's members, derives each pool's response-time budget, and (with
+`--apply`) rewrites the member order and the enforcement config together.
 
 ## Priority order
 
@@ -20,31 +27,54 @@ Members are ranked by three signals, in this priority:
 3. **Quota** — remaining quota from `quota_snapshots`, used as the final tiebreak.
 
 The gate is what makes "make sure response time is good enough" concrete: a pool
-with a 15 000 ms budget will not put a 41 s model ahead of a 6 s one, no matter how
+with an 8 000 ms budget will not put a 41 s model ahead of a 6 s one, no matter how
 strong the slow model's benchmark score is.
+
+The budget is evidence, not a constant. Unless the pool already sets
+`firstContentTimeoutMs`, it is the **median of the proven members' p90** — what a
+typical working member costs at its 90th percentile. Pooling every raw sample
+instead would let the slowest members drag the budget toward the ceiling, which
+defeats the purpose: the budget exists to exclude the stalling members, so it must
+not be computed from them. The derived value is rounded up to a whole second and
+clamped to 5 000–60 000 ms; a pool with no usable evidence falls back to
+`BUDGET_MS` (default 15 000).
 
 ### Member states
 
-| State       | Meaning                                                            | Effect                           |
-| ----------- | ------------------------------------------------------------------ | -------------------------------- |
-| `dead`      | Never succeeded, dominated by hard failures (4xx), not rate limits | **Removed** from the pool        |
-| over budget | Response time exceeds the pool's budget (measured or external)     | Gated below all passing members  |
-| proven      | Enough samples, inside budget                                      | Normal ranking                   |
-| unknown     | No samples yet                                                     | Below the proven, above the slow |
+| State        | Meaning                                                            | Effect                               |
+| ------------ | ------------------------------------------------------------------ | ------------------------------------ |
+| `dead`       | Never succeeded, dominated by hard failures (4xx), not rate limits | **Removed** from the pool            |
+| over budget  | Response time exceeds the pool's budget (measured or external)     | Gated below all passing members      |
+| `unreliable` | Enough samples, but a measured success rate under 35%              | Demoted below every unproven member  |
+| proven       | Enough samples, inside budget, usable                              | Normal ranking                       |
+| unknown      | No samples yet                                                     | Below the proven, above the unusable |
 
-Only **leaf pools** are touched — the ones holding real `providerId` members.
-Tier-shell pools (whose members are `combo-ref`s, e.g. `pool-sonnet` →
-`pool-sonnet-antigravity` / `-free` / `-credits`) are deliberately left alone:
-their order and `fallbackTier` chain carry routing semantics, not ranking.
+The reliability floor exists because "we tried it and it fails 98% of the time" is
+worse evidence than "we have not tried it": without it, a member measured at 2%
+success over thousands of calls would still outrank an unproven one on the strength
+of having samples at all.
+
+Only **leaf pools** have their member _order_ rewritten — the ones holding real
+`providerId` members. Tier-shell pools (whose members are `combo-ref`s, e.g.
+`pool-sonnet` → `pool-sonnet-antigravity` / `-free` / `-credits`) keep their order
+and `fallbackTier` chain, which carry routing semantics rather than ranking. Shells
+still receive **enforcement** config, derived from the leaves they reference.
 
 ## Usage
 
+The CLI imports its pure core by relative path, so both files have to sit together
+on the container. `/app/data` is the mounted data volume, so the tooling survives a
+container replacement:
+
 ```bash
-# Dry run — prints the proposed order, writes nothing.
-docker exec -i omniroute-parallel node - < scripts/ops/optimize-pools.mjs
+docker cp scripts/ops/optimize-pools.mjs omniroute-parallel:/app/data/pool-optimizer/
+docker cp scripts/ops/pool-optimizer-core.mjs omniroute-parallel:/app/data/pool-optimizer/
+
+# Dry run — prints the proposed order and enforcement, writes nothing.
+docker exec omniroute-parallel node /app/data/pool-optimizer/optimize-pools.mjs
 
 # Apply. Always writes a rollback backup first.
-docker exec -i omniroute-parallel node - -- --apply < scripts/ops/optimize-pools.mjs
+docker exec omniroute-parallel node /app/data/pool-optimizer/optimize-pools.mjs --apply
 ```
 
 Env overrides: `DB_PATH`, `WINDOW` (days of history, default 7), `BUDGET_MS`
@@ -56,6 +86,27 @@ Env overrides: `DB_PATH`, `WINDOW` (days of history, default 7), `BUDGET_MS`
 Every `--apply` writes `db_backups/pool-optimize-<timestamp>.json` containing the
 pre-change `combos` rows and `updatedAt`, and stamps each rewritten combo with a
 `repairNote`. Restore by writing those rows back.
+
+## Enforcement
+
+Ordering decides which member is attempted first; it cannot bound how long a bad
+member stalls the request. That is the enforcement config, and the same `--apply`
+fills it in:
+
+| Field                   | Effect                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `firstContentTimeoutMs` | Bounds one member's stall after it answered 200 (streaming only)                                                                     |
+| `comboTimeoutMs`        | Bounds the whole cascade — after it elapses, remaining targets are skipped and the request returns a 504 with aggregated diagnostics |
+
+Both are set from the pool's derived budget: `firstContentTimeoutMs` to the budget,
+`comboTimeoutMs` to the budget × 4. **An explicit value is never overwritten** — a
+value the operator already set is left exactly as it is, so this adds a deadline to
+unconfigured pools rather than retuning configured ones.
+
+This matters because the ranking gate assumes a budget the runtime must also
+enforce. A pool whose `firstContentTimeoutMs` is unset has no per-member deadline at
+all, so the member the gate calls "over budget" still stalls the client; only the
+member _order_ changes.
 
 ## Supplying better performance evidence
 
