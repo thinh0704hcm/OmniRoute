@@ -20,6 +20,7 @@ import {
 } from "@omniroute/open-sse/config/grokBuild.ts";
 import { resolvePublicCred } from "@omniroute/open-sse/utils/publicCreds.ts";
 import { CURSOR_AGENT_CLI_VERSION } from "@omniroute/open-sse/utils/cursorAgentCliVersion.ts";
+import { CODEBUDDY_CN_USER_AGENT } from "@/shared/constants/codebuddyCnClient";
 import { buildGitLabOAuthEndpoints, GITLAB_DUO_DEFAULT_BASE_URL } from "../gitlab";
 
 /**
@@ -113,7 +114,12 @@ export const QODER_CONFIG = {
 // (open-sse/services/usage/codebuddy-cn.ts) — a mismatched version string across a
 // single account's auth vs. chat calls is exactly the kind of internally-inconsistent
 // client fingerprint Tencent's WAF flags as anomalous (#12702).
-export const CODEBUDDY_CN_USER_AGENT = "CLI/2.108.1 CodeBuddy/2.108.1";
+//
+// Defined in a dependency-free module and re-exported here: the provider registry
+// entry imports this constant, and the registry is reachable from a Client
+// Component — importing THIS module from there would pull the whole OAuth graph
+// (cursorAgentCliVersion -> node:path) into the browser bundle.
+export { CODEBUDDY_CN_USER_AGENT };
 
 export const CODEBUDDY_CN_CONFIG = {
   baseUrl: "https://copilot.tencent.com",
