@@ -220,6 +220,10 @@ export const comboRuntimeConfigSchema = z
     // runtime: the value stays visible in the combo API's response while the
     // engine sees only the default. Keep this in sync with DEFAULT_COMBO_CONFIG.
     firstContentTimeoutMs: z.coerce.number().int().min(0).max(300000).optional(),
+    // Total wall-clock budget for the whole cascade across targets (0 = unlimited).
+    // Declared so the value the pool optimizer writes is range-checked rather than
+    // round-tripping unvalidated.
+    comboTimeoutMs: z.coerce.number().int().min(0).max(600000).optional(),
     relayMode: z.enum(["schema-locked", "standard"]).optional(),
     // Auto-Combo / LKGP Extensions
     candidatePool: z.array(z.string().min(1)).optional(),
