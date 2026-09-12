@@ -12,6 +12,7 @@ import { resolveRoutingModel, RoutingModelOps } from "./resolveRoutingModel";
 import {
   getProviderCredentialsWithQuotaPreflight,
   markAccountUnavailable,
+  buildExhaustionOptions,
   extractApiKey,
   isValidApiKey,
   extractSessionAffinityKey,
@@ -1016,7 +1017,15 @@ async function handleChatImplementation(
       if (isComboLiveTest) return true;
       // #12886: combo-name allow-list must not skip inner targets (#9057 still
       // checks auto/* / disableNonPublic via comboTargetPassesKeyModelPolicy).
-      if (!(await comboTargetPassesKeyModelPolicy({ apiKey, apiKeyInfo, requestedModelStr: resolvedModelStr, targetModelStr: modelString, isModelAllowedForKey }))) {
+      if (
+        !(await comboTargetPassesKeyModelPolicy({
+          apiKey,
+          apiKeyInfo,
+          requestedModelStr: resolvedModelStr,
+          targetModelStr: modelString,
+          isModelAllowedForKey,
+        }))
+      ) {
         return false;
       }
 
@@ -1135,6 +1144,7 @@ async function handleChatImplementation(
           providerId?: string | null;
           effectiveComboStrategy?: string | null;
           modelAbortSignal?: AbortSignal | null;
+          fallbackAttempts?: number;
         }
       ) =>
         handleSingleModelChat(
@@ -1182,6 +1192,7 @@ async function handleChatImplementation(
             // entry (trackPendingRequest(false) never runs) — live incident,
             // log id 1784418258231-14961a.
             modelAbortSignal: target?.modelAbortSignal ?? null,
+            fallbackAttempts: target?.fallbackAttempts,
           },
           target?.effectiveComboStrategy ?? combo.strategy,
           true
@@ -1394,6 +1405,7 @@ async function handleSingleModelChat(
      * the signal used for the actual dispatch, not left unused.
      */
     modelAbortSignal?: AbortSignal | null;
+    fallbackAttempts?: number;
   } = {},
   comboStrategy: string | null = null,
   isCombo: boolean = false
@@ -1467,6 +1479,7 @@ async function handleSingleModelChat(
             videoBridgeLog: runtimeOptions.videoBridgeLog,
             // #7360 follow-up — see the primary handleSingleModel closure above.
             modelAbortSignal: target?.modelAbortSignal ?? null,
+            fallbackAttempts: target?.fallbackAttempts,
           },
           resolvedTarget?.effectiveComboStrategy ?? redirectCombo.strategy ?? "priority",
           false
@@ -1491,6 +1504,7 @@ async function handleSingleModelChat(
     model,
     sourceFormat,
     targetFormat,
+    customModelTargetFormat,
     extendedContext,
     apiFormat,
   } = resolved;
@@ -1789,7 +1803,8 @@ async function handleSingleModelChat(
           lastStatus,
           candidateAliases,
           isCombo,
-          shadowedNode
+          shadowedNode,
+          runtimeOptions?.correlationId ?? null
         );
         const lastFailedConnectionId =
           excludedConnectionIds.size > 0
@@ -1946,7 +1961,11 @@ async function handleSingleModelChat(
               runtimeOptions.comboExecutionKey ?? runtimeOptions.comboStepId ?? null,
             extendedContext,
             modelApiFormat: apiFormat,
-            modelTargetFormat: targetFormat,
+            // Only a model's explicit DB override may cross this boundary as
+            // modelInfo.targetFormat. The effective targetFormat above was
+            // resolved without credentials; forwarding it would let a stale
+            // provider-id fallback override the credential-aware resolution.
+            modelTargetFormat: customModelTargetFormat,
             providerProfile,
             cachedSettings: runtimeOptions.cachedSettings,
             skipUpstreamRetry: runtimeOptions.skipUpstreamRetry ?? false,
@@ -1958,6 +1977,7 @@ async function handleSingleModelChat(
             reasoningTransportFallback: runtimeOptions.reasoningTransportFallback ?? "drop",
             managedLease: runtimeOptions.managedLease ?? null,
             videoBridgeLog: runtimeOptions.videoBridgeLog,
+            fallbackAttempts: runtimeOptions.fallbackAttempts,
           },
           runtimeOptions
         );
@@ -2101,7 +2121,7 @@ async function handleSingleModelChat(
           provider,
           model,
           providerProfile,
-          { isCombo }
+          buildExhaustionOptions(runtimeOptions.correlationId ?? null, { isCombo })
         );
 
         if (shouldFallback && !hasForcedConnection) {
@@ -2150,7 +2170,7 @@ async function handleSingleModelChat(
           provider,
           model,
           providerProfile,
-          { isCombo }
+          buildExhaustionOptions(runtimeOptions.correlationId ?? null, { isCombo })
         );
 
         if (shouldFallback && !hasForcedConnection) {
@@ -2395,7 +2415,7 @@ async function handleSingleModelChat(
             provider,
             model,
             providerProfile,
-            {
+            buildExhaustionOptions(runtimeOptions.correlationId ?? null, {
               persistUnavailableState: !(
                 isCombo &&
                 result.status === 429 &&
@@ -2403,7 +2423,7 @@ async function handleSingleModelChat(
               ),
               isCombo,
               headers: result.response.headers,
-            }
+            })
           );
 
       // An explicit pin (combo step `connectionId` / `x-omniroute-connection`) is an

@@ -30,11 +30,17 @@ export const opencodeProvider: RegistryEntry = {
     // content (see issue #10867). The opencode provider is passthrough, so
     // declaring them here only sets the wire format / capability flags — the
     // live upstream model list already advertises both ids.
+    // #12681: real window confirmed against the opencode-go registry's own
+    // muse-spark-1.2-contributor entries (contextLength: 1048576, maxOutputTokens:
+    // 131072) — without an explicit value here resolution fell back to the
+    // provider-wide defaultContextLength (200000), understating the real window.
     {
       id: "muse-spark-1.2",
       name: "Muse Spark 1.2",
       supportsReasoning: true,
       targetFormat: "openai-responses",
+      contextLength: 1048576,
+      maxOutputTokens: 131072,
     },
     {
       id: "muse-spark-1.3-contributor-free",
@@ -43,6 +49,7 @@ export const opencodeProvider: RegistryEntry = {
       supportsReasoning: true,
       targetFormat: "openai-responses",
       supportedToolChoiceModes: ["auto"],
+      maxOutputTokens: 131072,
     },
     { id: "deepseek-v4-flash-free", name: "DeepSeek V4 Flash Free", supportsReasoning: true },
     // #6998: 2026-07-14 refresh — the upstream free tier rotated its lineup;

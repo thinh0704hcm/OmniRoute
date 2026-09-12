@@ -63,11 +63,17 @@ export const opencode_zenProvider: RegistryEntry = {
     // targetFormat declaration, so requests routed here still hit
     // /chat/completions with a mismatched or unanswerable body and the
     // upstream returns an empty message.
+    // #12681: real window confirmed against the opencode-go registry's own
+    // muse-spark-1.2-contributor entries (contextLength: 1048576, maxOutputTokens:
+    // 131072) — without an explicit value here resolution fell back to the
+    // provider-wide defaultContextLength (200000), understating the real window.
     {
       id: "muse-spark-1.2",
       name: "Muse Spark 1.2",
       supportsReasoning: true,
       targetFormat: "openai-responses",
+      contextLength: 1048576,
+      maxOutputTokens: 131072,
     },
     {
       id: "muse-spark-1.3-contributor-free",
@@ -76,6 +82,7 @@ export const opencode_zenProvider: RegistryEntry = {
       supportsReasoning: true,
       targetFormat: "openai-responses",
       supportedToolChoiceModes: ["auto"],
+      maxOutputTokens: 131072,
     },
 
     // ── DeepSeek ────────────────────────────────────────────────
