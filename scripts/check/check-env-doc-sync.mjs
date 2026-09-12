@@ -54,6 +54,14 @@ const IGNORE_FROM_CODE = new Set([
   // Quality-gate harness knobs (optional cache/report paths for CI scripts — not product config).
   "ESLINT_RESULTS_JSON",
   "COMPLEXITY_ESLINT_REPORT",
+  // Maintenance-script knobs for scripts/ops/optimize-pools.mjs. Supplied at exec
+  // time to the running container (docker exec --env / shell prefix) and documented
+  // in docs/ops/POOL_OPTIMIZATION.md; they are never application configuration, so
+  // they have no place in .env.example. DB_PATH is also read by bin/reset-password.mjs.
+  "DB_PATH",
+  "WINDOW",
+  "BUDGET_MS",
+  "PERFORMANCE_FILE",
   // Agent environment / system execution paths.
   "PROJECT_ROOT",
   "ARTIFACTS_DIR",
