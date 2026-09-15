@@ -178,10 +178,10 @@ test("Responses requests use the same canonical session as every other surface",
     null,
     true,
     null,
-    "muse-spark-1.2-contributor-free",
+    "muse-spark-1.3-contributor-free",
     undefined,
     {
-      model: "muse-spark-1.2-contributor-free",
+      model: "muse-spark-1.3-contributor-free",
       input: [],
     }
   );

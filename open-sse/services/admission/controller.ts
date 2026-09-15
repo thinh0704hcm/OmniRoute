@@ -64,6 +64,7 @@ interface ActiveLeaseRecord {
   released: boolean;
   admittedAtMs: number;
   virtualDisposition: VirtualDisposition;
+  streaming?: boolean;
 }
 
 interface QueuedPayload {
@@ -71,6 +72,7 @@ interface QueuedPayload {
   reject: (err: Error) => void;
   signal?: AbortSignal;
   onAbort?: () => void;
+  streaming?: boolean;
 }
 
 let leaseSeq = 0;
@@ -115,6 +117,7 @@ export class AdaptiveAdmissionController {
   private laneEvictionTimer: unknown = undefined;
   private readonly active = new Map<string, ActiveLeaseRecord>();
   private activeCost = 0n;
+  private activeStreamingCost = 0n;
   private virtualActiveCost = 0;
   private virtualActiveCount = 0;
   private lastSampleMs: number;
@@ -183,7 +186,7 @@ export class AdaptiveAdmissionController {
       if (next.mode !== "enforce") {
         this.clearEntryTimer(entry);
         this.detachAbort(entry);
-        entry.payload.resolve(this.admit(entry.cost));
+        entry.payload.resolve(this.admit(entry.cost, "none", entry.payload.streaming));
         continue;
       }
       // Cost above the new enforce limit must fail closed immediately, never strand until deadline.
@@ -291,6 +294,8 @@ export class AdaptiveAdmissionController {
       return this.acquireShadow(request, cost, limit);
     }
 
+    const streaming = this.isStreamingRequest(request);
+
     // enforce
     if (cost > limit) {
       // #10111 solo-progress: the adaptive aggregate limit can collapse below an
@@ -302,7 +307,7 @@ export class AdaptiveAdmissionController {
       // recover. The hard per-request ceiling (maxLimit), the critical/high pressure fuse,
       // and a busy system (active/queued work present) all take precedence over solo.
       if (this.shouldAdmitSolo(cost)) {
-        return this.admit(cost);
+        return this.admit(cost, "none", streaming);
       }
       return this.reject("ADMISSION_OVERSIZED", "request cost exceeds max budget");
     }
@@ -311,7 +316,7 @@ export class AdaptiveAdmissionController {
     // currently fits. This makes bounded bypass accounting effective and prevents
     // direct arrivals from indefinitely jumping an older reserved weighted request.
     if (this.queue.size === 0 && this.activeCost + BigInt(cost) <= BigInt(limit)) {
-      return this.admit(cost);
+      return this.admit(cost, "none", streaming);
     }
 
     if (!this.queue.canAccept(cost)) {
@@ -380,6 +385,12 @@ export class AdaptiveAdmissionController {
     return 1;
   }
 
+  private isStreamingRequest(request: AdmissionRequest): boolean {
+    if (request.features?.streaming === true) return true;
+    if (request.features?.streaming === false) return false;
+    return false;
+  }
+
   private acquireShadow(request: AdmissionRequest, cost: number, limit: number): AdmissionAdmitted {
     let decision: ShadowDecision;
     let disposition: VirtualDisposition;
@@ -403,7 +414,8 @@ export class AdaptiveAdmissionController {
       this.wouldRejectCount += 1;
     }
 
-    const admitted = this.admit(cost, disposition);
+    const streaming = this.isStreamingRequest(request);
+    const admitted = this.admit(cost, disposition, streaming);
     if (disposition === "queued") {
       this.virtualQueue.enqueue({
         id: admitted.lease.id,
@@ -434,7 +446,11 @@ export class AdaptiveAdmissionController {
     return { status: "admitted", lease };
   }
 
-  private admit(cost: number, virtualDisposition: VirtualDisposition = "none"): AdmissionAdmitted {
+  private admit(
+    cost: number,
+    virtualDisposition: VirtualDisposition = "none",
+    streaming?: boolean
+  ): AdmissionAdmitted {
     this.sampleIntegral();
     const id = nextId("lease");
     const record: ActiveLeaseRecord = {
@@ -443,9 +459,11 @@ export class AdaptiveAdmissionController {
       released: false,
       admittedAtMs: this.clock.now(),
       virtualDisposition,
+      streaming: streaming === true,
     };
     this.active.set(id, record);
     this.activeCost += BigInt(cost);
+    if (record.streaming) this.activeStreamingCost += BigInt(cost);
     this.admittedCount += 1;
 
     const controller = this;
@@ -470,10 +488,13 @@ export class AdaptiveAdmissionController {
     if (record.released) return;
     record.released = true;
     // Sample while the lease still contributes to activeCost so utilization EWMA sees load.
+    // Streaming leases do not inflate utilization — their 60s hold is correct for capacity
+    // (activeCost) but not for adaptation pressure (utilization).
     this.sampleIntegral();
     if (this.active.has(record.id)) {
       this.active.delete(record.id);
       this.activeCost -= BigInt(record.cost);
+      if (record.streaming) this.activeStreamingCost -= BigInt(record.cost);
     }
 
     const latency =
@@ -516,6 +537,7 @@ export class AdaptiveAdmissionController {
         resolve: (v) => settle.resolve(v),
         reject: (e) => settle.reject(e),
         signal: request.signal,
+        streaming: this.isStreamingRequest(request),
       },
     };
 
@@ -615,7 +637,7 @@ export class AdaptiveAdmissionController {
         this.rejectedCount += 1;
         continue;
       }
-      entry.payload.resolve(this.admit(entry.cost));
+      entry.payload.resolve(this.admit(entry.cost, "none", entry.payload.streaming));
     }
     this.dispatchLanes();
   }
@@ -653,7 +675,7 @@ export class AdaptiveAdmissionController {
           this.rejectedCount += 1;
           continue;
         }
-        entry.payload.resolve(this.admit(entry.cost));
+        entry.payload.resolve(this.admit(entry.cost, "none", entry.payload.streaming));
         break; // yield to next lane for fairness
       }
       this.removeEmptyLane(key);
@@ -866,10 +888,20 @@ export class AdaptiveAdmissionController {
     const now = this.clock.now();
     const dt = now - this.lastSampleMs;
     if (dt > 0) {
+      // Streaming holds its lease for 60s for correct capacity (activeCost) but must not
+      // pin utilization at 1.0 for 60 windows — that starves applyIdleRecovery +1 and
+      // keeps currentLimit collapsed after the SSE latency fix (controller holds lease,
+      // runtime reports response-ready latency). Count streaming as min(cost,1) for util
+      // only; dispatch still uses full activeCost.
+      const streamingHeld = this.activeStreamingCost;
+      const nonStreamingForUtil =
+        this.activeCost >= streamingHeld ? this.activeCost - streamingHeld : 0n;
+      const streamingCapped = streamingHeld > 0n ? (streamingHeld >= 1n ? 1n : streamingHeld) : 0n;
+      const utilCost = nonStreamingForUtil + streamingCapped;
       // Cap at currentLimit before Number conversion so shadow oversubscription never
       // feeds an unsafe rounded activeCost into the utilization integral.
       const limit = this.adaptation.currentLimit;
-      const activeForIntegral = this.activeCost >= BigInt(limit) ? limit : Number(this.activeCost);
+      const activeForIntegral = utilCost >= BigInt(limit) ? limit : Number(utilCost);
       sampleActiveIntegral(this.adaptation, activeForIntegral, dt);
       this.lastSampleMs = now;
     }

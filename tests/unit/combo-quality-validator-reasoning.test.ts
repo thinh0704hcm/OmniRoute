@@ -260,7 +260,11 @@ test("client-audit-2026-09-01: finish_reason:stop + empty content + reasoning �
     usage: { completion_tokens: 4096, reasoning_tokens: 3800 },
   });
   const out = await validateResponseQuality(res, false, silentLog);
-  assert.equal(out.valid, false, "finish_reason:stop doesn't short-circuit — ratio (>90%) still applies");
+  assert.equal(
+    out.valid,
+    false,
+    "finish_reason:stop doesn't short-circuit — ratio (>90%) still applies"
+  );
   assert.match(out.reason ?? "", /reasoning consumed/i);
 });
 
@@ -281,4 +285,30 @@ test("#3587 edge: completion_tokens=0 → safe (no division by zero)", async () 
   });
   const out = await validateResponseQuality(res, false, silentLog);
   assert.equal(out.valid, true, "should be valid: can't divide by zero");
+});
+
+test("streaming peek: bare delta.reasoning string counts as live signal", async () => {
+  const { isKnownNonClaudeStreamPayload } = await import("../../open-sse/utils/streamHelpers.ts");
+  assert.equal(
+    isKnownNonClaudeStreamPayload({
+      choices: [{ delta: { reasoning: "The user is asking if Fable exists" } }],
+    }),
+    true
+  );
+});
+
+test("streaming peek: delta.reasoning {text} object counts as live signal", async () => {
+  const { isKnownNonClaudeStreamPayload } = await import("../../open-sse/utils/streamHelpers.ts");
+  assert.equal(
+    isKnownNonClaudeStreamPayload({
+      choices: [{ delta: { reasoning: { text: "Step one" } } }],
+    }),
+    true
+  );
+});
+
+test("streaming peek: empty delta.reasoning still rejected (no false live)", async () => {
+  const { isKnownNonClaudeStreamPayload } = await import("../../open-sse/utils/streamHelpers.ts");
+  assert.equal(isKnownNonClaudeStreamPayload({ choices: [{ delta: { reasoning: "" } }] }), false);
+  assert.equal(isKnownNonClaudeStreamPayload({ choices: [{ delta: {} }] }), false);
 });

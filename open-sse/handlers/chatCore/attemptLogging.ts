@@ -360,6 +360,7 @@ export function persistAttemptLogs(args: PersistAttemptLogsArgs, ctx: PersistAtt
     skillRequestId,
     detailedLoggingEnabled,
     reqLogger,
+    pendingRequestId,
     clientRawRequest,
     requestedModel,
     credentials,
@@ -458,11 +459,8 @@ export function persistAttemptLogs(args: PersistAttemptLogsArgs, ctx: PersistAtt
     }
   }
 
-  // #13481: each combo attempt needs its own row. Attempts share pendingRequestId, so
-  // keying the log on it made the successful member's insert hit the UNIQUE constraint
-  // and vanish from the dashboard; traceId is per attempt and pairs with request.started.
   saveCallLog({
-    id: traceId,
+    id: pendingRequestId,
     method: "POST",
     path: clientRawRequest?.endpoint || "/v1/chat/completions",
     status,

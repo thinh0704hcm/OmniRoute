@@ -43,11 +43,12 @@ export const opencodeProvider: RegistryEntry = {
       maxOutputTokens: 131072,
     },
     {
-      id: "muse-spark-1.2-contributor-free",
-      name: "Muse Spark 1.2 Contributor Free",
+      id: "muse-spark-1.3-contributor-free",
+      name: "Muse Spark 1.3 Contributor Free",
+      contextLength: 1048576,
       supportsReasoning: true,
       targetFormat: "openai-responses",
-      contextLength: 1048576,
+      supportedToolChoiceModes: ["auto"],
       maxOutputTokens: 131072,
     },
     // Muse Spark 1.3 is served only on the Responses API, same as 1.2 above.

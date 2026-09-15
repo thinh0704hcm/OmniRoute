@@ -1,3 +1,18 @@
+/**
+ * Alias → canonical provider-id resolution.
+ *
+ * Extracted out of `model.ts` because this is the only part of that service a
+ * client-shared module needs, and importing the whole service from a Client
+ * Component pulls its entire graph into the browser bundle. `model.ts` reaches
+ * `@/lib/db/models/activeSyncedCatalog` (via a dynamic import), which leads on
+ * to `db/providers` → … → `services/browserPool` → `playwright-core`, whose
+ * bundled SOCKS client does `require("net")` — Turbopack cannot resolve that for
+ * a browser target and the production build fails.
+ *
+ * Everything here depends only on the registry's alias table, which is pure
+ * data (`open-sse/config/providers/` imports no DB or browser code), so this
+ * module is safe to import from anywhere.
+ */
 import { PROVIDER_ID_TO_ALIAS } from "../config/providerModels.ts";
 
 // Derive alias→provider mapping from the single source of truth (PROVIDER_ID_TO_ALIAS)

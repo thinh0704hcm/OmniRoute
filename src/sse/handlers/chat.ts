@@ -464,6 +464,9 @@ async function handleChatImplementation(
   // resolved, before any reasoning field is read below — so it flows uniformly into every
   // downstream mapper (Anthropic / Gemini / xAI / Responses). An explicit client
   // reasoning_effort / reasoning / object-shaped thinking always wins (backward compatible).
+  // Provider is best-effort here (full resolution happens later); callers re-fold
+  // with the resolved provider before dispatch so DeepSeek-max / Codex-native
+  // branches fire. See refoldReasoningWithProvider below.
   body = normalizeReasoningRequest(body);
 
   const sourceFormat = detectFormatFromUrl(body, request.url);
@@ -1539,6 +1542,11 @@ async function handleSingleModelChat(
     if (modelStr.startsWith(runtimeOptions.providerId + "/")) return resolvedProvider;
     return runtimeOptions.providerId;
   })();
+  // Re-fold canonical effort/thinking with the resolved provider so
+  // provider-scoped branches (DeepSeek-max carve-out, Codex-native tiers)
+  // fire. Idempotent: explicit client reasoning_effort/reasoning wins, and
+  // an already-folded canonical value normalizes to itself.
+  body = normalizeReasoningRequest(body, provider);
   const forceLiveComboTest = runtimeOptions.forceLiveComboTest === true;
   const bypassProviderQuotaPolicy = hasProviderQuotaBypassScope(apiKeyInfo?.scopes);
   const forcedConnectionId =
