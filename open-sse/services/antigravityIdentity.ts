@@ -74,9 +74,5 @@ export function getAntigravitySessionId(
   credentials?: AntigravityCredentialsLike | null,
   fallback?: unknown
 ): string {
-  return (
-    toNonEmptyString(fallback) ||
-    deriveAntigravitySessionId(getAntigravityAccountKey(credentials)) ||
-    generateAntigravitySessionId()
-  );
+  return toNonEmptyString(fallback) || generateAntigravitySessionId();
 }

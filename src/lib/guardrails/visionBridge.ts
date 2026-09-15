@@ -27,6 +27,7 @@ import { resolveVisionBridgeRuntimeSettings } from "@/shared/constants/modalityB
 import { getBestVisionModel } from "./visionBridgeRouter";
 import { bridgeCacheKey, getSharedBridgeCacheFor } from "./modalityBridge/bridgeCache";
 import { recordBridgeUse } from "./modalityBridge/bridgeStats";
+import { resolveBuiltinAutoRoute } from "@omniroute/open-sse/services/autoCombo/builtinCatalog.ts";
 import {
   isProviderConnectionUsable,
   hasUsableCredentialsForModel,
@@ -198,12 +199,13 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
       return { block: false };
     }
 
-    // 3b. Auto/ prefix — don't skip guardrail entirely. Images still need to be
-    // described or rerouted to a vision-capable model. The auto-combo resolver
-    // does NOT currently filter models by vision capability, so without the
-    // guardrail an image-bearing request assigned to a text-only model will
-    // fail upstream with "does not support images".
-    const isAuto = model === "auto" || model.startsWith("auto/");
+    // A constrained vision/multimodal auto channel already filters its pool to
+    // native vision candidates. Bridging it would create a lossy nested request.
+    const autoRoute = resolveBuiltinAutoRoute(model);
+    const isAuto = autoRoute.recognized;
+    if (autoRoute.spec?.category === "vision" || autoRoute.spec?.category === "multimodal") {
+      return { block: false };
+    }
 
     // Declare before the conditional so they're available to the rest of preCall
     let forceVisionBridge = false;
@@ -411,12 +413,17 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     // targets what the user actually asked instead of a generic caption.
     const lastUserText = extractLastUserText(messages);
     const composedPrompt = composeVisionPrompt(config.prompt, lastUserText, runtime.taskAware);
+    const bridgeDeadline = AbortSignal.timeout(runtime.timeoutMs);
+    const bridgeSignal = context.signal
+      ? AbortSignal.any([context.signal, bridgeDeadline])
+      : bridgeDeadline;
     // Bypass the runtime's hooked global fetch (ProxyFetch) for the self-loop
     // describe call — a dead local proxy (127.0.0.1:8317) would otherwise break
     // every describe. Tests inject their own callVisionModel.
     const describeConfig = {
       ...config,
       prompt: composedPrompt,
+      signal: bridgeSignal,
       fetchImpl: undiciFetch as unknown as typeof fetch,
     };
 
@@ -443,32 +450,54 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     // on the first describe, so no description quality is lost.
     const cache = runtime.cacheEnabled ? getSharedBridgeCacheFor(runtime) : null;
 
-    // Process all images in parallel using Promise.allSettled for fail-partial behavior
-    const results = await Promise.allSettled(
-      limitedParts.map(async (imagePart, i) => {
-        const key = cache ? bridgeCacheKey(imagePart.imageUrl, config.prompt, config.model) : null;
-        const cached = key && cache ? cache.get(key) : undefined;
-        const description = cached ?? (await callVision(imagePart.imageUrl, describeConfig));
-        if (cached === undefined && key && cache) cache.set(key, description);
-        recordBridgeUse("vision", { cacheHit: cached !== undefined });
-        const capped =
-          runtime.maxChars > 0 && description.length > runtime.maxChars
-            ? description.slice(0, runtime.maxChars) + "…"
-            : description;
-        return `[Image ${i + 1}]: ${capped}`;
-      })
-    );
+    // A two-worker pool keeps one multi-image request from fanning out into ten
+    // simultaneous self-calls. Queued items stop starting after abort/deadline.
+    const results: Array<PromiseSettledResult<string> | undefined> = Array(limitedParts.length);
+    let nextImage = 0;
+    const describeOne = async (imagePart: (typeof limitedParts)[number], i: number) => {
+      if (bridgeSignal.aborted) throw new Error("Vision bridge request expired");
+      const key = cache ? bridgeCacheKey(imagePart.imageUrl, config.prompt, config.model) : null;
+      const cached = key && cache ? cache.get(key) : undefined;
+      const description = cached ?? (await callVision(imagePart.imageUrl, describeConfig));
+      if (cached === undefined && key && cache) cache.set(key, description);
+      recordBridgeUse("vision", { cacheHit: cached !== undefined });
+      const capped =
+        runtime.maxChars > 0 && description.length > runtime.maxChars
+          ? description.slice(0, runtime.maxChars) + "…"
+          : description;
+      return `[Image ${i + 1}]: ${capped}`;
+    };
+    const worker = async () => {
+      while (!bridgeSignal.aborted) {
+        const index = nextImage++;
+        if (index >= limitedParts.length) return;
+        try {
+          results[index] = {
+            status: "fulfilled",
+            value: await describeOne(limitedParts[index], index),
+          };
+        } catch (reason) {
+          results[index] = { status: "rejected", reason };
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(2, limitedParts.length) }, worker));
 
     // Collect descriptions maintaining original order. A failed describe yields
     // `null` so the original image is preserved downstream (#4012) — replacing it
     // with an "(unavailable)" stub silently destroyed images for vision-capable
     // upstreams whose capability OmniRoute couldn't prove from the registry.
-    const descriptions: (string | null)[] = results.map((result, i) => {
-      if (result.status === "fulfilled") {
+    const descriptions: (string | null)[] = limitedParts.map((_, i) => {
+      const result = results[i];
+      if (result?.status === "fulfilled") {
         return result.value;
       }
       const message =
-        result.reason instanceof Error ? result.reason.message : String(result.reason);
+        result?.status === "rejected" && result.reason instanceof Error
+          ? result.reason.message
+          : result?.status === "rejected"
+            ? String(result.reason)
+            : "Vision bridge request expired before this image started";
       logger?.warn?.("VISION-BRIDGE", `Failed to get description for image ${i + 1}: ${message}`);
       recordBridgeUse("vision", { failure: true });
       return null;
@@ -487,6 +516,7 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     const allNull = descriptions.every((d) => d === null);
     if (
       allNull &&
+      !bridgeSignal.aborted &&
       (comboVisionBridgeDecision === "process" || comboVisionBridgeDecision === "no-vision")
     ) {
       for (let i = 0; i < descriptions.length; i++) {

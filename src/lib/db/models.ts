@@ -7,7 +7,7 @@
 import { isRetiredGitHubCopilotModelId } from "@omniroute/open-sse/config/providers/registry/github/retiredModels.ts";
 
 import { getDbInstance } from "./core";
-import { getProviderConnectionsCount, touchConnectionSyncedModelsAt } from "./providers";
+import { getProviderConnectionsCount } from "./providers";
 import { type JsonRecord, getKeyValue } from "./models/shared";
 import {
   normalizeSyncedAvailableModels,
@@ -15,7 +15,6 @@ import {
   type SyncedAvailableModelInput,
 } from "./models/synced";
 import {
-  deleteSyncedAvailableModelsForProvider,
   finishSyncedAvailableModelsWrite,
   persistCanonicalSyncedAvailableModels,
 } from "./models/syncedAvailableModelPersistence";
@@ -537,10 +536,6 @@ export async function replaceSyncedAvailableModelsForConnection(
   const key = `${providerId}:${connectionId}`;
   const normalizedModels = normalizeSyncedAvailableModels(models, providerId);
   persistCanonicalSyncedAvailableModels(key, normalizedModels, normalizeSyncedAvailableModels);
-  // #12849: stamp the sync time on every successful sync — even a re-sync that
-  // returns an unchanged list proves the catalog is still current, so staleness
-  // gating in getActiveSyncedCatalog must not treat it as aging regardless.
-  if (connectionId) await touchConnectionSyncedModelsAt(connectionId);
   // Return the full unioned list for the provider
   return getSyncedAvailableModels(providerId);
 }
@@ -637,7 +632,22 @@ export async function cleanupProviderModelsAfterConnectionDelete(
   return { remainingConnections, removedImportedModelIds, remainingSyncedModels };
 }
 
-export { deleteSyncedAvailableModelsForProvider };
+/**
+ * Delete all synced models for every connection belonging to a provider.
+ * Returns the number of connection-scoped synced model lists removed.
+ */
+export async function deleteSyncedAvailableModelsForProvider(providerId: string): Promise<number> {
+  const db = getDbInstance();
+  const keyPrefix = `${providerId}:`;
+  const result = db
+    .prepare(
+      "DELETE FROM key_value WHERE namespace = 'syncedAvailableModels' AND substr(key, 1, ?) = ?"
+    )
+    .run(keyPrefix.length, keyPrefix);
+  const changes = Number(result.changes || 0);
+  if (changes > 0) finishSyncedAvailableModelsWrite();
+  return changes;
+}
 
 /**
  * Prune stale synced available models for a provider, keeping only the specified allowed connection IDs.

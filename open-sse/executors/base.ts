@@ -30,7 +30,11 @@ import {
   addParamToBlocklist,
   isAutoLearnGloballyEnabled,
 } from "@/lib/db/paramFilters";
-import { applyFingerprint, isCliCompatEnabled, stripInternalBodyFields } from "../config/cliFingerprints.ts";
+import {
+  applyFingerprint,
+  isCliCompatEnabled,
+  stripInternalBodyFields,
+} from "../config/cliFingerprints.ts";
 import { supportsClaudeMaxEffort, supportsXHighEffort } from "../config/providerModels.ts";
 import { getThinkingBudgetConfig, ThinkingMode } from "../services/thinkingBudget.ts";
 import {
@@ -211,6 +215,13 @@ export type ExecuteInput = {
   ) => Promise<void> | void;
   /** When true, skip the intra-URL 429 retry in execute() so the caller handles fallback. */
   skipUpstreamRetry?: boolean;
+  /** Stream timing marks: stamped around the upstream fetch so Server-Timing
+   * can split gateway queue wait from upstream TTFB. Optional — executors
+   * that dispatch outside execute() (custom transports) simply omit it. */
+  timing?: {
+    markUpstreamStart(): void;
+    markUpstreamFirstByte(): void;
+  } | null;
   /** Request-scoped id for log attribution; absent off the chat path, never fabricated. */
   correlationId?: string | null;
   /** Delegated Context Editing (Claude only): when enabled, attach the
@@ -721,6 +732,7 @@ export class BaseExecutor {
       skipUpstreamRetry = false,
       onCredentialsRefreshed,
       contextEditing,
+      timing,
     } = input;
     const fallbackCount = this.getFallbackCount();
     let lastError: unknown = null;
@@ -951,7 +963,13 @@ export class BaseExecutor {
             : requestOptions;
 
           try {
-            return await fetch(requestUrl, optionsWithSignal);
+            timing?.markUpstreamStart();
+            const upstreamResponse = await fetch(requestUrl, optionsWithSignal);
+            // First byte received (headers + body stream open) — stamped even
+            // when the body turns out to be keepalives; the SSE transform
+            // filters those later without moving this mark.
+            timing?.markUpstreamFirstByte();
+            return upstreamResponse;
           } finally {
             if (timeoutId) clearTimeout(timeoutId);
           }

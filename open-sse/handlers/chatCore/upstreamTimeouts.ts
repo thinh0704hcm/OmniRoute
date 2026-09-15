@@ -123,10 +123,7 @@ export function getExecutorTimeoutMs(
     // Defensive backstop for direct callers: resolveConnectionTimeoutMs is the
     // gate (it rejects out-of-range values so the chain falls through); this
     // clamp only caps values a future caller could pass unvetted.
-    return Math.min(
-      Math.max(0, Math.floor(connectionTimeoutMs)),
-      MAX_PROVIDER_SPECIFIC_TIMEOUT_MS
-    );
+    return Math.min(Math.max(0, Math.floor(connectionTimeoutMs)), MAX_PROVIDER_SPECIFIC_TIMEOUT_MS);
   }
   const modelOverride = resolveModelTimeoutOverride(provider, model);
   if (modelOverride !== undefined) return modelOverride;
@@ -236,13 +233,21 @@ export async function executeWithUpstreamStartTimeout<T>({
   provider: string;
   model: string;
   connectionTimeoutMs?: number;
-  signal: AbortSignal;
+  /**
+   * The caller's abort signal, when the dispatch has one. Absent is normal — the
+   * rate-limit grant path can hand back no signal at all — and this was typed as
+   * a required `AbortSignal`, so `signal.aborted` below threw
+   * "Cannot read properties of undefined (reading 'aborted')" on every such
+   * dispatch. That TypeError then escaped the process crash guard (which only
+   * absorbs abort-shaped errors) and killed the server mid-qualification.
+   */
+  signal?: AbortSignal | null;
   log?: { warn?: (tag: string, message: string) => void } | null;
-  execute: (signal: AbortSignal) => Promise<T>;
+  execute: (signal: AbortSignal | undefined) => Promise<T>;
 }): Promise<T> {
   const timeoutMs = getExecutorTimeoutMs(executor, provider, model, connectionTimeoutMs);
-  if (timeoutMs <= 0) return execute(signal);
-  if (signal.aborted) throw createAbortError(signal);
+  if (timeoutMs <= 0) return execute(signal ?? undefined);
+  if (signal?.aborted) throw createAbortError(signal);
 
   const timeoutController = new AbortController();
   const combinedController = new AbortController();
@@ -251,6 +256,7 @@ export async function executeWithUpstreamStartTimeout<T>({
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let abortListener: (() => void) | null = null;
   let timeoutAbortListener: (() => void) | null = null;
+  let abortPromiseListener: (() => void) | null = null;
 
   const abortCombined = (source: AbortSignal) => {
     if (combinedController.signal.aborted) return;
@@ -258,9 +264,11 @@ export async function executeWithUpstreamStartTimeout<T>({
     combinedController.abort(reason);
   };
 
-  abortListener = () => abortCombined(signal);
+  if (signal) {
+    abortListener = () => abortCombined(signal);
+    signal.addEventListener("abort", abortListener, { once: true });
+  }
   timeoutAbortListener = () => abortCombined(timeoutController.signal);
-  signal.addEventListener("abort", abortListener, { once: true });
   timeoutController.signal.addEventListener("abort", timeoutAbortListener, { once: true });
 
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -272,16 +280,21 @@ export async function executeWithUpstreamStartTimeout<T>({
   });
 
   const abortPromise = new Promise<never>((_, reject) => {
-    signal.addEventListener("abort", () => reject(createAbortError(signal)), { once: true });
+    // No caller signal means nothing can abort this dispatch, so the race below
+    // simply has one fewer branch to settle.
+    if (!signal) return;
+    abortPromiseListener = () => reject(createAbortError(signal));
+    signal.addEventListener("abort", abortPromiseListener, { once: true });
   });
 
   try {
     return await Promise.race([execute(combinedController.signal), timeoutPromise, abortPromise]);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
-    if (abortListener) signal.removeEventListener("abort", abortListener);
+    if (signal && abortListener) signal.removeEventListener("abort", abortListener);
     if (timeoutAbortListener) {
       timeoutController.signal.removeEventListener("abort", timeoutAbortListener);
     }
+    if (signal && abortPromiseListener) signal.removeEventListener("abort", abortPromiseListener);
   }
 }

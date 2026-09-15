@@ -38,7 +38,7 @@ import {
   type IngestBudgetAcquireResult,
 } from "./ingestByteAdmission";
 import {
-  getResourcePressureObservation,
+  getResourcePressureSeverity,
   type PressureSeverity,
 } from "@omniroute/open-sse/utils/resourcePressure.ts";
 
@@ -217,10 +217,17 @@ export type ChatAdmissionShedReason =
   | "inflight_bytes_budget"
   | "resource_pressure";
 
-/** Read cached pressure severity; sampling failures must not cause false sheds. */
+/**
+ * Read cached pressure severity; sampling failures must not cause false sheds.
+ *
+ * Uses the staleness-bounded read (not the raw observation) because admission
+ * runs BEFORE the handler that refreshes the sample: acting on an unboundedly
+ * stale `critical` both sheds on data the guard itself would reject and cannot
+ * recover, since a shed never reaches the refresh.
+ */
 export function defaultPressureSeverity(): PressureSeverity {
   try {
-    return getResourcePressureObservation().state.severity;
+    return getResourcePressureSeverity();
   } catch {
     return "normal";
   }

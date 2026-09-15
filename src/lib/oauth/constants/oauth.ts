@@ -4,12 +4,12 @@ import {
   getAntigravityFetchAvailableModelsUrls,
 } from "@omniroute/open-sse/config/antigravityUpstream.ts";
 import {
-  CODEBUDDY_CN_USER_AGENT,
   GITHUB_COPILOT_API_VERSION,
   GITHUB_COPILOT_CHAT_PLUGIN_VERSION,
   GITHUB_COPILOT_CHAT_USER_AGENT,
   GITHUB_COPILOT_EDITOR_VERSION,
 } from "@omniroute/open-sse/config/providerHeaderProfiles.ts";
+import { CODEBUDDY_CN_USER_AGENT } from "@/shared/constants/codebuddyCnClient";
 // userAgent / editorVersion on GITHUB_CONFIG are captured-pin snapshots for
 // lockstep tests. Request construction must call getGitHubCopilotChatUserAgent()
 // (#12417) — see providers/github.ts and providers/ghe-copilot.ts.

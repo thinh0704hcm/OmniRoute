@@ -687,6 +687,23 @@ export async function withRateLimit(
     LEGACY_RATE_LIMIT_QUEUE_TIMEOUT_CODE
   );
   if (queueRemainingMs <= 0) throw queueTimeoutErr;
+  // Fork overlay: link the caller's abort with a limiter-owned execution abort.
+  // When the execution backstop fires, the in-flight upstream request is aborted
+  // too instead of leaking until it finishes and holding a slot that queued work
+  // must wait on.
+  const executionController = new AbortController();
+  // AbortSignal.any() cannot be explicitly detached on older Node releases and
+  // leaves listeners behind for long-lived request streams. Keep one local
+  // controller and remove both forwarding listeners in the outer finally.
+  const linked = createLinkedAbortSignal(signal, executionController.signal);
+  const effectiveSignal = linked.signal;
+  const abortExecution = (reason: unknown = signal?.reason) => {
+    if (!executionController.signal.aborted) {
+      executionController.abort(
+        reason ?? new DOMException("The operation was aborted", "AbortError")
+      );
+    }
+  };
   const timeoutPromise = new Promise<never>((_, reject) => {
     delayId = setTimeout(() => {
       queueTimedOut = true;
@@ -703,7 +720,7 @@ export async function withRateLimit(
       clearTimeout(delayId);
       delayId = null;
     }
-    return (fn as unknown as (s?: AbortSignal) => Promise<unknown>)(signal ?? undefined);
+    return (fn as unknown as (s?: AbortSignal) => Promise<unknown>)(effectiveSignal);
   };
   const scheduled = limiter.schedule(scheduleOpts, wrappedFn as unknown as () => Promise<unknown>);
   scheduled.catch(() => {});
@@ -769,6 +786,7 @@ export async function withRateLimit(
       err instanceof Bottleneck.BottleneckError &&
       /^This job timed out after \d+ ms\.$/.test(err.message)
     ) {
+      abortExecution();
       const key = getLimiterKey(provider, connectionId, model);
       logRateLimit(
         `⏰ [RATE-LIMIT] ${key} — limiter-managed execution expired after ${Math.ceil((executionExpirationMs || 0) / 1000)}s`
@@ -812,7 +830,42 @@ export async function withRateLimit(
       throw markLocalRateLimitError(wedgeErr, RATE_LIMIT_QUEUE_WEDGED_CODE);
     }
     throw err;
+  } finally {
+    linked.dispose();
   }
+}
+
+interface LinkedAbortSignal {
+  signal: AbortSignal;
+  dispose: () => void;
+}
+
+/** Link a caller abort and a limiter execution abort with removable listeners. */
+function createLinkedAbortSignal(
+  clientSignal: AbortSignal | null | undefined,
+  executionSignal: AbortSignal
+): LinkedAbortSignal {
+  const controller = new AbortController();
+  const forward = (source: AbortSignal) => {
+    if (!controller.signal.aborted) controller.abort(source.reason);
+  };
+  const clientListener = clientSignal ? () => forward(clientSignal) : null;
+  const executionListener = () => forward(executionSignal);
+
+  if (clientSignal) {
+    if (clientSignal.aborted) forward(clientSignal);
+    else clientSignal.addEventListener("abort", clientListener!, { once: true });
+  }
+  if (executionSignal.aborted) forward(executionSignal);
+  else executionSignal.addEventListener("abort", executionListener, { once: true });
+
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      if (clientSignal && clientListener) clientSignal.removeEventListener("abort", clientListener);
+      executionSignal.removeEventListener("abort", executionListener);
+    },
+  };
 }
 
 /**

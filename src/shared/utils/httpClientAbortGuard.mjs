@@ -48,7 +48,15 @@ export function isClientAbortError(err) {
   // `AbortError` with an abort-flavoured message. Same benign class as
   // `Error: aborted` — an emitter-left 'error' event on any of these used to
   // kill the process (#fix-dev-server-aborted).
-  if (e.name === "AbortError" && /abort/i.test(String(e.message))) return true;
+  //
+  // The NAME alone is decisive: `AbortError` is the canonical marker for a
+  // cancelled operation, and requiring the message to also contain "abort"
+  // let OmniRoute's own cancellations through. The combo per-model timeout
+  // aborts with `Error [AbortError]: combo-per-model-timeout`
+  // (open-sse/services/combo/targetTimeoutRunner.ts) — a deliberate internal
+  // cancel, not a server fault — and it escaped this guard, surfaced as an
+  // `uncaughtException` and killed the process mid-qualification.
+  if (e.name === "AbortError") return true;
   switch (e.code) {
     case "ERR_STREAM_PREMATURE_CLOSE":
     case "ECONNRESET":

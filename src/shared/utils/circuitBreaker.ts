@@ -381,6 +381,23 @@ export class CircuitBreaker {
           }
         }
         this._onFailure(kind);
+      } else if (this.state === STATE.HALF_OPEN) {
+        // A HALF_OPEN probe must always settle the breaker's state. Its slot was
+        // already spent above, so leaving the state untouched strands the breaker
+        // in HALF_OPEN with nothing left to allow — every later request is then
+        // refused with "no more probe requests allowed" until an operator resets
+        // it by hand (observed in production, where the probe's error was not one
+        // the classifier counts as a failure).
+        //
+        // The probe is the only evidence available and it was not evidence of
+        // health, so return to OPEN. It is deliberately NOT recorded as a provider
+        // failure — the classifier said this error is not one — but the cooldown
+        // clock restarts, so the next probe waits a full reset timeout instead of
+        // firing on the very next request.
+        this.openCycleCount++;
+        this.lastFailureTime = Date.now();
+        this._transition(STATE.OPEN, `probe-abandoned (cycle ${this.openCycleCount})`);
+        this._persistToDb();
       }
       throw error;
     }

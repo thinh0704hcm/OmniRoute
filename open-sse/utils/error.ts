@@ -32,6 +32,7 @@ export type ErrorBodyClassification = {
 
 const PUBLIC_ERROR_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_PUBLIC_ERROR_IDENTIFIERS = new Set([
+  "auto_candidate_pool_empty",
   "abort",
   "aborted",
   "account_semaphore_capacity",

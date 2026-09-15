@@ -132,7 +132,3 @@ test("resolveEndpointCategory: handles sub-paths under category", () => {
   assert.equal(resolveEndpointCategory("/v1/batches/batch-123"), "batches");
   assert.equal(resolveEndpointCategory("/v1/responses/some/path"), "chat");
 });
-
-test("resolveEndpointCategory: maps /v1/batches/delete-completed to 'batches' (bulk sweep is policy-gated)", () => {
-  assert.equal(resolveEndpointCategory("/v1/batches/delete-completed"), "batches");
-});

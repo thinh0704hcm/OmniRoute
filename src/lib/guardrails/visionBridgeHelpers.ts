@@ -401,6 +401,9 @@ export async function callVisionModel(
   if (!modelToUse) {
     throw new Error("No vision-capable provider connected, cannot process image request");
   }
+  if (modelToUse === "auto" || modelToUse.startsWith("auto/")) {
+    throw new Error("Vision bridge must resolve a concrete vision model");
+  }
   let lastError: Error | null = null;
 
   // Try primary model + fallbacks

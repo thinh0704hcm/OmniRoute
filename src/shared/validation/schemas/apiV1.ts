@@ -594,6 +594,9 @@ export const v1SearchSchema = z.preprocess(
       // anysearch (plus short aliases resolved by
       // SEARCH_PROVIDER_ALIASES).
       provider: z.string().min(1).optional(),
+      // Ordered failover: tried in caller order, first 2xx with >=1 result
+      // wins. Mutually exclusive with `provider` (route 400s both set).
+      providers: z.array(z.string().min(1)).min(1).max(4).optional(),
       max_results: z.coerce.number().int().min(1).max(100).default(5),
       search_type: z.enum(["web", "news", "x"]).default("web"),
       offset: z.coerce.number().int().min(0).default(0),
@@ -633,6 +636,10 @@ export const v1SearchSchema = z.preprocess(
 
       // Provider-specific passthrough
       provider_options: z.record(z.string(), z.unknown()).optional(),
+
+      // Opt-in date backfill: fetch result pages for missing published_at.
+      // Default off — adds tail latency inside the shared chain budget.
+      backfill_dates: z.boolean().default(false),
 
       // Strict mode — reject if provider doesn't support a requested filter
       strict_filters: z.boolean().default(false),

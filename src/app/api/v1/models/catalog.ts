@@ -104,7 +104,6 @@ import {
   mergeComboCapabilities,
   getConnectionScopedEffortTiers,
   type ConnectionScopedReasoningCatalog,
-  memoizeTargetMetadata,
 } from "./catalogHelpers";
 import {
   qualifyOpenRouterModelId,
@@ -849,7 +848,6 @@ async function buildUnifiedModelsResponseCore(
     // catalog build. Runtime auto routing still prepares fresh request-scoped inputs.
     let preparedAutoInputs: Awaited<ReturnType<typeof prepareBuiltinAutoComboInputs>> | undefined;
     let materializedAutoCount = 0;
-    const autoMeta = memoizeTargetMetadata(getComboTargetCatalogMetadata, maybeYieldCatalogBuild);
     for (const autoId of [
       ...Object.keys(AUTO_TEMPLATE_VARIANTS),
       ...AUTO_SUFFIX_VARIANTS,
@@ -892,7 +890,7 @@ async function buildUnifiedModelsResponseCore(
           connectionId: m.connectionId,
           ...(m.allowedConnectionIds ? { allowedConnectionIds: m.allowedConnectionIds } : {}),
         }));
-        const autoTargetMetadata = await autoMeta(autoTargets); // #9147: once per build
+        const autoTargetMetadata = autoTargets.map((t) => getComboTargetCatalogMetadata(t));
         const knownAutoMeta = autoTargetMetadata.filter(
           (m): m is ComboTargetCatalogMetadata => m !== null
         );

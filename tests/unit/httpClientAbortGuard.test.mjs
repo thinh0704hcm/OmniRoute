@@ -66,6 +66,18 @@ test("isClientAbortError matches the exact production crash signature", () => {
   }
 });
 
+test("isClientAbortError absorbs an AbortError whose message is not abort-flavoured", () => {
+  // The combo per-model timeout aborts with exactly this shape
+  // (open-sse/services/combo/targetTimeoutRunner.ts). Requiring the message to
+  // also contain "abort" let it escape the process guard, surface as an
+  // uncaughtException, and kill the server mid-qualification.
+  const comboTimeout = Object.assign(new Error("combo-per-model-timeout"), {
+    name: "AbortError",
+  });
+  assert.equal(isClientAbortError(comboTimeout), true, "AbortError by name must be absorbed");
+  assert.equal(shouldSwallowUncaught(comboTimeout, "uncaughtException"), true);
+});
+
 test("isClientAbortError rejects genuine server errors", () => {
   const real = Object.assign(new Error("boom"), { code: "ENOSPC" });
   assert.equal(isClientAbortError(real), false);
@@ -103,7 +115,10 @@ test("shouldSwallowUncaught absorbs the real 'aborted' uncaughtException signatu
   assert.equal(shouldSwallowUncaught(abortErr, "uncaughtException"), true);
   assert.equal(shouldSwallowUncaught(abortErr, undefined), true);
   assert.equal(
-    shouldSwallowUncaught(Object.assign(new Error("ECONNRESET"), { code: "ECONNRESET" }), "uncaughtException"),
+    shouldSwallowUncaught(
+      Object.assign(new Error("ECONNRESET"), { code: "ECONNRESET" }),
+      "uncaughtException"
+    ),
     true
   );
 });
@@ -188,7 +203,11 @@ test("installProcessCrashGuard still crashes on genuine errors (no over-swallowi
     process.emit("uncaughtException", new Error("genuine failure"), "uncaughtException");
     console.log("SHOULD_NOT_REACH");
   `;
-  const { status, stdout, stderr: _stderr } = await new Promise((resolve, reject) => {
+  const {
+    status,
+    stdout,
+    stderr: _stderr,
+  } = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--input-type=module", "-e", script, guardPath], {
       stdio: ["ignore", "pipe", "pipe"],
     });
