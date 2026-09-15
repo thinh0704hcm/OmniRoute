@@ -306,7 +306,7 @@ test("VB-S04: passthroughs when messages array is empty", async () => {
 
 // ── VB-S12: Auto-prefix skip ────────────────────────────────────────────────
 
-test("VB-S12: reroutes auto/ prefix model to vision model (auto/vision)", async () => {
+test("VB-S12: vision-category auto id skips the bridge (native vision pool)", async () => {
   const guardrail = createGuardrail();
 
   const payload = createPayload({
@@ -322,16 +322,13 @@ test("VB-S12: reroutes auto/ prefix model to vision model (auto/vision)", async 
     ],
   });
 
+  // auto/vision resolves to the vision category, whose pool is already
+  // filtered to native vision candidates — bridging would create a lossy
+  // nested request, so the guardrail passes through untouched.
   const result = await guardrail.preCall(payload, createContext({ model: "auto/vision" }));
   assert.strictEqual(result.block, false);
-  assert.ok(result.modifiedPayload, "auto/vision should reroute to vision model");
-  assert.strictEqual(
-    result.modifiedPayload?.model,
-    "openai/gpt-4o-mini",
-    "should reroute to configured vision model"
-  );
-  assert.strictEqual(result.meta?.rerouted, true, "rerouted meta should be set");
-  assert.strictEqual(visionCallCount, 0, "should NOT call vision API (reroute, not describe)");
+  assert.strictEqual(result.modifiedPayload, undefined, "auto/vision must not reroute or describe");
+  assert.strictEqual(visionCallCount, 0, "should NOT call vision API (native vision pool)");
 });
 
 test("VB-S12b: reroutes auto prefix to best vision model when images present", async () => {
