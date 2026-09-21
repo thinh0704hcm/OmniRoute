@@ -356,25 +356,6 @@ export async function evaluateExecuteTargetGates(opts: {
     }
   }
 
-  if (
-    deps.perTargetAdmission &&
-    !(await deps.perTargetAdmission({
-      modelStr,
-      executionKey: target.executionKey,
-      body: deps.body,
-    }))
-  ) {
-    deps.log.info("COMBO", `Skipping ${modelStr} — admission lane full (#9654)`);
-    recordComboDecision(deps.traceInvocationId, {
-      step: target.executionKey,
-      target: modelStr,
-      decision: "skipped_before_dispatch",
-      reason: "admission_lane",
-    });
-    bumpFallback();
-    return { kind: "skip", result: null };
-  }
-
   return {
     kind: "proceed",
     targetForAttempt: targetForAttempt as ResolvedComboTarget,

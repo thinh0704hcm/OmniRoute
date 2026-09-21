@@ -255,6 +255,8 @@ test("priority combo: fallback remains available under the parent lease", async 
   assert.equal(res.status, 200);
 });
 
+// ── Integration: round-robin skips lane-full targets ───────────────────────
+
 test("round-robin: per-target hook is not applied to single-target dispatch", async () => {
   const calls: string[] = [];
   const handleSingleModel = async (_b: Body, m: string) => {
