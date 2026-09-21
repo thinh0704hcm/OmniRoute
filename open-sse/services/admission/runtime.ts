@@ -5,6 +5,7 @@
 
 import { AdaptiveAdmissionController } from "./controller.ts";
 import { validateConfig } from "./config.ts";
+import { resolveCostConfig } from "./cost.ts";
 import { extractAdmissionCostFeatures } from "./requestFeatures.ts";
 import {
   type AdaptiveAdmissionConfig,
@@ -323,6 +324,7 @@ function classifyHttpOutcome(status: number, signal?: AbortSignal): AdmissionRel
 
 class AdaptiveAdmissionRuntimeImpl implements AdaptiveAdmissionRuntime {
   private readonly controller: AdaptiveAdmissionController;
+  private readonly costConfig: ReturnType<typeof resolveCostConfig>;
   private readonly checkResourcePressure: () => ResourcePressureGuardResult | null;
   private readonly getResourcePressureObservation: () => ResourcePressureObservation;
   private readonly onPressureObserved?: (pressure: AdmissionPressure) => void;
@@ -338,6 +340,7 @@ class AdaptiveAdmissionRuntimeImpl implements AdaptiveAdmissionRuntime {
 
   constructor(options: AdaptiveAdmissionRuntimeOptions, config: AdaptiveAdmissionConfig) {
     this.controller = new AdaptiveAdmissionController(config, options.clock);
+    this.costConfig = resolveCostConfig(config.cost);
     this.checkResourcePressure = options.checkResourcePressure ?? checkResourcePressureGuard;
     this.getResourcePressureObservation =
       options.getResourcePressureObservation ?? getResourcePressureObservation;
@@ -372,7 +375,10 @@ class AdaptiveAdmissionRuntimeImpl implements AdaptiveAdmissionRuntime {
 
     const features = extractAdmissionCostFeatures(
       input.body,
-      input.streaming === undefined ? undefined : { streaming: input.streaming }
+      {
+        streaming: input.streaming,
+        cost: this.costConfig,
+      }
     );
     let result: AdmissionAcquireResult;
     try {
@@ -452,8 +458,6 @@ class AdaptiveAdmissionRuntimeImpl implements AdaptiveAdmissionRuntime {
   ): Response {
     const nowMs = options.nowMs ?? this.nowMs;
     const admittedAtMs = options.admittedAtMs;
-    const responseReadyLatencyMs =
-      admittedAtMs === undefined ? undefined : Math.max(0, nowMs() - admittedAtMs);
 
     if (!response.body || !isSseResponse(response)) {
       releaseOnce(lease, classifyHttpOutcome(response.status, options.signal), admittedAtMs, nowMs);
@@ -468,12 +472,7 @@ class AdaptiveAdmissionRuntimeImpl implements AdaptiveAdmissionRuntime {
     const settle = (outcome: AdmissionReleaseOutcome): void => {
       if (settled) return;
       settled = true;
-      if (lease.released) return;
-      if (responseReadyLatencyMs === undefined) {
-        releaseOnce(lease, outcome, admittedAtMs, nowMs);
-      } else {
-        lease.release(outcome, { latencyMs: responseReadyLatencyMs });
-      }
+      releaseOnce(lease, outcome, admittedAtMs, nowMs);
     };
 
     const cancelReader = (reason?: unknown): void => {

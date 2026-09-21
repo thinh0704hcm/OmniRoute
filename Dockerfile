@@ -106,7 +106,8 @@ RUN test -f package-lock.json \
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,target=/root/.npm \
   npm ci --include=optional --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
   && (cd node_modules/better-sqlite3 \
-      && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild) \
+      && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild --force_build=1) \
+  && test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node \
   && node -e "require('better-sqlite3')(':memory:').close()" \
   && node -e "const wreq=require('wreq-js'); if(typeof wreq.createTransport!=='function') process.exit(1)"
 
@@ -205,17 +206,13 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-next-cache,targ
 # ── Runner base ────────────────────────────────────────────────────────────
 FROM base AS runner-base
 
-ARG OMNIROUTE_BUILD_SHA=""
-
 LABEL org.opencontainers.image.title="omniroute" \
   org.opencontainers.image.description="Unified AI proxy — route any LLM through one endpoint" \
   org.opencontainers.image.url="https://omniroute.online" \
   org.opencontainers.image.source="https://github.com/diegosouzapw/OmniRoute" \
-  org.opencontainers.image.licenses="MIT" \
-  org.opencontainers.image.revision="${OMNIROUTE_BUILD_SHA}"
+  org.opencontainers.image.licenses="MIT"
 
 ENV NODE_ENV=production
-ENV OMNIROUTE_BUILD_SHA="${OMNIROUTE_BUILD_SHA}"
 ENV PORT=20128
 ENV HOSTNAME=0.0.0.0
 # Runtime heap ceiling. 1024MB is enough for normal traffic but can be tight
@@ -229,7 +226,19 @@ ENV NODE_OPTIONS="--max-old-space-size=${OMNIROUTE_MEMORY_MB}"
 
 # Data directory inside Docker — must match the volume mount in docker-compose.yml
 ENV DATA_DIR=/app/data
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && chown node:node /app /app/data
+
+# #13679: default the PUBLISHED image to requiring an API key. A bare
+# `docker run -p 20128:20128 … diegosouzapw/omniroute` (README/QUICK-START
+# one-liners) does not pass `--env-file .env`, so without this default the
+# anonymous /v1 LLM proxy would be both keyless AND world-reachable on the
+# published container. This does NOT change the npm/CLI local-dev default
+# (`REQUIRE_API_KEY` stays `"false"` in featureFlagDefinitions.ts) — only the
+# shipped deployment artifact's posture. docker-compose.yml is unaffected: it
+# loads the operator's own `.env` (env_file:) which overrides this ENV, and
+# already binds loopback-only by default (#12568). Override with
+# `-e REQUIRE_API_KEY=false` for an intentionally keyless deployment.
+ENV REQUIRE_API_KEY=true
 
 # `npm run build` (build-next-isolated → assembleStandalone) bundles ALL runtime
 # files into .build/next/standalone/ — .next, node_modules, migrations, scripts,
@@ -239,23 +248,24 @@ RUN mkdir -p /app/data
 # The old per-module overrides were therefore pure duplication and were removed
 # (build-output-isolation cleanup). See scripts/build/assembleStandalone.mjs
 # (EXTRA_MODULE_ENTRIES) for the single source of truth.
-COPY --from=builder /app/.build/next/standalone ./
+COPY --chown=node:node --from=builder /app/.build/next/standalone ./
 # better-sqlite3 is the one exception still copied explicitly: assembleStandalone
 # only syncs its native build/ dir; the JS wrapper (lib/, package.json) is left to
 # Next.js tracing. bootstrap-env requires SQLite BEFORE the standalone server
 # starts, so guarantee the complete package independent of trace behaviour.
-COPY --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
+COPY --chown=node:node --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
+RUN test -f /app/node_modules/better-sqlite3/build/Release/better_sqlite3.node
 # migrations land at <standalone>/migrations via assembleStandalone; point the runtime at them.
 ENV OMNIROUTE_MIGRATIONS_DIR=/app/migrations
 
 # Docker healthcheck script — not traced by Next.js standalone output, so copy
 # it explicitly. The HEALTHCHECK CMD references it as `node healthcheck.mjs`.
-COPY --from=builder /app/scripts/dev/healthcheck.mjs ./healthcheck.mjs
+COPY --chown=node:node --from=builder /app/scripts/dev/healthcheck.mjs ./healthcheck.mjs
 
-# Hand /app over to the baked-in `node` non-root user (UID/GID 1000) so the
-# runtime process never holds root privileges. The chown happens after all
-# COPYs so it covers files originally owned by root in the builder stage.
-RUN chown -R node:node /app
+# Every COPY above hands its files to the baked-in `node` non-root user
+# (UID/GID 1000) at copy time. Do NOT add a `RUN chown -R node:node /app`
+# afterwards: in the overlay filesystem changing ownership rewrites every file
+# into a new layer, which stored the ~2 GB standalone build twice (#13990).
 
 EXPOSE 20128
 

@@ -4,7 +4,13 @@ import { getCombos, createCombo } from "@/lib/db/combos";
 import { normalizeComboModels } from "@/lib/combos/steps";
 import { duplicateAutoComboSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
-import { resolveBuiltinAutoRoute } from "@omniroute/open-sse/services/autoCombo/builtinCatalog";
+import {
+  AUTO_FAMILY_IDS,
+  resolveBuiltinAutoSpec,
+} from "@omniroute/open-sse/services/autoCombo/builtinCatalog";
+import { AutoVariant } from "@omniroute/open-sse/services/autoCombo/autoPrefix";
+import { AutoComboSpec } from "@omniroute/open-sse/services/autoCombo/virtualFactory";
+import { MODEL_FAMILIES, ModelFamily } from "@omniroute/open-sse/services/autoCombo/modelFamily";
 
 // POST /api/combos/duplicate - Resolve an auto-combo into a static combo snapshot.
 // Takes an auto/* template name, resolves its candidate pool using the same logic as
@@ -36,11 +42,38 @@ export async function POST(request: Request) {
   const { name, strategy } = validation.data;
 
   try {
+    const { createVirtualAutoCombo } =
+      await import("@omniroute/open-sse/services/autoCombo/virtualFactory");
+
     // Resolve the variant/spec using the same logic as builtinCatalog.
-    const resolved = resolveBuiltinAutoRoute(name);
+    const suffix = name.slice("auto/".length);
+    const resolved = resolveBuiltinAutoSpec(name, suffix);
+
+    let variant: AutoVariant | undefined;
+    let spec: AutoComboSpec | undefined;
+
+    if ("category" in resolved) {
+      // Category/tier path (e.g. auto/best-vision → { category: "vision" })
+      spec = {
+        category: resolved.category,
+        ...(resolved.tier ? { tier: resolved.tier } : {}),
+      };
+    } else if (resolved.variant !== undefined) {
+      // Variant path (e.g. auto/best-coding → variant "coding")
+      variant = resolved.variant ?? undefined;
+      spec = name === "auto/best-free" ? { tier: "free" as const } : undefined;
+    }
+    // Family suffixes (auto/glm, etc.) — resolveBuiltinAutoSpec returns
+    // { variant: undefined } for them, so fall through to MODEL_FAMILIES check.
+    if (!variant && !spec) {
+      const candidate = suffix as ModelFamily;
+      if (MODEL_FAMILIES.includes(candidate)) {
+        spec = { family: candidate };
+      }
+    }
 
     // Reject unknown templates early instead of silently passing bad data downstream.
-    if (!resolved.recognized) {
+    if (!variant && !spec) {
       return NextResponse.json(
         { error: `Unknown auto-combo template: "${name}"` },
         { status: 422 }
@@ -57,11 +90,7 @@ export async function POST(request: Request) {
       includeResolvedCapabilities: true,
     });
 
-    const virtualCombo = await createVirtualAutoComboFromPrepared(
-      prepared,
-      resolved.variant,
-      resolved.spec
-    );
+    const virtualCombo = await createVirtualAutoComboFromPrepared(prepared, variant, spec);
 
     if (!Array.isArray(virtualCombo.models) || virtualCombo.models.length === 0) {
       return NextResponse.json(

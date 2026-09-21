@@ -1,4 +1,5 @@
 import { generateModels, generateAliasMap, type RegistryModel } from "./providerRegistry.ts";
+import { getVertexModelTargetFormat } from "./vertexModels.ts";
 
 // Lazy PROVIDER_MODELS: deferred until first property access to speed up startup.
 // The Proxy defers `generateModels()` from module-evaluation time to the first read.
@@ -228,9 +229,10 @@ export function getModelTargetFormat(aliasOrId: string, modelId: string): string
   // executor's /codex/i routing, 9router#102). Scoped to the openai alias so other
   // providers shipping *-pro ids keep their own endpoint semantics.
   if (alias === "openai" && /-pro$/i.test(bareModelId)) return "openai-responses";
-  // ponytail: Claude models on Vertex use rawPredict with Anthropic Messages format,
-  // not the Gemini generateContent format. Mirrors executor isClaudeModel() check.
-  if ((alias === "vertex" || alias === "vp") && /^claude-/i.test(bareModelId)) return "claude";
+  // Vertex uses three protocol families: Gemini generateContent, Anthropic Messages rawPredict,
+  // and OpenAI-shaped Mistral/Open-MaaS requests. Resource names retain enough publisher data to
+  // route future dynamically-synced models without adding another pinned prefix here.
+  if (alias === "vertex" || alias === "vp") return getVertexModelTargetFormat(bareModelId);
   // Model-level targetFormat is provider-scoped: a catalog entry declares how THIS
   // provider's endpoint serves the model — do NOT import another provider's tag.
   // #9994 scoped this for providers WITH a catalog; #10072 extends it to catalogless
@@ -259,19 +261,6 @@ export function getModelsByProviderId(providerId: string): RegistryModel[] {
  * isn't found or has no override, so callers can fall through to the
  * provider-level/global defaults unchanged.
  */
-export function getModelSupportedToolChoiceModes(
-  aliasOrId: string,
-  modelId: string
-): readonly string[] | null {
-  const alias = PROVIDER_ID_TO_ALIAS[aliasOrId] || aliasOrId;
-  const prefixes = [`${aliasOrId}/`, `${alias}/`];
-  const prefix = prefixes.find((value) => modelId.startsWith(value));
-  const bareModelId = prefix ? modelId.slice(prefix.length) : modelId;
-  const found = PROVIDER_MODELS[alias]?.find((m) => m.id === bareModelId);
-  if (found?.supportedToolChoiceModes) return found.supportedToolChoiceModes;
-  return null;
-}
-
 export function getModelTimeoutMs(aliasOrId: string, modelId: string): number | undefined {
   // Callers (e.g. chatCore's timeout resolution) pass the raw provider id
   // ("codex"), not the public alias ("cx") that PROVIDER_MODELS is keyed by

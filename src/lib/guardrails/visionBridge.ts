@@ -27,15 +27,82 @@ import { resolveVisionBridgeRuntimeSettings } from "@/shared/constants/modalityB
 import { getBestVisionModel } from "./visionBridgeRouter";
 import { bridgeCacheKey, getSharedBridgeCacheFor } from "./modalityBridge/bridgeCache";
 import { recordBridgeUse } from "./modalityBridge/bridgeStats";
-import { resolveBuiltinAutoRoute } from "@omniroute/open-sse/services/autoCombo/builtinCatalog.ts";
 import {
   isProviderConnectionUsable,
   hasUsableCredentialsForModel,
 } from "./visionBridgeCredentials";
+import { MAX_COMBO_DEPTH } from "@omniroute/open-sse/services/combo/comboPredicates.ts";
 
 export { isProviderConnectionUsable, hasUsableCredentialsForModel };
 
 type ComboVisionBridgeDecision = "process" | "skip" | "not-combo" | "no-vision";
+
+type LeafVisionTally = { hasVision: boolean; hasNonVision: boolean };
+
+/// Evaluate a single `kind: "model"` step's proven vision capability.
+/// Returns null when the step lacks a valid model string (malformed step).
+function evaluateModelStepCapability(s: Record<string, unknown>): "vision" | "non-vision" | null {
+  const targetModel = s.model;
+  if (typeof targetModel !== "string") return null;
+  const provider =
+    typeof s.providerId === "string"
+      ? s.providerId
+      : typeof s.provider === "string"
+        ? s.provider
+        : null;
+  const caps = getResolvedModelCapabilities({ provider, model: targetModel });
+  return caps.supportsVision === true ? "vision" : "non-vision";
+}
+
+/// Recursively resolve a `combo-ref` step to its real leaf models' vision
+/// capability, reusing the same MAX_COMBO_DEPTH guard as the flatten dispatch
+/// path (open-sse/services/combo/comboStructure.ts) plus a visited-set cycle
+/// guard, so this request-hot-path lookup can never recurse unbounded or loop
+/// on a cyclic combo-ref chain.
+///
+/// Unresolvable cases (combo not found, empty/invalid models, depth exceeded,
+/// or a cycle) fall back to treating the combo-ref step as a single
+/// non-vision-capable leaf -- conservative, but no longer forces the WHOLE
+/// outer combo to "process" the way the old unconditional shortcut did.
+async function resolveComboRefVisionCapability(
+  comboName: string,
+  visited: Set<string>,
+  depth: number
+): Promise<LeafVisionTally> {
+  const fallback: LeafVisionTally = { hasVision: false, hasNonVision: true };
+  if (depth > MAX_COMBO_DEPTH || visited.has(comboName)) return fallback;
+
+  const { getComboByName } = await import("@/lib/db/combos");
+  const nestedCombo = await getComboByName(comboName);
+  if (!nestedCombo) return fallback;
+
+  const nestedVisited = new Set(visited);
+  nestedVisited.add(comboName);
+
+  const nestedRawModels = (nestedCombo as Record<string, unknown>).models;
+  if (!Array.isArray(nestedRawModels) || nestedRawModels.length === 0) return fallback;
+
+  const tally: LeafVisionTally = { hasVision: false, hasNonVision: false };
+  let hasLeaf = false;
+  for (const step of nestedRawModels) {
+    const s = step as Record<string, unknown>;
+    if (s.kind === "combo-ref" && typeof s.comboName === "string") {
+      hasLeaf = true;
+      const nested = await resolveComboRefVisionCapability(s.comboName, nestedVisited, depth + 1);
+      tally.hasVision = tally.hasVision || nested.hasVision;
+      tally.hasNonVision = tally.hasNonVision || nested.hasNonVision;
+      continue;
+    }
+    if (s.kind === "model") {
+      hasLeaf = true;
+      const capability = evaluateModelStepCapability(s);
+      if (capability === "vision") tally.hasVision = true;
+      else tally.hasNonVision = true;
+    }
+  }
+
+  return hasLeaf ? tally : fallback;
+}
 
 export function resolveVisionComboName(mapping: Record<string, unknown>): string | null {
   const comboName = mapping.comboName ?? mapping.name ?? null;
@@ -76,37 +143,43 @@ export async function getComboVisionBridgeDecision(
     if (!Array.isArray(rawModels)) return "process";
 
     // 4. Check each target for vision support
-    // combo-ref → conservative (process images)
+    // combo-ref → recursively resolve the referenced combo's real leaf
+    //   models (depth/cycle-guarded); unresolvable → conservative non-vision leaf
     // model step with no native vision → process images
     // all model steps with native vision → safe to skip
     // zero vision-capable model steps → "no-vision" (reroute-eligible)
     let hasModelStep = false;
     let hasVisionCapableStep = false;
     let hasNonVisionStep = false;
+    const rootComboName =
+      typeof (combo as Record<string, unknown>).name === "string"
+        ? ((combo as Record<string, unknown>).name as string)
+        : model;
     for (const step of rawModels) {
       const s = step as Record<string, unknown>;
-      if (s.kind === "combo-ref") return "process";
+      if (s.kind === "combo-ref") {
+        hasModelStep = true;
+        if (typeof s.comboName !== "string") {
+          hasNonVisionStep = true;
+          continue;
+        }
+        const nested = await resolveComboRefVisionCapability(
+          s.comboName,
+          new Set([rootComboName]),
+          1
+        );
+        if (nested.hasVision) hasVisionCapableStep = true;
+        if (nested.hasNonVision) hasNonVisionStep = true;
+        continue;
+      }
       if (s.kind === "model") {
         hasModelStep = true;
-        const targetModel = s.model;
-        if (typeof targetModel === "string") {
-          const provider =
-            typeof s.providerId === "string"
-              ? s.providerId
-              : typeof s.provider === "string"
-                ? s.provider
-                : null;
-          const caps = getResolvedModelCapabilities({
-            provider,
-            model: targetModel,
-          });
-          if (caps.supportsVision === true) {
-            hasVisionCapableStep = true;
-          } else {
-            hasNonVisionStep = true;
-          }
+        const capability = evaluateModelStepCapability(s);
+        if (capability === null) return "process";
+        if (capability === "vision") {
+          hasVisionCapableStep = true;
         } else {
-          return "process";
+          hasNonVisionStep = true;
         }
       }
     }
@@ -199,13 +272,12 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
       return { block: false };
     }
 
-    // A constrained vision/multimodal auto channel already filters its pool to
-    // native vision candidates. Bridging it would create a lossy nested request.
-    const autoRoute = resolveBuiltinAutoRoute(model);
-    const isAuto = autoRoute.recognized;
-    if (autoRoute.spec?.category === "vision" || autoRoute.spec?.category === "multimodal") {
-      return { block: false };
-    }
+    // 3b. Auto/ prefix — don't skip guardrail entirely. Images still need to be
+    // described or rerouted to a vision-capable model. The auto-combo resolver
+    // does NOT currently filter models by vision capability, so without the
+    // guardrail an image-bearing request assigned to a text-only model will
+    // fail upstream with "does not support images".
+    const isAuto = model === "auto" || model.startsWith("auto/");
 
     // Declare before the conditional so they're available to the rest of preCall
     let forceVisionBridge = false;
@@ -413,17 +485,12 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     // targets what the user actually asked instead of a generic caption.
     const lastUserText = extractLastUserText(messages);
     const composedPrompt = composeVisionPrompt(config.prompt, lastUserText, runtime.taskAware);
-    const bridgeDeadline = AbortSignal.timeout(runtime.timeoutMs);
-    const bridgeSignal = context.signal
-      ? AbortSignal.any([context.signal, bridgeDeadline])
-      : bridgeDeadline;
     // Bypass the runtime's hooked global fetch (ProxyFetch) for the self-loop
     // describe call — a dead local proxy (127.0.0.1:8317) would otherwise break
     // every describe. Tests inject their own callVisionModel.
     const describeConfig = {
       ...config,
       prompt: composedPrompt,
-      signal: bridgeSignal,
       fetchImpl: undiciFetch as unknown as typeof fetch,
     };
 
@@ -450,54 +517,32 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     // on the first describe, so no description quality is lost.
     const cache = runtime.cacheEnabled ? getSharedBridgeCacheFor(runtime) : null;
 
-    // A two-worker pool keeps one multi-image request from fanning out into ten
-    // simultaneous self-calls. Queued items stop starting after abort/deadline.
-    const results: Array<PromiseSettledResult<string> | undefined> = Array(limitedParts.length);
-    let nextImage = 0;
-    const describeOne = async (imagePart: (typeof limitedParts)[number], i: number) => {
-      if (bridgeSignal.aborted) throw new Error("Vision bridge request expired");
-      const key = cache ? bridgeCacheKey(imagePart.imageUrl, config.prompt, config.model) : null;
-      const cached = key && cache ? cache.get(key) : undefined;
-      const description = cached ?? (await callVision(imagePart.imageUrl, describeConfig));
-      if (cached === undefined && key && cache) cache.set(key, description);
-      recordBridgeUse("vision", { cacheHit: cached !== undefined });
-      const capped =
-        runtime.maxChars > 0 && description.length > runtime.maxChars
-          ? description.slice(0, runtime.maxChars) + "…"
-          : description;
-      return `[Image ${i + 1}]: ${capped}`;
-    };
-    const worker = async () => {
-      while (!bridgeSignal.aborted) {
-        const index = nextImage++;
-        if (index >= limitedParts.length) return;
-        try {
-          results[index] = {
-            status: "fulfilled",
-            value: await describeOne(limitedParts[index], index),
-          };
-        } catch (reason) {
-          results[index] = { status: "rejected", reason };
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(2, limitedParts.length) }, worker));
+    // Process all images in parallel using Promise.allSettled for fail-partial behavior
+    const results = await Promise.allSettled(
+      limitedParts.map(async (imagePart, i) => {
+        const key = cache ? bridgeCacheKey(imagePart.imageUrl, config.prompt, config.model) : null;
+        const cached = key && cache ? cache.get(key) : undefined;
+        const description = cached ?? (await callVision(imagePart.imageUrl, describeConfig));
+        if (cached === undefined && key && cache) cache.set(key, description);
+        recordBridgeUse("vision", { cacheHit: cached !== undefined });
+        const capped =
+          runtime.maxChars > 0 && description.length > runtime.maxChars
+            ? description.slice(0, runtime.maxChars) + "…"
+            : description;
+        return `[Image ${i + 1}]: ${capped}`;
+      })
+    );
 
     // Collect descriptions maintaining original order. A failed describe yields
     // `null` so the original image is preserved downstream (#4012) — replacing it
     // with an "(unavailable)" stub silently destroyed images for vision-capable
     // upstreams whose capability OmniRoute couldn't prove from the registry.
-    const descriptions: (string | null)[] = limitedParts.map((_, i) => {
-      const result = results[i];
-      if (result?.status === "fulfilled") {
+    const descriptions: (string | null)[] = results.map((result, i) => {
+      if (result.status === "fulfilled") {
         return result.value;
       }
       const message =
-        result?.status === "rejected" && result.reason instanceof Error
-          ? result.reason.message
-          : result?.status === "rejected"
-            ? String(result.reason)
-            : "Vision bridge request expired before this image started";
+        result.reason instanceof Error ? result.reason.message : String(result.reason);
       logger?.warn?.("VISION-BRIDGE", `Failed to get description for image ${i + 1}: ${message}`);
       recordBridgeUse("vision", { failure: true });
       return null;
@@ -516,7 +561,6 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     const allNull = descriptions.every((d) => d === null);
     if (
       allNull &&
-      !bridgeSignal.aborted &&
       (comboVisionBridgeDecision === "process" || comboVisionBridgeDecision === "no-vision")
     ) {
       for (let i = 0; i < descriptions.length; i++) {
