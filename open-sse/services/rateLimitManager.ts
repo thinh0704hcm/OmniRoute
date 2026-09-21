@@ -689,8 +689,20 @@ export async function withRateLimit(
     | { executor?: { getTimeoutMs?: () => unknown }; providerSpecificData?: unknown }
     | undefined = undefined
 ) {
+  const executionController = new AbortController();
+  const linked = createLinkedAbortSignal(signal, executionController.signal);
+  const effectiveSignal = linked.signal;
+  const abortExecution = (reason = signal?.reason) => {
+    if (!executionController.signal.aborted) {
+      executionController.abort(
+        reason ?? new DOMException("The operation was aborted", "AbortError")
+      );
+    }
+  };
+
+  try {
   if (!enabledConnections.has(connectionId)) {
-    return fn();
+    return await fn(effectiveSignal);
   }
 
   if (signal?.aborted) {
@@ -721,7 +733,7 @@ export async function withRateLimit(
     );
   }
   const slotStart = Date.now();
-  await awaitProviderDefaultSlot(provider, connectionId, signal, budgetForSlot);
+  await awaitProviderDefaultSlot(provider, connectionId, effectiveSignal, budgetForSlot);
   const elapsedSlot = Date.now() - slotStart;
   const remainingForQueue =
     typeof remainingBudgetMs === "number" && Number.isFinite(remainingBudgetMs)
@@ -803,7 +815,7 @@ export async function withRateLimit(
       clearTimeout(delayId);
       delayId = null;
     }
-    return (fn as unknown as (s?: AbortSignal) => Promise<unknown>)(signal ?? undefined);
+    return (fn as unknown as (s?: AbortSignal) => Promise<unknown>)(effectiveSignal);
   };
   const scheduled = limiter.schedule(scheduleOpts, wrappedFn as unknown as () => Promise<unknown>);
   scheduled.catch(() => {});
@@ -820,6 +832,7 @@ export async function withRateLimit(
       const { promise: abortPromise, reject: rejectAbort } = Promise.withResolvers<never>();
       const onAbort = () => {
         const reason = signal.reason;
+        abortExecution(reason);
         // Preserve native Error reasons (including AbortController's
         // read-only DOMException) instead of mutating or wrapping them.
         if (reason instanceof Error) {
@@ -869,6 +882,7 @@ export async function withRateLimit(
       err instanceof Bottleneck.BottleneckError &&
       /^This job timed out after \d+ ms\.$/.test(err.message)
     ) {
+      abortExecution();
       const key = getLimiterKey(provider, connectionId, model);
       logRateLimit(
         `⏰ [RATE-LIMIT] ${key} — limiter-managed execution expired after ${Math.ceil((executionExpirationMs || 0) / 1000)}s`
@@ -912,7 +926,43 @@ export async function withRateLimit(
       throw markLocalRateLimitError(wedgeErr, RATE_LIMIT_QUEUE_WEDGED_CODE);
     }
     throw err;
+  } finally {
+    linked.dispose();
   }
+}
+
+interface LinkedAbortSignal {
+  signal: AbortSignal;
+  dispose: () => void;
+}
+
+function createLinkedAbortSignal(
+  clientSignal: AbortSignal | null | undefined,
+  executionSignal: AbortSignal
+): LinkedAbortSignal {
+  const controller = new AbortController();
+  const forward = (source: AbortSignal) => {
+    if (!controller.signal.aborted) {
+      controller.abort(
+        source.reason ?? new DOMException("The operation was aborted", "AbortError")
+      );
+    }
+  };
+  const onClientAbort = () => clientSignal && forward(clientSignal);
+  const onExecutionAbort = () => forward(executionSignal);
+
+  if (clientSignal?.aborted) forward(clientSignal);
+  else clientSignal?.addEventListener("abort", onClientAbort, { once: true });
+  if (executionSignal.aborted) forward(executionSignal);
+  else executionSignal.addEventListener("abort", onExecutionAbort, { once: true });
+
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      clientSignal?.removeEventListener("abort", onClientAbort);
+      executionSignal.removeEventListener("abort", onExecutionAbort);
+    },
+  };
 }
 
 /**
