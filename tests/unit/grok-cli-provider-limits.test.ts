@@ -18,9 +18,6 @@ const { mergeProviderLimitsCacheEntry } =
   await import("../../src/lib/usage/providerLimitsCache.ts");
 
 const originalFetch = globalThis.fetch;
-const RESET_TOKEN_GRANTED = 1786560540;
-const RESET_TOKEN_EXPIRES = 1789238940;
-const FIXTURE_NOW_MS = Date.UTC(2026, 8, 6);
 
 interface FetchCall {
   url: string;
@@ -77,8 +74,8 @@ function encodeVarintField(fieldNumber: number, value: number): Buffer {
 function oneResetTokenResponse(): Response {
   const token = Buffer.concat([
     encodeLengthDelimited(1, Buffer.from("test-token-id", "utf8")),
-    encodeVarintField(2, RESET_TOKEN_GRANTED),
-    encodeVarintField(3, RESET_TOKEN_EXPIRES),
+    encodeVarintField(2, 1786560540),
+    encodeVarintField(3, 1789238940),
   ]);
   const payload = encodeLengthDelimited(10, token);
   const trailer = Buffer.from("grpc-status:0\r\n", "utf8");
@@ -93,8 +90,8 @@ function liveResetTokenResponse(): Response {
   const timestamp = (unixSeconds: number) => encodeVarintField(1, unixSeconds);
   const token = Buffer.concat([
     encodeLengthDelimited(10, Buffer.from("test-token-id", "utf8")),
-    encodeLengthDelimited(20, timestamp(RESET_TOKEN_GRANTED)),
-    encodeLengthDelimited(30, timestamp(RESET_TOKEN_EXPIRES)),
+    encodeLengthDelimited(20, timestamp(1786560540)),
+    encodeLengthDelimited(30, timestamp(1789238940)),
   ]);
   const payload = encodeLengthDelimited(10, token);
   const trailer = Buffer.from("grpc-status:0\r\n", "utf8");
@@ -645,8 +642,7 @@ test("SuperGrokPro explicit null creditUsagePercent still yields a weekly quota 
   });
 });
 
-test("grok-cli surfaces bankedResetCredits when GetRemainingResets returns one token", async (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: FIXTURE_NOW_MS });
+test("grok-cli surfaces bankedResetCredits when GetRemainingResets returns one token", async () => {
   const fixtureFetch = successFixtures();
   const usage = await getUsage((async (input: string | URL | Request) => {
     const url = String(input);
@@ -657,8 +653,7 @@ test("grok-cli surfaces bankedResetCredits when GetRemainingResets returns one t
   assert.ok(usage.quotas?.weekly);
 });
 
-test("grok-cli surfaces bankedResetCredits for live nested 10/20/30 tokens", async (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: FIXTURE_NOW_MS });
+test("grok-cli surfaces bankedResetCredits for live nested 10/20/30 tokens", async () => {
   const fixtureFetch = successFixtures();
   const usage = await getUsage((async (input: string | URL | Request) => {
     const url = String(input);

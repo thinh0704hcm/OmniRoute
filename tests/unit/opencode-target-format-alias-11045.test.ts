@@ -6,7 +6,7 @@ import {
   resolveOpencodeTargetFormat,
 } from "../../open-sse/executors/opencode.ts";
 
-// oc/muse-spark-1.2-contributor-free returns HTTP 400 with an empty assistant
+// oc/muse-spark-1.3-contributor-free returns HTTP 400 with an empty assistant
 // message right after `targetFormat:"openai-responses"` was added to its registry
 // entry (#10874). Root cause: `PROVIDER_MODELS` is keyed by the provider's public
 // ALIAS ("oc"), not its raw registry id ("opencode") — resolving the target format
@@ -18,7 +18,7 @@ import {
 
 test("resolveOpencodeTargetFormat resolves the registry entry via the provider alias, not the raw id", () => {
   assert.equal(
-    resolveOpencodeTargetFormat("opencode", "muse-spark-1.2-contributor-free"),
+    resolveOpencodeTargetFormat("opencode", "muse-spark-1.3-contributor-free"),
     "openai-responses"
   );
   assert.equal(resolveOpencodeTargetFormat("opencode", "muse-spark-1.2"), "openai-responses");
@@ -37,8 +37,8 @@ test("OpencodeExecutor.buildUrl uses /responses once _requestFormat is resolved 
   // Mirrors the first line of execute() — see #11045.
   (executor as unknown as { _requestFormat: string })._requestFormat = resolveOpencodeTargetFormat(
     "opencode",
-    "muse-spark-1.2-contributor-free"
+    "muse-spark-1.3-contributor-free"
   );
-  const url = executor.buildUrl("muse-spark-1.2-contributor-free", true);
+  const url = executor.buildUrl("muse-spark-1.3-contributor-free", true);
   assert.ok(url.endsWith("/responses"), `expected URL to end with /responses, got: ${url}`);
 });

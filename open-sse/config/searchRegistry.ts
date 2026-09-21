@@ -264,6 +264,11 @@ export const SEARCH_PROVIDERS: Record<string, SearchProviderConfig> = {
     maxMaxResults: 10,
     timeoutMs: 10_000,
     cacheTTLMs: 5 * 60 * 1000,
+    // Quota dies silently at 1000/mo with thin snippets and no remaining/
+    // reset signaling — never let cheapest-wins auto-select land here.
+    // Explicit `provider: "ollama-search"` still works; auto-select falls
+    // through to the next cheapest credentialed provider.
+    fallbackOnly: true,
   },
 
   "zai-search": {

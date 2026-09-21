@@ -50,6 +50,7 @@ import {
   releaseRejectedQualityResponse,
   validateResponseQuality,
 } from "./validateQuality.ts";
+import { raceFirstContentDeadline, resolveFirstContentBudgetMs } from "./firstContentDeadline.ts";
 import type {
   ComboCollectionLike,
   ComboLike,
@@ -231,11 +232,9 @@ async function evaluatePinnedResponse(args: {
     } catch {
       pinnedClone = pinnedResult;
     }
-    const pinnedQuality = await validateResponseQuality(
-      pinnedClone,
-      clientRequestedStream,
-      log,
-      config.responseValidation
+    const pinnedQuality = await raceFirstContentDeadline(
+      validateResponseQuality(pinnedClone, clientRequestedStream, log, config.responseValidation),
+      resolveFirstContentBudgetMs(config, clientRequestedStream)
     );
     releaseQualityClone(pinnedClone, pinnedResult, pinnedQuality);
     if (pinnedQuality.valid) return pinnedResult;
@@ -247,7 +246,7 @@ async function evaluatePinnedResponse(args: {
     return null;
   }
   const pinnedStatus = pinnedResult.status || 500;
-  if (![401, 408, 429, 500, 502, 503, 504].includes(pinnedStatus)) {
+  if (![408, 429, 500, 502, 503, 504].includes(pinnedStatus)) {
     return pinnedResult;
   }
   log.warn(

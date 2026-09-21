@@ -417,7 +417,7 @@ export default function CompareTab({ configState }: CompareTabProps) {
 
       {/* Columns area */}
       <div
-        className="flex-1 grid overflow-x-hidden min-h-0"
+        className="flex-1 grid overflow-hidden"
         style={{
           gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(0, 1fr))`,
         }}

@@ -9,7 +9,6 @@ import { encodeRedeemResetRequest } from "../../open-sse/services/grokResetCredi
 
 const GRANTED = 1786560540;
 const EXPIRES = 1789238940;
-const FIXTURE_NOW_MS = Date.UTC(2026, 8, 6);
 const TOKEN_ID = "test-token-id";
 const REDEEM_URL = "https://grok.com/prod_mc_billing.ConsumerUiSvc/RedeemReset";
 const LIST_URL = "https://grok.com/prod_mc_billing.ConsumerUiSvc/GetRemainingResets";
@@ -94,8 +93,7 @@ test("mapGrokRedeemGrpcStatus treats invalid token_id as noCredit", () => {
   assert.equal(mapGrokRedeemGrpcStatus("3", "redeem_reset(), Invalid token_id"), "noCredit");
 });
 
-test("listGrokResetCreditTokens returns public rows ordered by expiry", async (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: FIXTURE_NOW_MS });
+test("listGrokResetCreditTokens returns public rows ordered by expiry", async () => {
   const listed = await listGrokResetCreditTokens("fixture-access-token", async (url) => {
     assert.equal(String(url), LIST_URL);
     return listResponse([
@@ -137,8 +135,7 @@ test("consumeGrokResetCredit posts RedeemReset with protobuf field 10 and skips 
   assert.equal(headers.Authorization, ["Bearer", "fixture-access-token"].join(" "));
 });
 
-test("consumeGrokResetCredit picks the token that expires first when none is selected", async (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: FIXTURE_NOW_MS });
+test("consumeGrokResetCredit picks the token that expires first when none is selected", async () => {
   const calls: Array<{ url: string; body: Buffer | null }> = [];
   const outcome = await consumeGrokResetCredit(
     "fixture-access-token",

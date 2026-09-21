@@ -36,14 +36,14 @@ I18N_DIR = PROJECT_ROOT / "docs" / "i18n"
 
 def get_language_name(lang_code):
     lang_map = {
-        "pt-BR": "Portuguese (Brazil)", "es": "Spanish", "fr": "French", 
-        "it": "Italian", "ru": "Russian", "zh-CN": "Simplified Chinese", 
-        "de": "German", "th": "Thai", "uk-UA": "Ukrainian", 
-        "ar": "Arabic", "az": "Azerbaijani", "ja": "Japanese", "vi": "Vietnamese", "bg": "Bulgarian", 
-        "da": "Danish", "fi": "Finnish", "he": "Hebrew", "hu": "Hungarian", 
-        "id": "Indonesian", "ko": "Korean", "ms": "Malay", "nl": "Dutch", 
-        "no": "Norwegian", "pt": "Portuguese (Portugal)", "ro": "Romanian", 
-        "pl": "Polish", "sk": "Slovak", "sv": "Swedish", "phi": "Filipino", 
+        "pt-BR": "Portuguese (Brazil)", "es": "Spanish", "fr": "French",
+        "it": "Italian", "ru": "Russian", "zh-CN": "Simplified Chinese",
+        "de": "German", "th": "Thai", "uk-UA": "Ukrainian",
+        "ar": "Arabic", "az": "Azerbaijani", "ja": "Japanese", "vi": "Vietnamese", "bg": "Bulgarian",
+        "da": "Danish", "fi": "Finnish", "he": "Hebrew", "hu": "Hungarian",
+        "id": "Indonesian", "ko": "Korean", "ms": "Malay", "nl": "Dutch",
+        "no": "Norwegian", "pt": "Portuguese (Portugal)", "ro": "Romanian",
+        "pl": "Polish", "sk": "Slovak", "sv": "Swedish", "phi": "Filipino",
         "cs": "Czech"
     }
     return lang_map.get(lang_code, lang_code)
@@ -72,7 +72,7 @@ def translate_block(text, target_language, api_url, api_key, model):
         "temperature": 0.3,
         "stream": False
     }
-    
+
     req = urllib.request.Request(
         f"{api_url}/chat/completions",
         data=json.dumps(data).encode('utf-8'),
@@ -81,7 +81,7 @@ def translate_block(text, target_language, api_url, api_key, model):
             "Authorization": f"Bearer {api_key}"
         }
     )
-    
+
     try:
         with urllib.request.urlopen(req) as response:
             result = json.loads(response.read().decode())
@@ -101,19 +101,19 @@ def process_file(file_path, target_language, api_url, api_key, model):
     # For now, we split by double newlines (markdown blocks)
     blocks = content.split('\n\n')
     translated_blocks = []
-    
+
     english_words = [" the ", " is ", " are ", " this ", " that ", " a ", " to "]
-    
+
     needs_update = False
-    
+
     for block in blocks:
         # Skip translation if it's a pure code block or doesn't have English markers
         if block.startswith('```') or block.startswith('<div') or block.startswith('🌐') or block.startswith('|'):
             translated_blocks.append(block)
             continue
-            
+
         is_english = any(w in block.lower() for w in english_words)
-        
+
         if is_english and len(block.strip()) > 10:
             print(f"    🔄 Translating paragraph (length {len(block)})...")
             new_block = translate_block(block, target_language, api_url, api_key, model)
@@ -122,7 +122,7 @@ def process_file(file_path, target_language, api_url, api_key, model):
             translated_blocks.append(new_block)
         else:
             translated_blocks.append(block)
-            
+
     if needs_update:
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write('\n\n'.join(translated_blocks))
@@ -136,26 +136,26 @@ def main():
     parser.add_argument("--api-key", default="sk-test", help="API Key for the provider")
     parser.add_argument("--model", default="gemini/gemini-3-flash", help="Model name to use")
     parser.add_argument("--lang", default=None, help="Process only a specific language code (e.g. pt-BR)")
-    
+
     args = parser.parse_args()
-    
+
     print(f"🚀 Starting Auto-Translator")
     print(f"🔗 Target API: {args.api_url} | Model: {args.model}\n")
-    
+
     if args.lang:
         lang_dirs = [d for d in I18N_DIR.iterdir() if d.is_dir() and d.name == args.lang]
     else:
         lang_dirs = [d for d in I18N_DIR.iterdir() if d.is_dir()]
-    
+
     for lang_dir in lang_dirs:
         lang_code = lang_dir.name
         lang_name = get_language_name(lang_code)
-        
+
         print(f"\n🌍 Processing {lang_name} ({lang_code})")
-        
+
         md_files = list(lang_dir.glob("*.md"))
         for md_file in md_files:
             process_file(md_file, lang_name, args.api_url, args.api_key, args.model)
-            
+
 if __name__ == "__main__":
     main()

@@ -8,7 +8,6 @@
  */
 
 import { getDbInstance } from "../db/core";
-import { resolveProviderId } from "@/shared/constants/providers";
 import { protectPayloadForLog } from "../logPayloads";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/errorSanitization.ts";
 import {
@@ -367,7 +366,10 @@ export function trackPendingRequest(
       pendingRequests.details[connectionId][modelKey].push(newDetail);
       pendingById.set(newDetail.id, newDetail);
       if (normalizedMetadata.correlationId) {
-        pendingIdByCorrelation.set(normalizedMetadata.correlationId, { id: newDetail.id, touchedAt: now });
+        pendingIdByCorrelation.set(normalizedMetadata.correlationId, {
+          id: newDetail.id,
+          touchedAt: now,
+        });
       }
       return newDetail.id;
     } else if (!started && nextCount >= 0) {
@@ -466,11 +468,9 @@ function finalizePendingDetailAt(
     completedAt,
     durationMs: Math.max(0, completedAt - details[index].startedAt),
   };
-  const storedCompletedDetail = storeCompletedDetail(updated);
-  if (storedCompletedDetail) {
-    maybeEnrichCompletedDetail(updated, connectionId);
-    scheduleCompletedDetailCleanup(updated.id);
-  }
+  storeCompletedDetail(updated);
+  maybeEnrichCompletedDetail(updated, connectionId);
+  scheduleCompletedDetailCleanup(updated.id);
 
   details.splice(index, 1);
   pendingById.delete(updated.id);
@@ -731,7 +731,7 @@ export async function saveRequestUsage(entry: UsageEntry) {
         )
         .get(
           timestamp,
-          (entry.provider ? resolveProviderId(entry.provider) : null),
+          entry.provider || null,
           entry.model || null,
           entry.connectionId || null,
           entry.apiKeyId || null,
@@ -759,7 +759,7 @@ export async function saveRequestUsage(entry: UsageEntry) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       ).run(
-        (entry.provider ? resolveProviderId(entry.provider) : null),
+        entry.provider || null,
         entry.model || null,
         entry.connectionId || null,
         accountIdentity.accountKey,

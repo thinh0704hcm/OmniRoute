@@ -59,6 +59,8 @@ export type AttemptLoopDeps = {
     failoverBeforeRetryExplicit?: boolean;
     failoverBeforeRetry?: boolean;
     predictiveTtftMs?: number;
+    /** Streaming first-content budget; 0/unset disables the failover deadline. */
+    firstContentTimeoutMs?: number;
     fallbackCompressionMode?: string;
     fallbackCompressionThreshold?: number;
     retryDelayMs?: number;
@@ -92,22 +94,17 @@ export type AttemptLoopDeps = {
     executionKey: string | undefined,
     comboId: string | undefined,
     log: ComboLogger,
-    tag: string,
-    /** Test seam, unused on the routing path; see staleLkgpClear.ts. */
-    clearLKGP?: ((comboName: string, modelKey: string) => Promise<void>) | undefined,
-    failed?: { provider?: string | null; connectionId?: string | null } | null
+    tag: string
   ) => void;
   /**
    * Closed-over setup values from handleComboChatInner. Optional so Task 2
    * gate tests keep compiling; attempt uses defaults when absent.
    */
   clientManagedResponsesContext?: boolean;
-  nativeCodexAutoResume?: boolean;
   reasoningTokenBufferEnabled?: boolean;
   stickyWeightedLimit?: number;
   getWeightedStepKeyForTarget?: (target: ResolvedComboTarget) => string | null;
   universalHandoffConfig?: UniversalHandoffConfig;
-  sourceFormat?: string | null;
   relayOptions?: { sessionId?: string | null } | null;
   relayConfig?: ContextRelayConfig | null;
 };

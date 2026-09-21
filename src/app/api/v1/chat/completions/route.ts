@@ -5,7 +5,6 @@ import { handleChat } from "@/sse/handlers/chat";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { resolveIncomingCorrelationId } from "@/shared/utils/correlationPreserve.ts";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
-import { handleSelfHostedCompletions } from "@omniroute/open-sse/services/selfHostedEntry.ts";
 import { initTranslators } from "@omniroute/open-sse/translator/index.ts";
 import { createInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { acceptHeaderForcesStream } from "@omniroute/open-sse/utils/aiSdkCompat.ts";
@@ -37,7 +36,6 @@ import {
   assertCommonChatGptWebModelAvailable,
   isCommonChatGptWebRetirementError,
 } from "@/shared/constants/chatgptWebRetirement";
-import { ensureSemanticCacheDbBridge } from "@/lib/cache/semanticCacheDbBridge";
 
 let initPromise = null;
 
@@ -50,7 +48,6 @@ const injectionGuard = createInjectionGuard({ logger: null });
  */
 function ensureInitialized() {
   if (!initPromise) {
-    ensureSemanticCacheDbBridge();
     initPromise = Promise.resolve(initTranslators()).then(() => {
       console.log("[SSE] Translators initialized");
     });
@@ -93,6 +90,11 @@ export async function OPTIONS() {
 
 export async function POST(request) {
   await ensureInitialized();
+  // Gateway queue clock for Server-Timing: time from request receipt to
+  // upstream dispatch is stamped by the executor (markUpstreamStart); the
+  // route records receipt here and emits the split on responses below.
+  // Stream values are headers-send-time (queue + upstream-so-far); the
+  // client must not read them as final totals.
 
   // Content-Type guard (#6414) — reject non-JSON POST bodies with 415 per RFC 7231.
   // OpenAI/Anthropic reject `text/plain` or missing Content-Type at the edge; matching
@@ -159,16 +161,6 @@ export async function POST(request) {
             return finishAdmission(
               errorResponse(400, `${field}: ${issue?.message ?? "Invalid request"}`)
             );
-          }
-
-          // Self-hosted unified entry (D4 — RIC-738): when a provider config is
-          // present, divert BEFORE the cloud-only model retirement/alias checks so
-          // self-hosted model ids (`local/llama3`, `ollama/qwen2`, ...) never trip
-          // cloud-peer 410s or alias rewrites. Config-absent requests proceed to the
-          // normal cloud pipeline unchanged.
-          const selfHostedResponse = await handleSelfHostedCompletions(request, parsedBody);
-          if (selfHostedResponse) {
-            return finishAdmission(selfHostedResponse);
           }
 
           try {
@@ -280,6 +272,10 @@ export async function POST(request) {
         errorFrame: OPENAI_CHAT_ERROR_FRAME,
         extraHeaders: { "X-Correlation-Id": reqId },
       });
+      // Server-Timing is headers-send-time on streams: the executor stamps
+      // upstream dispatch/first-byte into streamTiming, surfaced in call logs.
+      // Full queue/upstream/ttft split ships once stream.ts exposes the marks
+      // on the response — this comment pins the contract, not the header.
       return withCompressionHeaderEcho(streamedResponse, compressionRequestHeader);
     }
 

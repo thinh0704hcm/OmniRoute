@@ -28,11 +28,6 @@ export const STREAM_IDLE_TIMEOUT_MS = upstreamTimeouts.streamIdleTimeoutMs;
 // immediate-fail behavior.
 export const STREAM_DISCONNECT_GRACE_PERIOD_MS = upstreamTimeouts.streamDisconnectGracePeriodMs;
 
-// Hard cap for a connected upstream stream. This timer never resets on
-// upstream byte activity and is independent of REQUEST_TIMEOUT_MS. Set
-// STREAM_ACTIVE_TIMEOUT_MS=0 to disable it.
-export const STREAM_ACTIVE_TIMEOUT_MS = upstreamTimeouts.streamActiveTimeoutMs;
-
 // Timeout for the first non-ping SSE event. Inherits REQUEST_TIMEOUT_MS when
 // set, unless STREAM_READINESS_TIMEOUT_MS is specified directly. This must stay
 // conservative for large prompts and slow first-byte reasoning providers.
@@ -187,7 +182,6 @@ export const HTTP_STATUS = {
   UNPROCESSABLE_ENTITY: 422,
   REQUEST_TIMEOUT: 408,
   GONE: 410,
-  PAYLOAD_TOO_LARGE: 413,
   RATE_LIMITED: 429,
   PLAN_LIMIT_EXCEEDED: 432,
   SERVER_ERROR: 500,
@@ -310,10 +304,13 @@ export const PROVIDER_PROFILES = {
 // Default rate limit values for API Key providers (auto-enabled safety net)
 // These are intentionally HIGH — they won't restrict normal usage.
 // Real limits are learned from provider response headers.
+// Tuned for 4c/12g extreme-limits hosts: per-provider concurrency raised to
+// absorb parallel replay bursts; the adaptive admission gate (not these
+// Bottleneck defaults) remains the binding backpressure mechanism.
 export const DEFAULT_API_LIMITS = {
-  requestsPerMinute: 60, // 60 RPM (reduced from 100 — saves Bottleneck queue memory)
-  minTimeBetweenRequests: 350, // 350ms minimum gap (increased from 200)
-  concurrentRequests: 6, // Max 6 parallel per provider (reduced from 10)
+  requestsPerMinute: 120, // 120 RPM on 4c hosts (Bottleneck queue memory is cheap at 12g)
+  minTimeBetweenRequests: 200, // 200ms minimum gap (restored pre-tightening value)
+  concurrentRequests: 12, // Max 12 parallel per provider on 4c/12g hosts
 };
 
 // Skip patterns - requests containing these texts will bypass provider

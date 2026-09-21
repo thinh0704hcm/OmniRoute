@@ -43,30 +43,12 @@ export const opencodeProvider: RegistryEntry = {
       maxOutputTokens: 131072,
     },
     {
-      id: "muse-spark-1.2-contributor-free",
-      name: "Muse Spark 1.2 Contributor Free",
-      supportsReasoning: true,
-      targetFormat: "openai-responses",
-      contextLength: 1048576,
-      maxOutputTokens: 131072,
-    },
-    // Muse Spark 1.3 is served only on the Responses API, same as 1.2 above.
-    // Its window matches the published OpenCode catalog instead of the
-    // 200000 provider default.
-    {
-      id: "muse-spark-1.3",
-      name: "Muse Spark 1.3",
-      supportsReasoning: true,
-      targetFormat: "openai-responses",
-      contextLength: 1048576,
-      maxOutputTokens: 131072,
-    },
-    {
       id: "muse-spark-1.3-contributor-free",
       name: "Muse Spark 1.3 Contributor Free",
+      contextLength: 1048576,
       supportsReasoning: true,
       targetFormat: "openai-responses",
-      contextLength: 1048576,
+      supportedToolChoiceModes: ["auto"],
       maxOutputTokens: 131072,
     },
     { id: "deepseek-v4-flash-free", name: "DeepSeek V4 Flash Free", supportsReasoning: true },

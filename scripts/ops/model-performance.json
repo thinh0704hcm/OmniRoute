@@ -1,0 +1,138 @@
+{
+  "_readme": [
+    "External model-performance evidence for scripts/ops/optimize-pools.mjs.",
+    "See docs/ops/POOL_OPTIMIZATION.md for the full contract.",
+    "",
+    "Populated with the OpenRouter free-tier model table (latency + throughput)",
+    "captured 2026-09-11. Benchmark scores are intentionally absent: this file",
+    "carries only what was actually retrieved. Add 'scores' (0..1) per model when",
+    "benchmark evidence is gathered, and cite it in 'provenance'.",
+    "",
+    "Matching is on the BARE model leaf — 'nvidia/nemotron-3-ultra-550b-a55b:free'",
+    "matches the entry named 'nemotron-3-ultra-550b-a55b'. Entries whose name",
+    "starts with 'example-' are ignored by the optimizer."
+  ],
+
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-11T00:00:00.000Z",
+
+  "provenance": [
+    {
+      "source": "openrouter_model_table",
+      "url": "https://openrouter.ai/models?order=top-weekly",
+      "retrievedAt": "2026-09-11T00:00:00.000Z",
+      "note": "Free-tier chat models only. latencyMs = portal 'Latency' column; outputTokensPerSec = 'Throughput'. Non-chat rows (rerank/embed/TTS) omitted — they cannot be pool members."
+    }
+  ],
+
+  "models": [
+    {
+      "model": "nemotron-3-ultra-550b-a55b",
+      "metrics": { "latencyMs": 39400, "outputTokensPerSec": 5 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "laguna-s-2.1",
+      "metrics": { "latencyMs": 1900, "outputTokensPerSec": 33 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "metrics": { "latencyMs": 19000, "outputTokensPerSec": 11 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "ling-3.0-flash-fin",
+      "metrics": { "latencyMs": 1300, "outputTokensPerSec": 135 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "dots-3-note-preview",
+      "metrics": { "latencyMs": 1400, "outputTokensPerSec": 56 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "nemotron-3-super-120b-a12b",
+      "metrics": { "latencyMs": 1300, "outputTokensPerSec": 42 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "inkling",
+      "metrics": { "latencyMs": 1700, "outputTokensPerSec": 43 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "ling-3.0-flash-sante",
+      "metrics": { "latencyMs": 1600, "outputTokensPerSec": 93 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "nex-n2.5-pro",
+      "metrics": { "latencyMs": 3600, "outputTokensPerSec": 38 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "inkling-small",
+      "metrics": { "latencyMs": 878, "outputTokensPerSec": 92 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "north-mini-code",
+      "metrics": { "latencyMs": 721, "outputTokensPerSec": 47 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "laguna-xs-2.1",
+      "metrics": { "latencyMs": 923, "outputTokensPerSec": 50 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "nex-n2.5-mini",
+      "metrics": { "latencyMs": 1200, "outputTokensPerSec": 101 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "nemotron-3-nano-omni-30b-a3b-reasoning",
+      "metrics": { "latencyMs": 659, "outputTokensPerSec": 49 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "ling-3.0-flash-vl",
+      "metrics": { "latencyMs": 2700, "outputTokensPerSec": 64 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "lfm-2.5-2.6b",
+      "metrics": { "latencyMs": 678, "outputTokensPerSec": 129 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "gemma-4-31b-it",
+      "metrics": { "latencyMs": 1500, "outputTokensPerSec": 18 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    },
+    {
+      "model": "gemma-4-26b-a4b-it",
+      "metrics": { "latencyMs": 887, "outputTokensPerSec": 32 },
+      "confidence": "medium",
+      "sources": ["openrouter_model_table"]
+    }
+  ]
+}

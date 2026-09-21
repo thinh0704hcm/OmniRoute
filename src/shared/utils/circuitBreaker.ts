@@ -227,8 +227,6 @@ export class CircuitBreaker {
   successCount: number;
   lastFailureTime: number | null;
   halfOpenAllowed: number;
-  halfOpenProbeStartedAt: number | null;
-  halfOpenProbeGeneration: number;
   cooldownByKind: Partial<Record<FailureKind, number>>;
   classifyError: ((error: unknown) => FailureKind | undefined) | null;
   lastFailureKind: FailureKind | null;
@@ -259,8 +257,6 @@ export class CircuitBreaker {
     this.successCount = 0;
     this.lastFailureTime = null;
     this.halfOpenAllowed = 0;
-    this.halfOpenProbeStartedAt = null;
-    this.halfOpenProbeGeneration = 0;
     this.cooldownByKind = options.cooldownByKind ?? {};
     this.classifyError = options.classifyError ?? null;
     this.lastFailureKind = null;
@@ -366,28 +362,16 @@ export class CircuitBreaker {
       );
     }
 
-    const halfOpenProbeGeneration =
-      this.state === STATE.HALF_OPEN ? this.halfOpenProbeGeneration : null;
     if (this.state === STATE.HALF_OPEN) {
       this.halfOpenAllowed--;
-      this.halfOpenProbeStartedAt ??= Date.now();
     }
 
     try {
       const result = await fn();
-      if (
-        halfOpenProbeGeneration === null ||
-        halfOpenProbeGeneration === this.halfOpenProbeGeneration
-      ) {
-        this._recordResolvedResult(result, options?.classifyResult);
-      }
+      this._recordResolvedResult(result, options?.classifyResult);
       return result;
     } catch (error) {
-      if (
-        (halfOpenProbeGeneration === null ||
-          halfOpenProbeGeneration === this.halfOpenProbeGeneration) &&
-        this.isFailure(error)
-      ) {
+      if (this.isFailure(error)) {
         let kind: FailureKind | undefined;
         if (this.classifyError) {
           try {
@@ -397,6 +381,23 @@ export class CircuitBreaker {
           }
         }
         this._onFailure(kind);
+      } else if (this.state === STATE.HALF_OPEN) {
+        // A HALF_OPEN probe must always settle the breaker's state. Its slot was
+        // already spent above, so leaving the state untouched strands the breaker
+        // in HALF_OPEN with nothing left to allow — every later request is then
+        // refused with "no more probe requests allowed" until an operator resets
+        // it by hand (observed in production, where the probe's error was not one
+        // the classifier counts as a failure).
+        //
+        // The probe is the only evidence available and it was not evidence of
+        // health, so return to OPEN. It is deliberately NOT recorded as a provider
+        // failure — the classifier said this error is not one — but the cooldown
+        // clock restarts, so the next probe waits a full reset timeout instead of
+        // firing on the very next request.
+        this.openCycleCount++;
+        this.lastFailureTime = Date.now();
+        this._transition(STATE.OPEN, `probe-abandoned (cycle ${this.openCycleCount})`);
+        this._persistToDb();
       }
       throw error;
     }
@@ -574,9 +575,6 @@ export class CircuitBreaker {
   }
 
   _timeUntilReset() {
-    if (this.state === STATE.HALF_OPEN && this.halfOpenProbeStartedAt !== null) {
-      return Math.max(0, this.resetTimeout - (Date.now() - this.halfOpenProbeStartedAt));
-    }
     if (!this.lastFailureTime) return 0;
     const cooldown = this._effectiveCooldown();
     return Math.max(0, cooldown - (Date.now() - this.lastFailureTime));
@@ -586,15 +584,6 @@ export class CircuitBreaker {
     if (this.state === STATE.OPEN && this._shouldAttemptReset()) {
       this._transition(STATE.HALF_OPEN, "timeout-elapsed");
       this._persistToDb();
-    } else if (
-      this.state === STATE.HALF_OPEN &&
-      this.halfOpenAllowed <= 0 &&
-      this.halfOpenProbeStartedAt !== null &&
-      Date.now() - this.halfOpenProbeStartedAt >= this.resetTimeout
-    ) {
-      this.halfOpenAllowed = this.halfOpenRequests;
-      this.halfOpenProbeStartedAt = null;
-      this.halfOpenProbeGeneration++;
     }
   }
 
@@ -605,8 +594,7 @@ export class CircuitBreaker {
     if (newState === STATE.HALF_OPEN) {
       this.halfOpenAllowed = this.halfOpenRequests;
     }
-    this.halfOpenProbeGeneration++;
-    this.halfOpenProbeStartedAt = null;
+
     // Record transition
     this.transitionHistory.push({
       from: oldState,
