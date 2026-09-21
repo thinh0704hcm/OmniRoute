@@ -29,8 +29,17 @@ import {
   extractChatcmplId,
 } from "./accountRotation.ts";
 import { isOpencodeGeoBlocked, proxyKeyOf } from "./opencodeGeoBlock.ts";
-import { isRetriableUpstreamFailure } from "./opencodeTransientFailure.ts";
-import { isNetworkRotationSharedEgressGuardEnabled } from "@/shared/utils/featureFlags";
+import { isRetriableUpstreamFailure, sleepAbortable } from "./opencodeTransientFailure.ts";
+import {
+  isNetworkRotationSharedEgressGuardEnabled,
+  isOpencodeParkAndResumeEnabled,
+} from "@/shared/utils/featureFlags";
+import {
+  BURST_PARK_THRESHOLD,
+  parkWaitMs,
+  readPoolStrainMarker,
+  runParkAndReplay,
+} from "./opencodeParkResume.ts";
 
 /**
  * The main OpenCode Zen host, shared by the `opencode` and `opencode-zen`
@@ -220,6 +229,10 @@ export class OpencodeExecutor extends BaseExecutor {
   // pickRotatableAccount(), which needs a plain `{ nextAccountIdx }` shape —
   // TS's private-member nominal check rejects `this` there otherwise.
   nextAccountIdx = 0;
+  // Injectable sleep for the 429 park-and-resume leg — tests swap in a
+  // recording fake instead of waiting on real timers.
+  parkSleep: (ms: number, signal?: AbortSignal | null) => Promise<boolean> =
+    sleepAbortable;
 
   constructor(provider: string) {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
@@ -460,6 +473,8 @@ export class OpencodeExecutor extends BaseExecutor {
       >;
       let lastResult: HttpExecuteResult | null = null;
       let lastSharedEgressError: unknown = null;
+      let burstStreak = 0,
+        parked = false;
       const sharedEgressGuardEnabled = isNetworkRotationSharedEgressGuardEnabled();
       // Set once a proxy-less account's network throw reveals the shared
       // egress is down (see NETWORK_ROTATION_SHARED_EGRESS_GUARD below) —
@@ -593,6 +608,38 @@ export class OpencodeExecutor extends BaseExecutor {
             "OPENCODE",
             `${cid}Rate limited (429) on account ${masked}, rotating to next…`
           );
+          burstStreak += 1;
+          if (!parked && isOpencodeParkAndResumeEnabled()) {
+            const marker = await readPoolStrainMarker();
+            if (burstStreak >= BURST_PARK_THRESHOLD || marker.fresh) {
+              parked = true;
+              log?.warn?.(
+                "OPENCODE",
+                `${cid}burstStreak=${burstStreak} freshD2=${marker.fresh} park`
+              );
+              const p = await runParkAndReplay(
+                {
+                  execute: (i: ExecuteInput) =>
+                    super.execute(i) as Promise<
+                      ExecutorExecuteResult & { response: Response }
+                    >,
+                  markSuccess: (a: OpencodeAccountState) => this.markSuccess(a),
+                  sleep: this.parkSleep,
+                  accounts: this.accounts,
+                },
+                input,
+                parkWaitMs(marker.fresh ? marker.ttlLeftMs : null),
+                result,
+                log,
+                cid
+              );
+              // runParkAndReplay surfaces the wave result itself (never null in
+              // practice) when the park aborts or no replay candidate exists —
+              // only a genuinely new replayed response takes the first arm.
+              if (p && p !== result) return this.normalizeMuseSparkResponse(input, p);
+              if (p) return this.normalizeMuseSparkResponse(input, result);
+            }
+          }
           continue;
         }
 
