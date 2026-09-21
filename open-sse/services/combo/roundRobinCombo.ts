@@ -164,7 +164,7 @@ export async function handleRoundRobinCombo({
   endpointPath: _endpointPath = null,
   requestHeaders: _requestHeaders = null,
   relayOptions,
-  perTargetAdmission = null,
+  perTargetAdmission: _perTargetAdmission = null,
 }: HandleRoundRobinOptions): Promise<Response> {
   const config = settings
     ? resolveComboConfig(combo, settings)
