@@ -10,7 +10,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createStreamTiming } from "../../open-sse/utils/streamTiming.ts";
+import { createStreamTiming, type StreamTiming } from "../../open-sse/utils/streamTiming.ts";
 
 // streamTiming samples a high-resolution monotonic clock (performance.now).
 // `setTimeout(N)` does NOT guarantee that clock advances by a full N ms before
@@ -127,10 +127,7 @@ test("forward wall-clock jump does not inflate TTFT (monotonic clock)", () => {
     t.markForward();
     const ttft = t.ttftMs();
     // Real elapsed is sub-millisecond; a Date.now-based seam would report ~5000.
-    assert.ok(
-      ttft !== null && ttft >= 0 && ttft < 1_000,
-      `ttft must ignore +5s wall jump, got ${ttft}`
-    );
+    assert.ok(ttft !== null && ttft >= 0 && ttft < 1_000, `ttft must ignore +5s wall jump, got ${ttft}`);
   });
 });
 
@@ -143,10 +140,7 @@ test("backward wall-clock jump does not yield negative TTFT (monotonic clock)", 
     const ttft = t.ttftMs();
     // A Date.now-based seam would report ~-2000, silently discarded downstream
     // by the `ttft >= 0` guard (invisible data loss).
-    assert.ok(
-      ttft !== null && ttft >= 0 && ttft < 1_000,
-      `ttft must never go negative, got ${ttft}`
-    );
+    assert.ok(ttft !== null && ttft >= 0 && ttft < 1_000, `ttft must never go negative, got ${ttft}`);
   });
 });
 
@@ -160,21 +154,4 @@ test("wall-clock jump does not corrupt inter-chunk ITL (monotonic clock)", () =>
     // A Date.now-based seam would record a 3000ms gap; monotonic stays near 0.
     assert.ok(itl !== null && itl >= 0 && itl < 1_000, `itl must ignore +3s wall jump, got ${itl}`);
   });
-});
-
-test("queueMs/upstreamTtfbMs split gateway wait from upstream TTFB", async () => {
-  const t = createStreamTiming();
-  assert.equal(t.queueMs(), null);
-  assert.equal(t.upstreamTtfbMs(), null);
-  await new Promise((r) => setTimeout(r, 10));
-  t.markUpstreamStart();
-  assert.ok(t.queueMs() !== null && t.queueMs()! >= 10 - TIMER_SLACK_MS);
-  assert.equal(t.upstreamTtfbMs(), null);
-  await new Promise((r) => setTimeout(r, 10));
-  t.markUpstreamFirstByte();
-  assert.ok(t.upstreamTtfbMs() !== null && t.upstreamTtfbMs()! >= 10 - TIMER_SLACK_MS);
-  // Idempotent: later marks do not move the first stamps.
-  t.markUpstreamStart();
-  t.markUpstreamFirstByte();
-  assert.ok(t.queueMs()! < t.queueMs()! + 1000);
 });

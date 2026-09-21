@@ -12,7 +12,6 @@ import { resolveDelayMs } from "./comboPredicates.ts";
 import { isRuntimeUnitAtConcurrencyCap } from "./runtimeUnitCapacity.ts";
 import { isQuotaExhaustionResponse, withQuotaExhaustionClassification } from "./quotaExhaustion.ts";
 import { validateResponseQuality, releaseQualityClone } from "./validateQuality.ts";
-import { raceFirstContentDeadline, resolveFirstContentBudgetMs } from "./firstContentDeadline.ts";
 import type { ResponseValidationConfig } from "./responseValidation.ts";
 import type {
   ComboCollectionLike,
@@ -314,14 +313,11 @@ export async function executeRuntimeUnitCombo(args: {
         } catch {
           unitClone = response;
         }
-        const quality = await raceFirstContentDeadline(
-          validateResponseQuality(
-            unitClone,
-            clientRequestedStream,
-            args.log,
-            args.config.responseValidation as ResponseValidationConfig | undefined
-          ),
-          resolveFirstContentBudgetMs(args.config, clientRequestedStream)
+        const quality = await validateResponseQuality(
+          unitClone,
+          clientRequestedStream,
+          args.log,
+          args.config.responseValidation as ResponseValidationConfig | undefined
         );
         releaseQualityClone(unitClone, response, quality);
         if (quality.valid) {

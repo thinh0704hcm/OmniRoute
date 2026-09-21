@@ -117,7 +117,7 @@ test("handleSearch builds Brave news requests and normalizes favicon metadata", 
     assert.equal(capturedHeaders["X-Subscription-Token"], "brave-key");
     assert.equal(result.success, true);
     assert.equal(result.data.results[0].favicon_url, "https://news.example.com/favicon.ico");
-    assert.equal(result.data.results[0].published_at, "2026-04-05T00:00:00.000Z");
+    assert.equal(result.data.results[0].published_at, "2026-04-05");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -170,7 +170,6 @@ test("handleSearch builds Exa requests with contents-nested options, include/exc
       excludeDomains: ["blocked.com"],
       category: "news",
     });
-    assert.ok(!("startDate" in captured), "no startDate without timeRange");
     assert.equal(result.success, true);
     assert.equal(result.data.results[0].snippet, "Highlighted snippet");
     assert.equal(result.data.results[0].score, 1);
@@ -1064,37 +1063,6 @@ test("handleSearch handles Z.AI Coding Plan non-array MCP result", async () => {
 
     assert.equal(result.success, true);
     assert.equal(result.data.results.length, 0);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("handleSearch sends Exa startDate derived from time_range", async () => {
-  const originalFetch = globalThis.fetch;
-  let captured;
-
-  globalThis.fetch = async (_url, init = {}) => {
-    captured = JSON.parse(String(init.body || "{}"));
-    return new Response(JSON.stringify({ results: [] }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-  };
-
-  try {
-    await handleSearch({
-      query: "fresh news",
-      provider: "exa-search",
-      maxResults: 5,
-      searchType: "news",
-      timeRange: "week",
-      credentials: { apiKey: "exa-key" },
-      log: null,
-    });
-    assert.ok(typeof captured.startDate === "string", "startDate must be sent");
-    const start = new Date(`${captured.startDate}T00:00:00Z`).getTime();
-    const ageDays = (Date.now() - start) / 86_400_000;
-    assert.ok(ageDays >= 6 && ageDays <= 8, `startDate ~7d ago, got ${captured.startDate}`);
   } finally {
     globalThis.fetch = originalFetch;
   }

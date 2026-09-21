@@ -275,23 +275,7 @@ function hasOpenAICompatibleStreamValue(parsed: Record<string, unknown>): boolea
     const delta = isRecord(choice.delta) ? choice.delta : null;
     if (!delta) return false;
     if (typeof delta.content === "string" && delta.content.length > 0) return true;
-    if (typeof delta.reasoning_content === "string" && delta.reasoning_content.length > 0) {
-      return true;
-    }
-    if (typeof delta.reasoning_text === "string" && delta.reasoning_text.length > 0) {
-      return true;
-    }
-    // Bare `delta.reasoning` (plain string or {text/content} object): some
-    // free backends stream thinking here instead of reasoning_content. A
-    // reasoning-only stream is live signal, not silence — without this the
-    // quality peek treats 60s+ of real thinking as an empty wedge.
-    if (typeof delta.reasoning === "string" && delta.reasoning.length > 0) return true;
-    if (isRecord(delta.reasoning)) {
-      const text =
-        (delta.reasoning as Record<string, unknown>).text ??
-        (delta.reasoning as Record<string, unknown>).content;
-      if (typeof text === "string" && text.length > 0) return true;
-    }
+    if (hasAnyReasoningSignal(delta)) return true;
     return Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0;
   });
 }

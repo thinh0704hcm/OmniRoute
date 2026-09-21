@@ -3,32 +3,21 @@
  * Never re-parses, stringifies, clones, or invokes toJSON.
  */
 
-import { ESTIMATE_SIZE_BYTE_LIMIT, estimateSizeFast } from "../../utils/estimateSize.ts";
-import type { AdmissionCostFeatures } from "./types.ts";
+import { estimateSizeFast } from "../../utils/estimateSize.ts";
+import { resolveCostConfig } from "./cost.ts";
+import type { AdmissionCostConfig, AdmissionCostFeatures } from "./types.ts";
 
 export type AdmissionFeatureExtractionContext = {
   /** When set, wins over any body/wrapped stream field. */
   streaming?: boolean;
+  cost?: Partial<AdmissionCostConfig>;
 };
 
 /**
  * Max tools/functions array entries inspected.
  * Uninspected tail is charged conservatively so truncation cannot undercharge cost.
- *
- * Tool schemas dominate admission cost on coding-agent traffic: a 54-tool
- * replay body pays ceil(54/8)=7 units for declarations whose schemas are
- * never executed server-side (dispatch happens upstream). NAME_BUDGET caps
- * how many entries contribute name bytes; the count itself is unchanged.
  */
 export const ADMISSION_TOOL_SCAN_BUDGET = 64;
-
-/**
- * Tool entries beyond this count contribute count-only (1 unit per 8 via the
- * cost quanta) without their schema bytes inflating bodyBytes. Declaration
- * #65+ is almost always a replay/CLI tool dump, not a hand-built call site —
- * its names add noise bytes, not real dispatch weight.
- */
-export const ADMISSION_TOOL_NAME_BUDGET = 16;
 
 type FeatureDraft = {
   messageCount: number;
@@ -154,42 +143,6 @@ function absorbLayer(draft: FeatureDraft, layer: Record<string, unknown>): void 
   }
 }
 
-/**
- * Admission body size with tool-schema bytes excluded past NAME_BUDGET.
- *
- * Tool declarations are admission noise, not dispatch weight: schemas are
- * never executed server-side, but their parameter JSON inflates bodyBytes →
- * estimatedInputTokens → cost (a 54-tool CLI dump adds ~7 tool units AND
- * ~13 token units for the same declarations — double-charged). Beyond the
- * name budget, entries still count toward toolCount (count is unchanged);
- * only their schema bytes stop inflating the body measure.
- */
-function estimateBodyBytesWithoutToolSchemas(body: unknown): number {
-  const full = estimateSizeFast(body);
-  if (!isPlainObject(body)) return full;
-  // Byte-exit short-circuit: when the whole body already exceeds the
-  // estimator's early-exit cap, subtracting per-entry schema bytes is both
-  // pointless (result stays over-cap) and expensive (it walks tool entries
-  // the bounded-scan contract forbids touching). Skip straight to full.
-  if (full > ESTIMATE_SIZE_BYTE_LIMIT) return full;
-  const layers = featureLayers(body);
-  let toolBytes = 0;
-  for (const layer of layers) {
-    for (const key of ["tools", "functions"] as const) {
-      const source = asArray(layer[key]);
-      // Respect the scan budget: entries past SCAN_BUDGET are already
-      // saturated into toolCount by countTools — never index into them here
-      // (the bounded-scan test enforces zero touches past the budget).
-      if (!source) continue;
-      const end = Math.min(source.length, ADMISSION_TOOL_SCAN_BUDGET);
-      for (let i = ADMISSION_TOOL_NAME_BUDGET; i < end; i++) {
-        toolBytes += estimateSizeFast(source[i]);
-      }
-    }
-  }
-  return Math.max(0, full - toolBytes);
-}
-
 function resolveStreaming(
   draftStreaming: boolean | null,
   context?: AdmissionFeatureExtractionContext
@@ -208,7 +161,8 @@ export function extractAdmissionCostFeatures(
   body: unknown,
   context?: AdmissionFeatureExtractionContext
 ): AdmissionCostFeatures {
-  const bodyBytes = estimateBodyBytesWithoutToolSchemas(body);
+  const cost = resolveCostConfig(context?.cost);
+  const bodyBytes = estimateSizeFast(body, cost.bodyBytesPerUnit * cost.maxRequestCost);
   const layers = featureLayers(body);
   const draft: FeatureDraft = {
     messageCount: 0,

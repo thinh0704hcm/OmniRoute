@@ -43,7 +43,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { z } from "zod";
 import { sanitizeErrorMessage } from "../utils/error.ts";
-import { normalizePublishedAt } from "./search/publishedAt.ts";
 import { isValidContext7LibraryId } from "../executors/context7-fetch.ts";
 import { resolveSearchProxy, executeProviderFetch } from "./search/searchProxy.ts";
 import { formatSearchProviderFailure } from "./search/providerFailure.ts";
@@ -115,8 +114,6 @@ interface SearchHandlerOptions {
   credentials: Record<string, any>;
   alternateProvider?: string;
   alternateCredentials?: Record<string, any> | null;
-  /** Shared caller budget: aborts in-flight upstream calls when it fires. */
-  deadlineSignal?: AbortSignal;
   log?: any;
   /** Connection ID (proxy resolution + call-log attribution) and API key ID (per-key proxy). */
   connectionId?: string;
@@ -146,26 +143,6 @@ function sanitizeQuery(query: string): { clean: string; error?: string } {
   return { clean };
 }
 
-function firstPublishedAt(item: unknown, keys: string[]): string | null {
-  const record = item as Record<string, unknown> | null | undefined;
-  for (const key of keys) {
-    const normalized = normalizePublishedAt(record?.[key]);
-    if (normalized) return normalized;
-  }
-  return null;
-}
-
-const COMMON_DATE_KEYS = [
-  "published_at",
-  "publishedAt",
-  "publishedDate",
-  "published_date",
-  "publish_date",
-  "date",
-  "published",
-  "updated",
-];
-
 // ── Response Normalizers ────────────────────────────────────────────────
 
 function makeResult(
@@ -175,7 +152,7 @@ function makeResult(
     url?: string;
     snippet?: string;
     score?: number;
-    published_at?: string | null;
+    published_at?: string;
     favicon_url?: string;
     author?: string;
     source_type?: string;
@@ -226,7 +203,7 @@ function normalizeSerperResponse(
         title: item.title,
         url: item.link,
         snippet: item.snippet || item.description,
-        published_at: firstPublishedAt(item, ["date", ...COMMON_DATE_KEYS]),
+        published_at: item.date,
       },
       idx,
       now
@@ -276,7 +253,7 @@ function normalizeContext7Response(
         title: item?.title,
         url: `https://context7.com${item.id}`,
         snippet: item?.description,
-        published_at: firstPublishedAt(item, ["lastUpdateDate", ...COMMON_DATE_KEYS]),
+        published_at: item?.lastUpdateDate,
       },
       idx,
       now
@@ -304,7 +281,7 @@ function normalizeBraveResponse(
         title: item.title,
         url: item.url,
         snippet: item.description,
-        published_at: firstPublishedAt(item, ["page_age", "age", ...COMMON_DATE_KEYS]),
+        published_at: item.page_age || item.age,
         favicon_url: item.meta_url?.favicon || item.favicon,
       },
       idx,
@@ -369,8 +346,6 @@ interface SearchRequestParams {
   };
   providerOptions?: Record<string, unknown>;
   providerSpecificData?: Record<string, unknown>;
-  /** Shared caller budget; tryProvider wires it to abort the leg early. */
-  deadlineSignal?: AbortSignal;
 }
 
 function buildSerperRequest(
@@ -450,19 +425,6 @@ function buildExaRequest(
   if (includes.length) body.includeDomains = includes;
   if (excludes.length) body.excludeDomains = excludes;
   if (params.searchType === "news") body.category = "news";
-  // Recency signal: Exa honors startDate (ISO date). Mirror the Linkup
-  // fromDate math so time_range=week actually narrows to the last 7 days
-  // instead of returning undated evergreen hits.
-  if (params.timeRange && params.timeRange !== "any") {
-    const today = new Date();
-    const from = new Date(today);
-    if (params.timeRange === "hour" || params.timeRange === "day")
-      from.setUTCDate(from.getUTCDate() - 1);
-    if (params.timeRange === "week") from.setUTCDate(from.getUTCDate() - 7);
-    if (params.timeRange === "month") from.setUTCMonth(from.getUTCMonth() - 1);
-    if (params.timeRange === "year") from.setUTCFullYear(from.getUTCFullYear() - 1);
-    body.startDate = from.toISOString().slice(0, 10);
-  }
   return {
     url: config.baseUrl,
     init: {
@@ -818,7 +780,7 @@ function normalizePerplexityResponse(
         title: item.title,
         url: item.url,
         snippet: item.snippet,
-        published_at: firstPublishedAt(item, ["date", "last_updated", ...COMMON_DATE_KEYS]),
+        published_at: item.date || item.last_updated,
       },
       idx,
       now
@@ -844,7 +806,7 @@ function normalizeExaResponse(
         url: item.url,
         snippet: item.highlights?.[0] || item.text?.slice(0, 300) || "",
         score: item.score,
-        published_at: firstPublishedAt(item, ["publishedDate", ...COMMON_DATE_KEYS]),
+        published_at: item.publishedDate,
         favicon_url: item.favicon,
         author: item.author,
         image_url: item.image,
@@ -875,7 +837,7 @@ function normalizeTavilyResponse(
         url: item.url,
         snippet: item.content || "",
         score: item.score,
-        published_at: firstPublishedAt(item, ["published_date", ...COMMON_DATE_KEYS]),
+        published_at: item.published_date,
         full_text: item.raw_content,
         text_format: "text",
       },
@@ -1008,7 +970,7 @@ function normalizeSearchApiResponse(
         title: item.title,
         url: item.link,
         snippet: item.snippet || item.description || "",
-        published_at: firstPublishedAt(item, ["date", ...COMMON_DATE_KEYS]),
+        published_at: item.date || item.published_at,
         favicon_url: item.favicon,
         author: item.source || null,
         image_url: item.thumbnail || null,
@@ -1066,7 +1028,7 @@ function normalizeYouComResponse(
             : typeof item.description === "string"
               ? item.description
               : "",
-        published_at: firstPublishedAt(item, ["page_age", ...COMMON_DATE_KEYS]),
+        published_at: item.page_age,
         favicon_url: item.favicon_url,
         image_url: item.thumbnail_url,
         source_type: searchType,
@@ -1096,11 +1058,7 @@ function normalizeSearxngResponse(
         title: item.title,
         url: item.url,
         snippet: item.content || item.snippet || "",
-        published_at: firstPublishedAt(item, [
-          "publishedDate",
-          "published_date",
-          ...COMMON_DATE_KEYS,
-        ]),
+        published_at: item.publishedDate || item.published_date || null,
         source_type: Array.isArray(item.engines)
           ? item.engines.join(", ")
           : item.engine || item.category || null,
@@ -1129,7 +1087,6 @@ function normalizeOllamaResponse(
         title: item?.title,
         url: item?.url,
         snippet: item?.content || "",
-        published_at: firstPublishedAt(item, COMMON_DATE_KEYS),
         full_text: item?.content,
         text_format: "text",
       },
@@ -1271,7 +1228,7 @@ async function zaiSearchExecute(params: {
           title: item.title,
           url: item.link,
           snippet: item.content || "",
-          published_at: firstPublishedAt(item, ["publish_date", ...COMMON_DATE_KEYS]),
+          published_at: item.publish_date,
           favicon_url: item.icon,
           source_type: item.media,
         },
@@ -1477,7 +1434,6 @@ export async function handleSearch(options: SearchHandlerOptions): Promise<Searc
     credentials,
     alternateProvider,
     alternateCredentials,
-    deadlineSignal,
     log,
     connectionId,
     apiKeyId,
@@ -1521,7 +1477,6 @@ export async function handleSearch(options: SearchHandlerOptions): Promise<Searc
     domainFilter,
     contentOptions,
     providerOptions,
-    deadlineSignal,
   };
 
   if (primaryConfig.id === "perplexity-search") {
@@ -1790,13 +1745,6 @@ async function tryProvider(
   const timeout = Math.min(config.timeoutMs, Math.max(remainingGlobal, 1000));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
-  // Shared caller budget (ordered providers[] chain): abort this leg early.
-  // Listener cleanup rides on the existing timer path: controller.abort() is
-  // idempotent and the leg ends with the fetch either way.
-  if (params.deadlineSignal) {
-    if (params.deadlineSignal.aborted) controller.abort();
-    else params.deadlineSignal.addEventListener("abort", () => controller.abort(), { once: true });
-  }
 
   if (log) {
     log.info("SEARCH", `${config.id} | query: "${query.slice(0, 80)}" | type: ${searchType}`);
