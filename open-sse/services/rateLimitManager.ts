@@ -933,6 +933,7 @@ export async function withRateLimit(
       throw markLocalRateLimitError(wedgeErr, RATE_LIMIT_QUEUE_WEDGED_CODE);
     }
     throw err;
+  }
   } finally {
     linked.dispose();
   }
