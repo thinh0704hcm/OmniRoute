@@ -679,8 +679,20 @@ export async function withRateLimit(
     | { executor?: { getTimeoutMs?: () => unknown }; providerSpecificData?: unknown }
     | undefined = undefined
 ) {
+  const executionController = new AbortController();
+  const linked = createLinkedAbortSignal(signal, executionController.signal);
+  const effectiveSignal = linked.signal;
+  const abortExecution = (reason = signal?.reason) => {
+    if (!executionController.signal.aborted) {
+      executionController.abort(
+        reason ?? new DOMException("The operation was aborted", "AbortError")
+      );
+    }
+  };
+
+  try {
   if (!enabledConnections.has(connectionId)) {
-    return fn();
+    return await fn(effectiveSignal);
   }
 
   if (signal?.aborted) {
@@ -711,7 +723,7 @@ export async function withRateLimit(
     );
   }
   const slotStart = Date.now();
-  await awaitProviderDefaultSlot(provider, connectionId, signal, budgetForSlot);
+  await awaitProviderDefaultSlot(provider, connectionId, effectiveSignal, budgetForSlot);
   const elapsedSlot = Date.now() - slotStart;
   const remainingForQueue = hasBudget
     ? Math.max(0, remainingBudgetMs - elapsedSlot)
@@ -827,6 +839,7 @@ export async function withRateLimit(
       const { promise: abortPromise, reject: rejectAbort } = Promise.withResolvers<never>();
       const onAbort = () => {
         const reason = signal.reason;
+        abortExecution(reason);
         // Preserve native Error reasons (including AbortController's
         // read-only DOMException) instead of mutating or wrapping them.
         if (reason instanceof Error) {
@@ -930,30 +943,31 @@ interface LinkedAbortSignal {
   dispose: () => void;
 }
 
-/** Link a caller abort and a limiter execution abort with removable listeners. */
 function createLinkedAbortSignal(
   clientSignal: AbortSignal | null | undefined,
   executionSignal: AbortSignal
 ): LinkedAbortSignal {
   const controller = new AbortController();
   const forward = (source: AbortSignal) => {
-    if (!controller.signal.aborted) controller.abort(source.reason);
+    if (!controller.signal.aborted) {
+      controller.abort(
+        source.reason ?? new DOMException("The operation was aborted", "AbortError")
+      );
+    }
   };
-  const clientListener = clientSignal ? () => forward(clientSignal) : null;
-  const executionListener = () => forward(executionSignal);
+  const onClientAbort = () => clientSignal && forward(clientSignal);
+  const onExecutionAbort = () => forward(executionSignal);
 
-  if (clientSignal) {
-    if (clientSignal.aborted) forward(clientSignal);
-    else clientSignal.addEventListener("abort", clientListener!, { once: true });
-  }
+  if (clientSignal?.aborted) forward(clientSignal);
+  else clientSignal?.addEventListener("abort", onClientAbort, { once: true });
   if (executionSignal.aborted) forward(executionSignal);
-  else executionSignal.addEventListener("abort", executionListener, { once: true });
+  else executionSignal.addEventListener("abort", onExecutionAbort, { once: true });
 
   return {
     signal: controller.signal,
     dispose: () => {
-      if (clientSignal && clientListener) clientSignal.removeEventListener("abort", clientListener);
-      executionSignal.removeEventListener("abort", executionListener);
+      clientSignal?.removeEventListener("abort", onClientAbort);
+      executionSignal.removeEventListener("abort", onExecutionAbort);
     },
   };
 }
