@@ -561,17 +561,6 @@ export async function handleRoundRobinCombo({
         continue;
       }
 
-      // #9654 Wave 2: per-target lane-aware admission probe (see executeTarget
-      // for the full contract — strictly non-blocking, lanes-off no-op).
-      if (
-        perTargetAdmission &&
-        !(await perTargetAdmission({ modelStr, executionKey: target.executionKey, body }))
-      ) {
-        log.info("COMBO-RR", `Skipping ${modelStr} — admission lane full (#9654)`);
-        if (offset > 0) fallbackCount++;
-        continue;
-      }
-
       // Acquire semaphore slot (may wait in queue). Honor the connection's own
       // maxConcurrent cap when set; else fall back to the combo-level concurrency.
       const targetConcurrency = await resolveTargetConcurrency(target.connectionId);
