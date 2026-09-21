@@ -139,7 +139,6 @@ test("execution outliving the queue-wait budget completes (opencode-go 504 regre
   assert.equal(result, "ok", "execution must not be killed by the queue-wait budget");
 });
 
-
 test("#4165 a job that completes within the execution expiration is unaffected", async () => {
   await rateLimitManager.applyRequestQueueSettings({
     ...resilienceSettings.DEFAULT_RESILIENCE_SETTINGS.requestQueue,
