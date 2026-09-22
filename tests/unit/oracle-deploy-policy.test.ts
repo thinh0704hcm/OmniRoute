@@ -299,3 +299,23 @@ test("backup failure causes zero cutover mutations", async () => {
   await assert.rejects(promoteWithRollback(CANDIDATE, adapter), /backup failed/);
   assert.deepEqual(calls, ["lock", "capture", "backup-db", "unlock"]);
 });
+
+test("prune-backups keeps manifest anchors plus newest N with file-scoped deletes", () => {
+  assert.match(remoteHelper, /prune_backups\(\)/);
+  assert.match(remoteHelper, /prune-backups\)/);
+  // Default keep 5, bounded 1-20.
+  assert.match(remoteHelper, /local keep="\$\{1:-5\}"/);
+  assert.match(remoteHelper, /prune-backups keep must be/);
+  // Manifest anchors are protected and verified after the run.
+  assert.match(remoteHelper, /databaseBackupPath/);
+  assert.match(remoteHelper, /gatewayBackupDir/);
+  assert.match(remoteHelper, /configBackupPath/);
+  assert.match(remoteHelper, /prune-backups removed manifest-referenced/);
+  // File-scoped: only storage_* sqlite and gateway_*/config_* dirs inside state dir.
+  assert.match(remoteHelper, /storage_\*.*_pre-promote\.sqlite/);
+  assert.match(remoteHelper, /BEFORE count sqlite=/);
+  assert.match(remoteHelper, /AFTER count sqlite=/);
+  // CLI passthrough exists and validates --keep.
+  assert.match(deployCli, /prune-backups/);
+  assert.match(deployCli, /--keep must be an integer/);
+});

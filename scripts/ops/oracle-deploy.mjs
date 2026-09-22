@@ -6,6 +6,7 @@
  *   node --import tsx/esm scripts/ops/oracle-deploy.mjs qualify --image <ref> --sha <sha>
  *   node --import tsx/esm scripts/ops/oracle-deploy.mjs promote --image <ref> --sha <sha>
  *   node --import tsx/esm scripts/ops/oracle-deploy.mjs rollback
+ *   node --import tsx/esm scripts/ops/oracle-deploy.mjs prune-backups [--keep 5]
  *
  * The remote helper receives runtime values as argv and performs only fixed,
  * validated operations inside /home/ubuntu/OmniRoute-src.
@@ -51,6 +52,9 @@ function parseArgs(argv) {
       index += 1;
     } else if (flag === "--dry-run") {
       args.dryRun = true;
+    } else if (flag === "--keep") {
+      args.keep = value;
+      index += 1;
     } else {
       throw new Error(`unknown argument: ${flag}`);
     }
@@ -762,8 +766,14 @@ try {
     console.log("rollback verified");
   } else if (args.command === "adopt-gateway") {
     console.log(runRemote(args.host, "adopt-gateway", [], { timeoutMs: 600_000 }));
+  } else if (args.command === "prune-backups") {
+    const keep = String(args.keep ?? "5");
+    if (!/^[0-9]{1,2}$/.test(keep)) throw new Error("--keep must be an integer 1-20");
+    console.log(runRemote(args.host, "prune-backups", [keep], { timeoutMs: 300_000 }));
   } else {
-    throw new Error("command must be status, qualify, promote, rollback, or adopt-gateway");
+    throw new Error(
+      "command must be status, qualify, promote, rollback, adopt-gateway, or prune-backups"
+    );
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
