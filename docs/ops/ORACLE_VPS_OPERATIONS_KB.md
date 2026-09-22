@@ -52,8 +52,13 @@ sha="$(git rev-parse --short=10 HEAD)"
 date_tag="$(date -u +%Y%m%d)"
 candidate="omniroute:canary-$sha-$date_tag"
 docker buildx build --target runner-base --build-arg "OMNIROUTE_BUILD_SHA=$sha" \
+  --label "org.opencontainers.image.revision=$sha" \
   --tag "$candidate" --load .
 ```
+
+The `--label` flag carries the commit even when the `Dockerfile` does not declare the
+`revision` label (an upstream merge-sync has dropped those lines before); `qualify`
+fails closed when the label is missing or mismatched.
 
 ## Inspect and qualify
 

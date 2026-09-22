@@ -246,18 +246,18 @@ connection continue serving other models.
 
 Read the nearest `AGENTS.md` and the linked deep-dive before making a non-trivial change.
 
-| Area                               | Location                                                | Start here                                                                                                                                       |
-| ---------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| API routes                         | `src/app/api/v1/`                                       | [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)                                                                         |
-| Streaming request handling         | `open-sse/handlers/`                                    | [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)                                                                         |
-| Provider execution and translation | `open-sse/executors/`, `open-sse/translator/`           | [`docs/architecture/CODEBASE_DOCUMENTATION.md`](docs/architecture/CODEBASE_DOCUMENTATION.md)                                                     |
-| Routing and resilience             | `open-sse/services/`                                    | [`open-sse/services/AGENTS.md`](open-sse/services/AGENTS.md), [`docs/routing/AUTO-COMBO.md`](docs/routing/AUTO-COMBO.md)                         |
-| Database and migrations            | `src/lib/db/`, `src/lib/db/migrations/`                 | [`src/lib/db/AGENTS.md`](src/lib/db/AGENTS.md)                                                                                                   |
-| Domain policy                      | `src/domain/`                                           | [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)                                                                         |
-| MCP and A2A                        | `open-sse/mcp-server/`, `src/lib/a2a/`                  | [`docs/frameworks/MCP-SERVER.md`](docs/frameworks/MCP-SERVER.md), [`docs/frameworks/A2A-SERVER.md`](docs/frameworks/A2A-SERVER.md)               |
-| Agent features                     | `src/lib/{acp,memory,skills,cloudAgent}/`               | [`docs/frameworks/AGENT_PROTOCOLS_GUIDE.md`](docs/frameworks/AGENT_PROTOCOLS_GUIDE.md), [`docs/frameworks/SKILLS.md`](docs/frameworks/SKILLS.md) |
-| Safety and governance              | `src/lib/{guardrails,compliance}/`, `src/server/authz/` | [`docs/security/GUARDRAILS.md`](docs/security/GUARDRAILS.md), [`docs/architecture/AUTHZ_GUIDE.md`](docs/architecture/AUTHZ_GUIDE.md)             |
-| Operations                         | `src/mitm/`, tunnel modules, `electron/`                | [`docs/ops/TUNNELS_GUIDE.md`](docs/ops/TUNNELS_GUIDE.md), [`docs/guides/ELECTRON_GUIDE.md`](docs/guides/ELECTRON_GUIDE.md)                       |
+| Area                               | Location                                                 | Start here                                                                                                                                                                                                 |
+| ---------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API routes                         | `src/app/api/v1/`                                        | [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)                                                                                                                                   |
+| Streaming request handling         | `open-sse/handlers/`                                     | [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)                                                                                                                                   |
+| Provider execution and translation | `open-sse/executors/`, `open-sse/translator/`            | [`docs/architecture/CODEBASE_DOCUMENTATION.md`](docs/architecture/CODEBASE_DOCUMENTATION.md)                                                                                                               |
+| Routing and resilience             | `open-sse/services/`                                     | [`open-sse/services/AGENTS.md`](open-sse/services/AGENTS.md), [`docs/routing/AUTO-COMBO.md`](docs/routing/AUTO-COMBO.md)                                                                                   |
+| Database and migrations            | `src/lib/db/`, `src/lib/db/migrations/`                  | [`src/lib/db/AGENTS.md`](src/lib/db/AGENTS.md)                                                                                                                                                             |
+| Domain policy                      | `src/domain/`                                            | [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)                                                                                                                                   |
+| MCP and A2A                        | `open-sse/mcp-server/`, `src/lib/a2a/`                   | [`docs/frameworks/MCP-SERVER.md`](docs/frameworks/MCP-SERVER.md), [`docs/frameworks/A2A-SERVER.md`](docs/frameworks/A2A-SERVER.md)                                                                         |
+| Agent features                     | `src/lib/{acp,memory,skills,cloudAgent}/`                | [`docs/frameworks/AGENT_PROTOCOLS_GUIDE.md`](docs/frameworks/AGENT_PROTOCOLS_GUIDE.md), [`docs/frameworks/SKILLS.md`](docs/frameworks/SKILLS.md)                                                           |
+| Safety and governance              | `src/lib/{guardrails,compliance}/`, `src/server/authz/`  | [`docs/security/GUARDRAILS.md`](docs/security/GUARDRAILS.md), [`docs/architecture/AUTHZ_GUIDE.md`](docs/architecture/AUTHZ_GUIDE.md)                                                                       |
+| Operations                         | `src/mitm/`, tunnel modules, `electron/`, `contrib/vps/` | [`docs/ops/TUNNELS_GUIDE.md`](docs/ops/TUNNELS_GUIDE.md), [`docs/ops/ORACLE_VPS_OPERATIONS_KB.md`](docs/ops/ORACLE_VPS_OPERATIONS_KB.md), [`docs/guides/ELECTRON_GUIDE.md`](docs/guides/ELECTRON_GUIDE.md) |
 
 ---
 
@@ -445,6 +445,7 @@ For any non-trivial change, read the matching deep-dive first:
 | API reference + OpenAPI                       | `docs/reference/API_REFERENCE.md` + `docs/openapi.yaml` |
 | Provider catalog (auto-generated)             | `docs/reference/PROVIDER_REFERENCE.md`                  |
 | Tunnels                                       | `docs/ops/TUNNELS_GUIDE.md`                             |
+| Oracle VPS operations                         | `docs/ops/ORACLE_VPS_OPERATIONS_KB.md`                  |
 | Electron desktop app                          | `docs/guides/ELECTRON_GUIDE.md`                         |
 | VS Code Copilot Chat (OmniCopilot extension)  | `docs/guides/VSCODE-COPILOT.md`                         |
 | Release flow                                  | `docs/ops/RELEASE_CHECKLIST.md`                         |
