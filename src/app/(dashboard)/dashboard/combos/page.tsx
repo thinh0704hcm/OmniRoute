@@ -703,7 +703,6 @@ function computeAllowedRestrictionSync(
   return result;
 }
 
-
 function getModelString(entry) {
   if (typeof entry === "string") return entry;
   if (entry?.kind === "combo-ref") return entry.comboName;
