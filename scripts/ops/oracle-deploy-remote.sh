@@ -584,6 +584,142 @@ adopt_gateway() {
     "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$TS_GATEWAY_IMAGE")"
 }
 
+prune_backups() {
+  local keep="${1:-5}"
+  case "$keep" in
+    ""|*[!0-9]*) fail "prune-backups keep must be an integer 1-20" ;;
+  esac
+  test "$keep" -ge 1 || fail "prune-backups keep must be >= 1"
+  test "$keep" -le 20 || fail "prune-backups keep must be <= 20"
+  ensure_layout
+  python3 - "$STATE_DIR" "$BACKUP_DIR" "$keep" <<'PYEOF'
+import glob
+import json
+import os
+import shutil
+import sys
+state_dir, backup_dir, keep_raw = sys.argv[1:4]
+keep = int(keep_raw)
+manifest_path = os.path.join(state_dir, "current.json")
+manifest_db = ""
+manifest_gw = ""
+manifest_cfg = ""
+if os.path.isfile(manifest_path):
+    try:
+        with open(manifest_path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        manifest_db = str(manifest.get("databaseBackupPath") or "")
+        manifest_gw = str(manifest.get("gatewayBackupDir") or "")
+        manifest_cfg = str(manifest.get("configBackupPath") or "")
+    except Exception as exc:
+        print("prune-backups: manifest unreadable, protecting newest only")
+def mtime(path):
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return -1
+def is_safe_target(path, kind):
+    real_state = os.path.realpath(state_dir)
+    real_path = os.path.realpath(path)
+    try:
+        common = os.path.commonpath([real_state, real_path])
+    except ValueError:
+        return False
+    if common != real_state:
+        return False
+    base = os.path.basename(real_path)
+    if kind == "sqlite":
+        real_backup = os.path.realpath(backup_dir)
+        try:
+            c2 = os.path.commonpath([real_backup, real_path])
+        except ValueError:
+            return False
+        if c2 != real_backup:
+            return False
+        return base.startswith("storage_") and base.endswith("_pre-promote.sqlite")
+    if kind == "gateway":
+        return base.startswith("gateway_") or base.startswith("gateway_failed_")
+    if kind == "config":
+        return base.startswith("config_")
+    return False
+sqlite_all = sorted([p for p in glob.glob(os.path.join(backup_dir, "storage_*_pre-promote.sqlite")) if os.path.isfile(p)], key=mtime, reverse=True)
+gateway_all = sorted([p for p in glob.glob(os.path.join(state_dir, "gateway_*")) if os.path.isdir(p)], key=mtime, reverse=True)
+config_all = sorted([p for p in glob.glob(os.path.join(state_dir, "config_*")) if os.path.isdir(p)], key=mtime, reverse=True)
+print("BEFORE sqlite backups (newest first):")
+for item in sqlite_all:
+    print("  " + item)
+print("BEFORE count sqlite=%d gateway=%d config=%d" % (len(sqlite_all), len(gateway_all), len(config_all)))
+print("BEFORE protected db=%s gw=%s cfg=%s" % (manifest_db or "-", manifest_gw or "-", manifest_cfg or "-"))
+def keep_set(ordered, manifest_value):
+    kept = set(ordered[:keep])
+    if manifest_value and os.path.exists(manifest_value):
+        kept.add(manifest_value)
+    return kept
+sqlite_keep = keep_set(sqlite_all, manifest_db)
+gateway_keep = keep_set(gateway_all, manifest_gw)
+config_keep = keep_set(config_all, manifest_cfg)
+deleted = []
+kept = []
+for path in sqlite_all:
+    if path in sqlite_keep:
+        kept.append(path)
+        continue
+    if not is_safe_target(path, "sqlite"):
+        print("SKIP unsafe sqlite target: " + path)
+        kept.append(path)
+        continue
+    try:
+        os.remove(path)
+        for suffix in ("-shm", "-wal"):
+            sidecar = path + suffix
+            if os.path.isfile(sidecar):
+                os.remove(sidecar)
+        deleted.append(path)
+        print("DELETE " + path)
+    except OSError as exc:
+        print("FAILED %s: %s" % (path, exc))
+for path in gateway_all:
+    if path in gateway_keep:
+        kept.append(path)
+        continue
+    if not is_safe_target(path, "gateway"):
+        print("SKIP unsafe gateway target: " + path)
+        kept.append(path)
+        continue
+    try:
+        shutil.rmtree(path)
+        deleted.append(path)
+        print("DELETE " + path)
+    except OSError as exc:
+        print("FAILED %s: %s" % (path, exc))
+for path in config_all:
+    if path in config_keep:
+        kept.append(path)
+        continue
+    if not is_safe_target(path, "config"):
+        print("SKIP unsafe config target: " + path)
+        kept.append(path)
+        continue
+    try:
+        shutil.rmtree(path)
+        deleted.append(path)
+        print("DELETE " + path)
+    except OSError as exc:
+        print("FAILED %s: %s" % (path, exc))
+sqlite_after = sorted([p for p in glob.glob(os.path.join(backup_dir, "storage_*_pre-promote.sqlite")) if os.path.isfile(p)], key=mtime, reverse=True)
+gateway_after = sorted([p for p in glob.glob(os.path.join(state_dir, "gateway_*")) if os.path.isdir(p)], key=mtime, reverse=True)
+config_after = sorted([p for p in glob.glob(os.path.join(state_dir, "config_*")) if os.path.isdir(p)], key=mtime, reverse=True)
+print("AFTER sqlite backups (newest first):")
+for item in sqlite_after:
+    print("  " + item)
+print("AFTER count sqlite=%d gateway=%d config=%d" % (len(sqlite_after), len(gateway_after), len(config_after)))
+for label, value in (("database", manifest_db), ("gateway", manifest_gw), ("config", manifest_cfg)):
+    if value and not os.path.exists(value):
+        raise SystemExit("prune-backups removed manifest-referenced %s anchor: %s" % (label, value))
+print(json.dumps({"keep": keep, "kept": len(kept), "deleted": len(deleted), "deletedPaths": deleted}))
+PYEOF
+}
+
 command="${1:-}"
 shift || true
 
@@ -698,6 +834,10 @@ print(hashlib.sha256(serialized).hexdigest())
     destination="$BACKUP_DIR/storage_${stamp}_${BASHPID}_pre-promote.sqlite"
     backup_sqlite "$DATA_DIR/storage.sqlite" "$destination"
     printf '%s\n' "$destination"
+    ;;
+
+  prune-backups)
+    prune_backups "${1:-5}"
     ;;
 
   prepare-canary)
@@ -922,6 +1062,6 @@ PY
     ;;
 
   *)
-    fail "usage: $0 {dispatch-json|preflight|lock|unlock|lock-canary|unlock-canary|inspect-image|inspect-prod|inspect-canary|compose-hash|backup|prepare-canary|start-canary|stop-canary|delete-canary-data|call-log-max|combo-log-evidence|tag-rollback|tag-gateway-rollback|verify-rollback-tag|set-image|recreate-prod|verify-image|adopt-gateway|backup-gateway|reconcile-gateway|restore-gateway|reconcile-squrvq-env|backup-config|restore-config|write-manifest|read-manifest|status}"
+    fail "usage: $0 {dispatch-json|preflight|lock|unlock|lock-canary|unlock-canary|inspect-image|inspect-prod|inspect-canary|compose-hash|backup|prune-backups|prepare-canary|start-canary|stop-canary|delete-canary-data|call-log-max|combo-log-evidence|tag-rollback|tag-gateway-rollback|verify-rollback-tag|set-image|recreate-prod|verify-image|adopt-gateway|backup-gateway|reconcile-gateway|restore-gateway|reconcile-squrvq-env|backup-config|restore-config|write-manifest|read-manifest|status}"
     ;;
 esac
