@@ -114,8 +114,11 @@ and rollback images plus their backups until a rollback drill and observation wi
 
 `prune-backups` keeps the manifest-referenced SQLite, gateway, and config anchors plus the
 newest `N` entries (default `5`) and deletes only `storage_*_pre-promote.sqlite` files and
-`gateway_*` / `config_*` directories inside the deployments state dir. It prints `BEFORE` and
-`AFTER` listings and fails closed if a manifest anchor is missing after the run.
+`gateway_*` / `config_*` directories inside the deployments state dir. Legacy one-off
+`storage.sqlite.pre-*` files are expired only when older than 7 days and never
+manifest-referenced; recent (<7d) legacy files are kept. It prints `BEFORE` and
+`AFTER` listings (including `legacy=` counts) and fails closed if a manifest anchor is missing
+after the run.
 
 ```bash
 cd /home/ubuntu/OmniRoute-src
@@ -123,8 +126,11 @@ node --import tsx/esm scripts/ops/oracle-deploy.mjs prune-backups --host oracle-
 # or directly: ssh oracle-vps bash /home/ubuntu/OmniRoute-src/scripts/ops/oracle-deploy-remote.sh prune-backups 5
 ```
 
-Run retention after a verified promotion (`active` manifest, healthy canary). Never delete the
-manifest-referenced anchors, live or rollback images, or any path outside the deployments dir.
+Retention is auto-enforced best-effort after every verified promotion (`active` manifest):
+`promote` runs `prune-backups` with `--keep 5` (or `--keep N`) after success; prune failure is
+logged as skipped and never fails the promotion. Manual `prune-backups` remains for ad-hoc runs.
+Never delete the manifest-referenced anchors, live or rollback images, or any path outside the
+deployments dir.
 
 ## Safety invariants
 
