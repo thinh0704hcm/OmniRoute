@@ -319,3 +319,23 @@ test("prune-backups keeps manifest anchors plus newest N with file-scoped delete
   assert.match(deployCli, /prune-backups/);
   assert.match(deployCli, /--keep must be an integer/);
 });
+
+test("prune-backups expires legacy storage.sqlite.pre-* only when older than 7 days", () => {
+  assert.match(remoteHelper, /storage\.sqlite\.pre-/);
+  assert.match(remoteHelper, /LEGACY_MAX_AGE_DAYS = 7/);
+  assert.match(remoteHelper, /KEEP recent legacy/);
+  assert.match(remoteHelper, /DELETE legacy/);
+  assert.match(remoteHelper, /legacy=%d/);
+  // Legacy scope is file-only inside backups dir, never manifest-referenced.
+  assert.match(remoteHelper, /kind == "legacy"/);
+  assert.match(remoteHelper, /KEEP manifest legacy/);
+});
+
+test("promote auto-enforces prune-backups best-effort after verified promotion", () => {
+  assert.match(deployCli, /Auto-enforce keep-5 retention after a verified promotion/);
+  assert.match(deployCli, /prune-backups.*\[autoKeep\]/);
+  assert.match(deployCli, /prune-backups skipped after verified promotion/);
+  // Auto-prune never fails the promotion: wrapped in try/catch, manual path intact.
+  assert.match(deployCli, /manual prune-backups remains/i);
+  assert.match(deployCli, /if \(!result\.ok\) process\.exitCode = 1;/);
+});

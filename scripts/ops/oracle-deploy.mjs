@@ -761,6 +761,22 @@ try {
     const result = await promote(args.host, candidate, models);
     console.log(JSON.stringify(result, null, 2));
     if (!result.ok) process.exitCode = 1;
+    else {
+      // Auto-enforce keep-5 retention after a verified promotion (best-effort:
+      // prune failure must not fail the promotion; manual prune-backups remains).
+      const autoKeep = String(args.keep ?? "5");
+      if (!/^[0-9]{1,2}$/.test(autoKeep) || Number(autoKeep) < 1 || Number(autoKeep) > 20) {
+        console.error(`prune-backups skipped: invalid --keep ${autoKeep}`);
+      } else {
+        try {
+          console.log(runRemote(args.host, "prune-backups", [autoKeep], { timeoutMs: 300_000 }));
+        } catch (pruneError) {
+          console.error(
+            `prune-backups skipped after verified promotion: ${pruneError instanceof Error ? pruneError.message : String(pruneError)}`
+          );
+        }
+      }
+    }
   } else if (args.command === "rollback") {
     await rollback(args.host, models);
     console.log("rollback verified");

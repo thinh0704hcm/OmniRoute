@@ -598,6 +598,7 @@ import json
 import os
 import shutil
 import sys
+import time
 state_dir, backup_dir, keep_raw = sys.argv[1:4]
 keep = int(keep_raw)
 manifest_path = os.path.join(state_dir, "current.json")
@@ -641,6 +642,15 @@ def is_safe_target(path, kind):
         return base.startswith("gateway_") or base.startswith("gateway_failed_")
     if kind == "config":
         return base.startswith("config_")
+    if kind == "legacy":
+        real_backup = os.path.realpath(backup_dir)
+        try:
+            c2 = os.path.commonpath([real_backup, real_path])
+        except ValueError:
+            return False
+        if c2 != real_backup:
+            return False
+        return base.startswith("storage.sqlite.pre-")
     return False
 sqlite_all = sorted([p for p in glob.glob(os.path.join(backup_dir, "storage_*_pre-promote.sqlite")) if os.path.isfile(p)], key=mtime, reverse=True)
 gateway_all = sorted([p for p in glob.glob(os.path.join(state_dir, "gateway_*")) if os.path.isdir(p)], key=mtime, reverse=True)
@@ -648,7 +658,10 @@ config_all = sorted([p for p in glob.glob(os.path.join(state_dir, "config_*")) i
 print("BEFORE sqlite backups (newest first):")
 for item in sqlite_all:
     print("  " + item)
-print("BEFORE count sqlite=%d gateway=%d config=%d" % (len(sqlite_all), len(gateway_all), len(config_all)))
+legacy_all = sorted([p for p in glob.glob(os.path.join(backup_dir, "storage.sqlite.pre-*")) if os.path.isfile(p)], key=mtime, reverse=True)
+print("BEFORE count sqlite=%d gateway=%d config=%d legacy=%d" % (len(sqlite_all), len(gateway_all), len(config_all), len(legacy_all)))
+for item in legacy_all:
+    print("  LEGACY " + item)
 print("BEFORE protected db=%s gw=%s cfg=%s" % (manifest_db or "-", manifest_gw or "-", manifest_cfg or "-"))
 def keep_set(ordered, manifest_value):
     kept = set(ordered[:keep])
@@ -706,13 +719,39 @@ for path in config_all:
         print("DELETE " + path)
     except OSError as exc:
         print("FAILED %s: %s" % (path, exc))
+LEGACY_MAX_AGE_DAYS = 7
+now_ts = time.time()
+for path in legacy_all:
+    if path == manifest_db:
+        kept.append(path)
+        print("KEEP manifest legacy: " + path)
+        continue
+    if not is_safe_target(path, "legacy"):
+        print("SKIP unsafe legacy target: " + path)
+        kept.append(path)
+        continue
+    try:
+        age_days = (now_ts - mtime(path)) / 86400.0
+    except OSError:
+        age_days = 0
+    if age_days <= LEGACY_MAX_AGE_DAYS:
+        kept.append(path)
+        print("KEEP recent legacy (%.1fd): %s" % (age_days, path))
+        continue
+    try:
+        os.remove(path)
+        deleted.append(path)
+        print("DELETE legacy (%.1fd): %s" % (age_days, path))
+    except OSError as exc:
+        print("FAILED %s: %s" % (path, exc))
 sqlite_after = sorted([p for p in glob.glob(os.path.join(backup_dir, "storage_*_pre-promote.sqlite")) if os.path.isfile(p)], key=mtime, reverse=True)
 gateway_after = sorted([p for p in glob.glob(os.path.join(state_dir, "gateway_*")) if os.path.isdir(p)], key=mtime, reverse=True)
 config_after = sorted([p for p in glob.glob(os.path.join(state_dir, "config_*")) if os.path.isdir(p)], key=mtime, reverse=True)
 print("AFTER sqlite backups (newest first):")
 for item in sqlite_after:
     print("  " + item)
-print("AFTER count sqlite=%d gateway=%d config=%d" % (len(sqlite_after), len(gateway_after), len(config_after)))
+legacy_after = sorted([p for p in glob.glob(os.path.join(backup_dir, "storage.sqlite.pre-*")) if os.path.isfile(p)], key=mtime, reverse=True)
+print("AFTER count sqlite=%d gateway=%d config=%d legacy=%d" % (len(sqlite_after), len(gateway_after), len(config_after), len(legacy_after)))
 for label, value in (("database", manifest_db), ("gateway", manifest_gw), ("config", manifest_cfg)):
     if value and not os.path.exists(value):
         raise SystemExit("prune-backups removed manifest-referenced %s anchor: %s" % (label, value))
