@@ -161,6 +161,32 @@ const EFFORT_TIERS: Record<string, readonly string[]> = {
  *      "glm-5.2-high"         → { baseModel: "glm-5.2", effort: "high" }
  * Returns null if the model doesn't match any known effort-tier pattern.
  */
+/**
+ * Map a suffixed Go effort-tier alias to base id + flat effort field.
+ *
+ * Live-verified 2026-09-23 against https://opencode.ai/zen/go/v1/responses:
+ * `muse-spark-1.3-contributor-high`/`-xhigh` 400 ("Model is unavailable") while
+ * the base id + `reasoning.effort` 200s for both tiers. DeepSeek keeps its
+ * native flat-field contract (#4647). Every other family still forwards the
+ * aliased id verbatim (#10788) — their suffix contracts are unverified, so
+ * this stays muse-spark (+deepseek) scoped. An explicit reasoning_effort
+ * always wins. Exported for testability.
+ */
+export function applyGoEffortSuffixMapping(model: string, mb: Record<string, unknown>): void {
+  const parsed = parseEffortLevel(String(model || ""));
+  if (!parsed) return;
+  const mapsToField =
+    parsed.baseModel === "deepseek-v4-pro" ||
+    parsed.baseModel === "deepseek-v4-flash" ||
+    parsed.baseModel === "muse-spark-1.2-contributor" ||
+    parsed.baseModel === "muse-spark-1.3-contributor";
+  if (!mapsToField) return;
+  mb.model = parsed.baseModel;
+  if (mb.reasoning_effort === undefined) {
+    mb.reasoning_effort = parsed.effort;
+  }
+}
+
 export function parseEffortLevel(model: string): { baseModel: string; effort: string } | null {
   const m = String(model || "");
   for (const [baseModel, levels] of Object.entries(EFFORT_TIERS)) {
@@ -1287,16 +1313,7 @@ export class OpencodeExecutor extends BaseExecutor {
       }
       const parsed = parseEffortLevel(model);
       if (parsed) {
-        const deepseekFamily =
-          parsed.baseModel === "deepseek-v4-pro" || parsed.baseModel === "deepseek-v4-flash";
-        if (deepseekFamily) {
-          // DeepSeek via opencode-go proxies the native DeepSeek contract, which
-          // accepts a flat reasoning_effort field (#4647).
-          mb.model = parsed.baseModel;
-          if (mb.reasoning_effort === undefined) {
-            mb.reasoning_effort = parsed.effort;
-          }
-        }
+        applyGoEffortSuffixMapping(model, mb);
         // #10788: every other family's ONLY native effort mechanism is the
         // -<tier> suffix in the model id itself (the ids `opencode models
         // opencode-go --verbose` lists). The opencode-go ChatCompletionRequest
