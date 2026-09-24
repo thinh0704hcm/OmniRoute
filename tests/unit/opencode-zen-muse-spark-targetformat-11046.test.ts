@@ -10,9 +10,12 @@ test("opencode-zen muse-spark contributor-free has 1M context and auto-only tool
   assert.deepEqual(free!.supportedToolChoiceModes, ["auto"]);
 });
 
-test("opencode-zen paid muse-spark has no invented context limit", () => {
+test("opencode-zen paid muse-spark declares the verified 1M window", () => {
+  // Was "no invented context limit" when no published window existed. The
+  // 1048576 value is since verified real (published OpenCode catalog,
+  // opencode-go registry entries, mirror of the base opencode entry).
   const paid = opencode_zenProvider.models.find((m) => m.id === "muse-spark-1.2");
   assert.ok(paid);
   assert.equal(paid!.targetFormat, "openai-responses");
-  assert.equal(paid!.contextLength, undefined);
+  assert.equal(paid!.contextLength, 1048576);
 });

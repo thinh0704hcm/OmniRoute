@@ -90,6 +90,16 @@ export const opencode_zenProvider: RegistryEntry = {
       supportedToolChoiceModes: ["auto"],
       maxOutputTokens: 131072,
     },
+    // Explicit wire-format overlay of the base opencode provider's muse-spark entry
+    // (targetFormat: openai-responses). Keep in sync with base on catalog syncs.
+    {
+      id: "muse-spark-1.2-contributor-free",
+      name: "Muse Spark 1.2 Contributor Free",
+      supportsReasoning: true,
+      targetFormat: "openai-responses",
+      contextLength: 1048576,
+      maxOutputTokens: 131072,
+    },
     // Muse Spark 1.3 is served only on the Responses API, same as 1.2 above.
     // Its window matches the published OpenCode catalog instead of the
     // 200000 provider default.

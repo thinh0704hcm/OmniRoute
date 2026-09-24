@@ -279,7 +279,6 @@ export async function executeWithUpstreamStartTimeout<T>({
     }, timeoutMs);
   });
 
-  let abortPromiseListener: (() => void) | null = null;
   const abortPromise = new Promise<never>((_, reject) => {
     // No caller signal means nothing can abort this dispatch, so the race below
     // simply has one fewer branch to settle.
@@ -302,13 +301,14 @@ export async function executeWithUpstreamStartTimeout<T>({
     return await Promise.race([execute(combinedController.signal), timeoutPromise, abortPromise]);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
-    if (abortListener) signal.removeEventListener("abort", abortListener);
+    if (abortListener && signal) signal.removeEventListener("abort", abortListener);
     // Never removed before this fix: one listener leaked onto the client signal
     // per call (chatCore.ts invokes this once per executor attempt, plus retries).
-    if (abortPromiseListener) signal.removeEventListener("abort", abortPromiseListener);
+    if (abortPromiseListener && signal) {
+      signal.removeEventListener("abort", abortPromiseListener);
+    }
     if (timeoutAbortListener) {
       timeoutController.signal.removeEventListener("abort", timeoutAbortListener);
     }
-    if (signal && abortPromiseListener) signal.removeEventListener("abort", abortPromiseListener);
   }
 }

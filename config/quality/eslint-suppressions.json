@@ -1837,11 +1837,6 @@
       "count": 1
     }
   },
-  "src/shared/services/cliRuntime.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/shared/services/cloudSyncScheduler.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -2484,11 +2479,6 @@
   "tests/unit/apikeypolicy-disable-non-public.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
-    }
-  },
-  "tests/unit/arena-elo-sync-redesign.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
     }
   },
   "tests/unit/audio-speech-handler.test.ts": {
@@ -3298,11 +3288,6 @@
     }
   },
   "tests/unit/compression/compression-header-dispatch.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "tests/unit/compression/compressionAnalyticsWriterFlatRate.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
@@ -4869,11 +4854,6 @@
       "count": 1
     }
   },
-  "tests/unit/stream-timing.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "tests/unit/stream-utilities.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
@@ -5055,7 +5035,7 @@
   },
   "tests/unit/translator-openai-to-gemini.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 87
+      "count": 65
     }
   },
   "tests/unit/translator-openai-to-kiro.test.ts": {
@@ -5298,11 +5278,6 @@
     "@typescript-eslint/no-explicit-any": {
       "count": 65
     },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "tests/unit/waitForServer-slow-first-response.test.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
