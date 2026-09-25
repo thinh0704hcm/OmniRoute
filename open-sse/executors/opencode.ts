@@ -15,12 +15,14 @@ import {
   runWithDirectFetchContext,
   runWithProxyContext,
   noteRotationAccount,
+  resolveProxyForRequest,
 } from "../utils/proxyFetch.ts";
 import {
   clientSuppliedOpencodeSession,
   forwardOpencodeClientHeaders,
   resolveOpencodeCliDefaults,
 } from "../utils/opencodeHeaders.ts";
+import { projectOpencodeSessionBody } from "../utils/opencodeSessionIdentity.ts";
 import {
   listForRequest,
   releaseRequestList,
@@ -80,13 +82,14 @@ import {
   resolveResponsesStallWindowMs,
 } from "./opencodeResponsesStall.ts";
 import { discardResponseBody } from "./opencodeResponseBody.ts";
+import { headersWaitDispatch, headersWaitState } from "./opencodeHeadersWait.ts";
 import {
   isRetriableUpstreamFailure,
   releaseResponseBody,
   sleepAbortable,
   transientRetryDelayMs,
 } from "./opencodeTransientFailure.ts";
-import { isProxyAvoided, proxyEgressKey } from "../utils/proxyRefusalMemory.ts";
+import { isProxyAvoided } from "../utils/proxyRefusalMemory.ts";
 import * as egressPacing from "./opencodeEgressThrottle.ts";
 import {
   isNetworkRotationSharedEgressGuardEnabled,
@@ -318,9 +321,10 @@ export class OpencodeExecutor extends BaseExecutor {
   /** Round-robin pick from this request's list, skipping members not ready. */
   private pickAccountWith(
     accounts: ScopedAccount[],
-    isReady: (account: ScopedAccount) => boolean
+    isReady: (account: ScopedAccount) => boolean,
+    keyOfMember?: (account: ScopedAccount) => string | null
   ): ScopedAccount {
-    return pickRotatableAccount(accounts, this, isReady);
+    return pickRotatableAccount(accounts, this, isReady, keyOfMember);
   }
 
   /** Snapshot entries for the attribution registry — ids already masked. */
@@ -557,6 +561,12 @@ export class OpencodeExecutor extends BaseExecutor {
       // Opt-in Responses first-byte stall guard (#13484); a no-op when the window is 0.
       const stallWindowMs = resolveResponsesStallWindowMs(input.stream, this._requestFormat);
       const guardStall = <T>(r: T) => guardResponsesStall(r, stallWindowMs, input.signal);
+      const headersWait = headersWaitState(
+        input,
+        this._requestFormat,
+        this.getTimeoutMs(),
+        this.config?.fetchStartTimeoutCapMs
+      );
       // Fast path: no multi-account proxy wiring configured → original behavior,
       // plus exactly ONE bounded retry when the upstream answers a 400 empty
       // rejection (same predicate and logging as the rotation loop). Everything
@@ -640,16 +650,14 @@ export class OpencodeExecutor extends BaseExecutor {
       // through the accounts is the retry). Avoids an unbounded loop on a
       // persistently malformed upstream.
       const emptyRejectionBudget = accounts.length === 1 ? 1 : 0;
-      // Tried set: proxy keys already proven unusable for this request's
-      // model (geo-blocked, or transient 5xx). Request-local only — nothing
-      // persists past execute().
-      const geoTriedProxyKeys = new Set<string>();
+      // Tried sets, request-local only: geo/transient + 429 no-replay keys.
+      const geoTriedProxyKeys = new Set<string>(),
+        rateLimitedProxyKeys = new Set<string>();
       // Opt-in (PROXY_SKIP_RECENTLY_FAILED, default off): members the provider just refused
       // (received refusal or refused TCP probe) are skipped. Off = plain rotation.
       const skipRecentlyFailed = isProxySkipRecentlyFailedEnabled();
       let directTried = false;
-      // Stalls before the first Responses byte: one rotation, then fail fast.
-      const stallCounter = { attempts: 0 };
+      const stallCounter = { attempts: 0 }; // first-byte stalls: one rotation, then fail fast
       // A response an opt-in branch rotated away from. It stays lastResult (and
       // intact) until a newer attempt replaces it, then its body is cancelled.
       let abandonedResponse: Response | null = null;
@@ -662,18 +670,28 @@ export class OpencodeExecutor extends BaseExecutor {
       let burstStreak = 0,
         parked = false;
       const requestPacing = egressPacing.initEgressPacingForRequest(); // Off by default.
+      const appliedEgress = egressPacing.createAppliedEgressTracker(
+        this.buildUrl(String(input.model ?? ""), Boolean(input.stream)),
+        resolveProxyForRequest
+      );
+      const { readAppliedKey, keyOfMember } = appliedEgress;
 
       for (let attempt = 0; attempt < accounts.length + emptyRejectionBudget; attempt++) {
+        appliedEgress.resetAttempt();
         const isProxiedCandidate = (a: ScopedAccount): boolean => {
           if (a.cooldownUntil > Date.now()) return false;
           // Without any geo evidence this pass, every cooldown-ready account
           // stays eligible (preserves the plain round-robin first pick).
-          if (a.proxy === null) return !directTried || geoTriedProxyKeys.size === 0;
-          if (skipRecentlyFailed && isProxyAvoided(proxyEgressKey(a.proxy))) return false;
+          const memberKey = keyOfMember(a);
+          if (a.proxy === null) {
+            if (skipRecentlyFailed && isProxyAvoided(memberKey)) return false;
+            return !directTried || geoTriedProxyKeys.size === 0;
+          }
+          if (skipRecentlyFailed && isProxyAvoided(memberKey)) return false;
           const k = proxyKeyOf(a.proxy);
-          return k !== null && !geoTriedProxyKeys.has(k);
+          return k !== null && !geoTriedProxyKeys.has(k) && !rateLimitedProxyKeys.has(k);
         };
-        let account = this.pickAccountWith(accounts, isProxiedCandidate);
+        let account = this.pickAccountWith(accounts, isProxiedCandidate, keyOfMember);
         if (attributionOn) {
           const nowMs = Date.now();
           for (const a of accounts) {
@@ -704,12 +722,11 @@ export class OpencodeExecutor extends BaseExecutor {
         if (
           !isMonoRetryOwed &&
           lastResult !== null &&
-          geoTriedProxyKeys.size > 0 &&
+          geoTriedProxyKeys.size + rateLimitedProxyKeys.size > 0 &&
           !isProxiedCandidate(account) &&
           !(account.proxy === null && !directTried)
         ) {
-          // Geo exhaustion (last was 403/451) → surface as-is, no success mark.
-          // Transient exhaustion (last was 5xx) → same: surface last as-is.
+          // Geo/transient exhaustion → surface as-is, no success mark.
           // Any other last status (e.g. 429 after 403s) → skip without a call.
           if (lastWasGeo || lastWasTransient) break;
           continue;
@@ -766,20 +783,53 @@ export class OpencodeExecutor extends BaseExecutor {
           requestPacing,
           account,
           isProxiedCandidate,
-          () => this.pickAccountWith(accounts, isProxiedCandidate),
-          input.signal
+          () => this.pickAccountWith(accounts, isProxiedCandidate, keyOfMember),
+          input.signal,
+          readAppliedKey
         );
         const egressRelease = paced.release;
         account = paced.account;
+        appliedEgress.rememberServed(account); // Served (post repick), never acquire-time.
         let result: HttpExecuteResult;
         try {
-          // super.execute() dispatches the HTTP path (never the web/scraping arm).
-          result = (await guardStall(
-            await runWithProxyContext(account.proxy, () =>
-              super.execute({ ...input, skipUpstreamRetry: true })
-            )
-          )) as HttpExecuteResult;
+          const { outcome, waitMs } = await headersWaitDispatch(
+            // opt-in bound on the guarded dispatch (stall guard inside the race)
+            headersWait,
+            account,
+            accounts,
+            isProxiedCandidate,
+            (attemptSignal) =>
+              (async () =>
+                guardStall(
+                  await runWithProxyContext(account.proxy, () =>
+                    super.execute({
+                      ...input,
+                      skipUpstreamRetry: true,
+                      signal: attemptSignal ?? input.signal,
+                    })
+                  )
+                ) as Promise<HttpExecuteResult>)(),
+            input.signal
+          );
+          if (outcome.kind !== "ok") {
+            if (outcome.kind === "aborted")
+              egressPacing.throwPacedError(egressRelease, outcome.reason);
+            egressPacing.settleStalledDispatch(egressRelease, account, {
+              tried: geoTriedProxyKeys,
+              stalled: headersWait.spent,
+              cooldown: markCooldown,
+              markDirect: () => (directTried = true),
+            }); // same settle as the stall arm
+            log?.warn?.(
+              "OPENCODE",
+              `${cid}no response headers within ${waitMs}ms on account ${masked}, rotating to next…`
+            );
+            continue;
+          }
+          result = outcome.result;
         } catch (err) {
+          if (headersWait.policy.windowMs > 0 && input.signal?.aborted)
+            egressPacing.throwPacedError(egressRelease, err); // client abort never rotates, slot released
           const reason = err instanceof Error ? err.message : String(err);
           // Stall guard: headers arrived, so the egress works — never a shared-egress
           // outage; proxied and proxy-less accounts rotate alike. A client abort never rotates.
@@ -842,7 +892,10 @@ export class OpencodeExecutor extends BaseExecutor {
           const status = result.response.status;
           if (status === 429) {
             markCooldown(account);
-            const setAsideMs = egressPacing.noteRefusedMember(account.proxy, skipRecentlyFailed);
+            const rateKey = proxyKeyOf(account.proxy);
+            if (rateKey !== null) rateLimitedProxyKeys.add(rateKey);
+            const setAsideMs = appliedEgress.noteRefused(account, skipRecentlyFailed);
+            appliedEgress.rememberServed(account);
             // Opt-in (#13657): a 429 that names a real rate limit stops the wave and
             // the real upstream 429 is returned untouched (body, Retry-After, quota
             // headers), so provider error rules still apply. Flag off → rotate.
@@ -885,6 +938,7 @@ export class OpencodeExecutor extends BaseExecutor {
                     markSuccess: (a: ScopedAccount) => markSuccess(a),
                     sleep: this.parkSleep,
                     accounts,
+                    replayKeyOfMember: keyOfMember,
                   },
                   input,
                   parkWaitMs(marker.fresh ? marker.ttlLeftMs : null),
@@ -1162,30 +1216,12 @@ export class OpencodeExecutor extends BaseExecutor {
       gatedScope
     );
 
-    this._clientSession = clientSuppliedOpencodeSession(clientHeaders);
+    this._clientSession = clientSuppliedOpencodeSession(clientHeaders, body);
     if (clientHeaders || cliDefaults) {
-      const b = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
       forwardOpencodeClientHeaders(headers, clientHeaders ?? {}, {
         synthesizeRequestId: true,
         cliDefaults,
-        sessionBody: b
-          ? {
-              model: typeof b.model === "string" ? b.model : undefined,
-              system: b.system,
-              messages: Array.isArray(b.messages)
-                ? (b.messages as Array<{ role?: string; content?: unknown }>)
-                : undefined,
-              // The Responses surface carries the conversation under `input`; without it the
-              // fingerprint collapses to the model alone and every conversation on that model
-              // would share one upstream session.
-              input: Array.isArray(b.input)
-                ? (b.input as Array<{ role?: string; content?: unknown }>)
-                : undefined,
-              tools: Array.isArray(b.tools)
-                ? (b.tools as Array<{ name?: string; function?: { name?: string } }>)
-                : undefined,
-            }
-          : undefined,
+        sessionBody: projectOpencodeSessionBody(body),
       });
     }
 

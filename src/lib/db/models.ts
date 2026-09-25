@@ -51,6 +51,9 @@ export {
   setModelAlias,
   deleteModelAlias,
   deleteModelAliasesForProvider,
+  getManagedModelAliasNames,
+  markManagedModelAlias,
+  unmarkManagedModelAlias,
 } from "./models/aliases";
 export { getMitmAlias, setMitmAliasAll } from "./models/mitmAlias";
 export type { SyncedAvailableModel } from "./models/synced";
@@ -61,6 +64,13 @@ export {
   type CustomModelVisionDatabase,
   type CustomModelVisionOverrideReadOptions,
 } from "./models/customVisionOverride";
+export {
+  getSyncedAvailableModelVision,
+  listSyncedAvailableModelVision,
+  type SyncedAvailableModelVisionMap,
+  type SyncedAvailableModelVisionDatabase,
+  type SyncedAvailableModelVisionReadOptions,
+} from "./models/syncedAvailableModelVision";
 
 // ──────────────── Custom Models ────────────────
 

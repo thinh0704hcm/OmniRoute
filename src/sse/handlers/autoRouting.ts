@@ -11,6 +11,11 @@ import type {
 } from "@omniroute/open-sse/services/autoCombo/suffixComposition.ts";
 import type { ModelFamily } from "@omniroute/open-sse/services/autoCombo/modelFamily.ts";
 import { getCachedSettings } from "@/lib/db/readCache";
+import {
+  createInvocationId,
+  startAutoEvaluationTrace,
+  startComboTrace,
+} from "@omniroute/open-sse/services/combo/decisionTrace.ts";
 import * as log from "../utils/logger";
 
 export type AutoRoutingState = {
@@ -161,11 +166,15 @@ export async function createVirtualAutoCombo(
     // #7819 (Level 2): scope candidate exclusions to this API key + the
     // requested auto channel (e.g. "auto/best-coding"). Omitted for any
     // caller that doesn't pass apiKeyId — routing stays unfiltered.
+    const invocationId = createInvocationId();
+    startComboTrace(invocationId, { strategy: "auto", comboName: state.model });
+    startAutoEvaluationTrace(invocationId);
     const virtualCombo = hardenBuiltinAutoCombo(
-      await createVirtual(state.variant, state.spec, apiKeyId, state.model)
+      await createVirtual(state.variant, state.spec, apiKeyId, state.model, invocationId)
     );
     virtualCombo.name = state.model;
     virtualCombo.id = state.model;
+    virtualCombo.traceInvocationId = invocationId;
     const emptyPoolResponse = rejectEmptyVirtualAutoCombo(virtualCombo);
     if (emptyPoolResponse) return emptyPoolResponse;
     log.info(

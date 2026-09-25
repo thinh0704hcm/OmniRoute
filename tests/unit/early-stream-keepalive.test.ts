@@ -196,7 +196,13 @@ test("slow Responses handler uses comments plus sparse in_progress events", asyn
   const body = await readAll(result);
   const frames = body.split("\n\n").filter(Boolean);
   const earlyFrames = frames.slice(0, -1);
-  assert.equal(earlyFrames[0], 'data: {"type":"response.in_progress"}');
+  // #14330: the frame now carries a required `sequence_number` and `response`
+  // object so a strict Responses decoder does not abort on it.
+  assert.deepEqual(JSON.parse(earlyFrames[0].slice("data: ".length)), {
+    type: "response.in_progress",
+    sequence_number: 1,
+    response: { id: null, status: "in_progress" },
+  });
   assert.ok(
     earlyFrames.some((frame) => frame === ": keepalive"),
     "transport ticks must remain lightweight SSE comments"
@@ -206,6 +212,8 @@ test("slow Responses handler uses comments plus sparse in_progress events", asyn
   for (const frame of applicationFrames) {
     assert.deepEqual(JSON.parse(frame.slice("data: ".length)), {
       type: "response.in_progress",
+      sequence_number: 1,
+      response: { id: null, status: "in_progress" },
     });
     assert.doesNotMatch(frame, /output_item|reasoning|✨/);
   }
@@ -240,7 +248,7 @@ test("a correlationId records the startup frame and keepalive ticks, but not the
   const recorded = takeEarlyKeepaliveBytes(correlationId).join("");
   assert.match(
     recorded,
-    /data: {"type":"response\.in_progress"}/,
+    /data: {"type":"response\.in_progress","sequence_number":1,"response":/,
     "startup frame must be recorded"
   );
   assert.match(recorded, /: keepalive/, "transport heartbeat must be recorded");
@@ -266,6 +274,43 @@ test("omitting correlationId leaves the buffer untouched (today's behavior, unch
   await readAll(result);
 
   assert.deepEqual(takeEarlyKeepaliveBytes(correlationId), []);
+});
+
+// A correlation id records the chat-frames variant (startup plus keepalive
+// ticks) but not the forwarded body — mirrors the responses-frames variant above
+// for the exact frames the /v1/chat/completions route passes.
+test("a correlationId records the chat startup frame and keepalive ticks", async () => {
+  const correlationId = "corr-record-chat-frames-1";
+  const slow = new Promise<Response>((resolve) => {
+    setTimeout(() => resolve(sseResponse('data: {"id":"chatcmpl-real"}\n\ndata: [DONE]\n\n')), 650);
+  });
+
+  const result = await withEarlyStreamKeepalive(slow, {
+    thresholdMs: 25,
+    intervalMs: 250,
+    keepaliveFrame: OPENAI_KEEPALIVE_FRAME,
+    startupFrame: OPENAI_STARTUP_FRAME,
+    errorFrame: OPENAI_CHAT_ERROR_FRAME,
+    correlationId,
+  });
+  await readAll(result);
+
+  const recorded = takeEarlyKeepaliveBytes(correlationId).join("");
+  assert.match(
+    recorded,
+    /data: \{"id":"chatcmpl-keepalive","object":"chat\.completion\.chunk"/,
+    "startup frame must be recorded"
+  );
+  assert.equal(
+    (recorded.match(/chatcmpl-keepalive/g) || []).length >= 2,
+    true,
+    "startup frame plus at least one recurring keepalive tick must be recorded"
+  );
+  assert.doesNotMatch(
+    recorded,
+    /chatcmpl-real/,
+    "the verbatim-forwarded real body must NOT be recorded here — the handler's own reqLogger already captures it, and double-recording would duplicate it in the persisted artifact"
+  );
 });
 
 test("slow handler emits the custom keepaliveFrame (Anthropic ping) before the body", async () => {

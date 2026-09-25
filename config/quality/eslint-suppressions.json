@@ -56,7 +56,7 @@
   },
   "open-sse/executors/base.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 6
+      "count": 5
     }
   },
   "open-sse/executors/blackbox-web.ts": {
@@ -126,7 +126,7 @@
   },
   "open-sse/executors/glm.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 2
+      "count": 1
     }
   },
   "open-sse/executors/grok-web/tool-bridge.ts": {
@@ -201,7 +201,7 @@
   },
   "open-sse/handlers/imageGeneration.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 6
+      "count": 5
     }
   },
   "open-sse/handlers/musicGeneration.ts": {
@@ -286,7 +286,7 @@
       "count": 3
     },
     "@typescript-eslint/no-unused-vars": {
-      "count": 2
+      "count": 1
     },
     "no-restricted-syntax": {
       "count": 1
@@ -436,11 +436,6 @@
       "count": 1
     }
   },
-  "open-sse/services/combo.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "open-sse/services/combo/providerWildcard.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -492,11 +487,6 @@
   "open-sse/services/compression/stats.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
-    }
-  },
-  "open-sse/services/conversationTracker.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "open-sse/services/credentialGate.ts": {
@@ -813,11 +803,6 @@
   "src/app/(dashboard)/dashboard/mcp/page.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
-    }
-  },
-  "src/app/(dashboard)/dashboard/onboarding/page.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "src/app/(dashboard)/dashboard/playground/components/tabs/CompareTab.tsx": {
@@ -1318,19 +1303,9 @@
       "count": 1
     }
   },
-  "src/lib/cli-helper/config-generator/hermes-agent.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
   "src/lib/cli-helper/config-generator/hermes.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
-    }
-  },
-  "src/lib/cli-helper/config-generator/index.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
     }
   },
   "src/lib/cli-helper/config-generator/kilocode.ts": {
@@ -3274,7 +3249,7 @@
   },
   "tests/unit/compression/adaptive-select-plan-wiring.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 3
+      "count": 2
     }
   },
   "tests/unit/compression/caveman-engine.test.ts": {
@@ -3380,11 +3355,6 @@
   "tests/unit/copilot-free-quota-not-inverted.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 4
-    }
-  },
-  "tests/unit/correctness/goldenSnapshot.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "tests/unit/cursor-agent-session.test.ts": {
