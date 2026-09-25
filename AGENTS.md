@@ -6,6 +6,17 @@
 > and point back here. When a rule needs to change, change it HERE — never re-fork it into an
 > assistant-specific file.
 
+## Execution location
+
+The local machine cannot reliably run builds or tests without crashing. Use the local checkout
+only for code editing. Run all other work, including dependency installation, builds, tests,
+linting, typechecks, development servers, runtime probes, and operational checks, on `oracle-vps`.
+The commands below are intended to run from the remote checkout at
+`/home/ubuntu/OmniRoute-src`; make sure it contains the exact changes being checked. Keep
+validation isolated from the production deployment and follow
+[`docs/ops/ORACLE_VPS_OPERATIONS_KB.md`](docs/ops/ORACLE_VPS_OPERATIONS_KB.md) for production
+operations. Do not deploy or alter production as a side effect of validation.
+
 ## Quick Start
 
 ```bash
