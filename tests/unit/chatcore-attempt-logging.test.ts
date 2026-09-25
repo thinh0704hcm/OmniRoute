@@ -28,7 +28,11 @@ type CodexRotationEnvelope = {
 };
 
 function baseCtx(overrides: Record<string, unknown> = {}) {
+  // #13481: traceId defaults to pendingRequestId so existing tests (which poll
+  // by pendingRequestId) continue to work. Combo tests set both explicitly.
+  const pendingRequestId = (overrides.pendingRequestId as string) ?? "REPLACE";
   return {
+    traceId: overrides.traceId ?? pendingRequestId,
     provider: "openai",
     connectionId: "conn-1",
     model: "gpt-x",
@@ -273,4 +277,3 @@ test("combo attempts that share pendingRequestId both land, keyed independently 
   assert.equal(row2.correlationId, traceId2);
   assert.equal(row2.comboStepId, "my-combo-model-3");
 });
-

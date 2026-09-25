@@ -406,7 +406,6 @@ export function persistAttemptLogs(args: PersistAttemptLogsArgs, ctx: PersistAtt
     skillRequestId,
     detailedLoggingEnabled,
     reqLogger,
-    pendingRequestId,
     clientRawRequest,
     requestedModel,
     credentials,

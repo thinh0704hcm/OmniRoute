@@ -682,7 +682,6 @@ export async function withRateLimit(
 ) {
   let linked: LinkedAbortSignal | undefined;
   try {
-
     if (!enabledConnections.has(connectionId)) {
       return fn();
     }
@@ -753,7 +752,9 @@ export async function withRateLimit(
       );
     }
     const scheduleOpts =
-      executionExpirationMs && executionExpirationMs > 0 ? { expiration: executionExpirationMs } : {};
+      executionExpirationMs && executionExpirationMs > 0
+        ? { expiration: executionExpirationMs }
+        : {};
 
     // Issue #6593: opt-in admission cap — fast-reject before Bottleneck's
     // schedule() (and before any downstream compression/prompt work runs) when
@@ -931,7 +932,6 @@ export async function withRateLimit(
       }
       throw err;
     }
-
   } finally {
     linked?.dispose();
   }
