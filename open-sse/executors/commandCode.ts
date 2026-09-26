@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { isVisionModelId } from "@/shared/constants/visionModels";
 import { MUSE_SPARK_PATTERN } from "./base/reasoningEffort.ts";
 import { REGISTRY } from "../config/providerRegistry.ts";
+import { getModelTargetFormat } from "../config/providerModels.ts";
 import {
   isResponsesShapedBody,
   projectResponsesForCli,
@@ -134,6 +135,40 @@ function normalizeCommandCodeWireModel(model: string): string {
 // Responses-shape detection and Responses -> Chat projection live in
 // ./commandCode/responsesProjection.ts (kept out of this file for the 1200-line
 // file-size gate).
+
+/**
+ * Claude wire format for command-code claude models (#14657 follow-up).
+ * Upstream serves these ids ONLY on /provider/v1/messages (Anthropic shape);
+ * the chat endpoint answers 400 "must be called via /provider/v1/messages".
+ * Resolution mirrors resolveOpencodeTargetFormat: registry targetFormat wins,
+ * unknown ids stay on the legacy OpenAI path (no behavior change there).
+ */
+export function resolveCommandCodeTargetFormat(model: string): string {
+  return getModelTargetFormat("command-code", String(model || "")) || "openai";
+}
+
+/** True when the body is already Anthropic Messages shaped (translated upstream
+ * of the executor or sent natively, e.g. Claude Code). OpenAI chat bodies and
+ * Responses bodies never satisfy this: they carry no top-level system string
+ * and no typed content blocks. */
+export function isClaudeMessagesBody(body: unknown): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const b = body as Record<string, unknown>;
+  if (!Array.isArray(b.messages)) return false;
+  if (typeof b.system === "string" && b.system.length > 0) return true;
+  return (b.messages as unknown[]).some(
+    (m) =>
+      m !== null &&
+      typeof m === "object" &&
+      Array.isArray((m as Record<string, unknown>).content) &&
+      ((m as Record<string, unknown>).content as unknown[]).some(
+        (p) =>
+          p !== null &&
+          typeof p === "object" &&
+          typeof (p as Record<string, unknown>).type === "string"
+      )
+  );
+}
 
 // ── OpenAi Flat Body Builder (/provider/v1/chat/completions) ─────────────────
 
@@ -968,6 +1003,11 @@ export class CommandCodeExecutor extends BaseExecutor {
     return `${baseUrl}/provider/v1/responses`;
   }
 
+  buildMessagesUrl() {
+    const baseUrl = (this.config.baseUrl || "https://api.commandcode.ai").replace(/\/$/, "");
+    return `${baseUrl}/provider/v1/messages`;
+  }
+
   buildCliUrl() {
     const baseUrl = (this.config.baseUrl || "https://api.commandcode.ai").replace(/\/$/, "");
     return `${baseUrl}/alpha/generate`;
@@ -1058,12 +1098,39 @@ export class CommandCodeExecutor extends BaseExecutor {
 
     const abortSignal = signal || undefined;
     const sanitizedBody = sanitizeReasoningEffortForProvider(body, this.provider, model);
+    // Claude-format models with an already Claude-shaped body go straight to
+    // /provider/v1/messages with the provider prefix stripped; rebuilding them
+    // as OpenAI chat is exactly what upstream 400s. Anything else keeps the
+    // legacy path byte-identical (including OpenAI-shaped bodies naming a
+    // claude model, which still need translation upstream of the executor).
+    const claudePassthrough =
+      resolveCommandCodeTargetFormat(model) === "claude" && isClaudeMessagesBody(sanitizedBody);
     const { body: initialTransformedBody } = buildOpenAiBody(model, sanitizedBody, stream);
     let transformedBody: unknown = initialTransformedBody;
     // Route by body shape: a Responses-shaped body (targetFormat openai-responses)
     // must hit /provider/v1/responses, where `reasoning: {"effort":"none"}` is
     // honored; the chat endpoint silently drops it.
-    const url = isResponsesShapedBody(transformedBody) ? this.buildResponsesUrl() : this.buildUrl();
+    const url = claudePassthrough
+      ? this.buildMessagesUrl()
+      : isResponsesShapedBody(transformedBody)
+        ? this.buildResponsesUrl()
+        : this.buildUrl();
+    if (
+      claudePassthrough &&
+      sanitizedBody !== null &&
+      typeof sanitizedBody === "object" &&
+      !Array.isArray(sanitizedBody)
+    ) {
+      transformedBody = {
+        ...(sanitizedBody as Record<string, unknown>),
+        model: normalizeCommandCodeWireModel(
+          typeof (sanitizedBody as Record<string, unknown>).model === "string" &&
+            ((sanitizedBody as Record<string, unknown>).model as string).trim().length > 0
+            ? ((sanitizedBody as Record<string, unknown>).model as string)
+            : model
+        ),
+      };
+    }
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
