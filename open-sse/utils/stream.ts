@@ -142,6 +142,10 @@ type StreamCompletePayload = {
    * NOT token-level TTFT — see open-sse/utils/streamTiming.ts for what is measured.
    */
   ttft?: number | null;
+  /** Gateway queue wait (receipt→dispatch) in ms, or null when unstamped. */
+  queueMs?: number | null;
+  /** Upstream TTFB (dispatch→first upstream byte) in ms, or null. */
+  upstreamTtfbMs?: number | null;
   /** Mean inter-chunk gap in ms (chunk-latency proxy for ITL), or null. */
   itlMs?: number | null;
   /** True when the stream was interrupted (timeout/abort/error) before a clean finish. */
@@ -1401,6 +1405,9 @@ export function createSSEStream(options: StreamOptions = {}) {
         if (streamTimedOut) return;
         const now = Date.now();
         timing.markByte();
+        // Upstream TTFB for Server-Timing: first raw chunk off the wire,
+        // keepalives included (markForward later records first useful byte).
+        timing.markUpstreamFirstByte();
         lastChunkTime = now;
         const text = decoder.decode(chunk, { stream: true });
         buffer += text;
@@ -2873,6 +2880,11 @@ export function createSSEStream(options: StreamOptions = {}) {
                   responseBody,
                   reasoningMeta: reasoningObserver.take(),
                   ttft: timing.ttftMs(),
+                  // Timing split for wedge-vs-slow diagnosis (Server-Timing
+                  // source values): queue = receipt→dispatch, upstreamTtfb =
+                  // dispatch→first upstream byte, ttft = first forwarded chunk.
+                  queueMs: timing.queueMs(),
+                  upstreamTtfbMs: timing.upstreamTtfbMs(),
                   itlMs: timing.avgItlMs(),
                   interrupted: timing.interrupted,
                   // #9315 switched the summary to the accumulated responseBody to avoid
@@ -3161,6 +3173,9 @@ export function createSSEStream(options: StreamOptions = {}) {
                 status: 200,
                 usage: state?.usage,
                 responseBody,
+                ttft: timing.ttftMs(),
+                queueMs: timing.queueMs(),
+                upstreamTtfbMs: timing.upstreamTtfbMs(),
                 reasoningMeta: reasoningObserver.take(),
                 // Same OPENAI_RESPONSES carve-out as the passthrough branch above —
                 // the synthesized chat-shaped responseBody drops the `response` object,

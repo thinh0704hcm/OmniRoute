@@ -680,22 +680,10 @@ export async function withRateLimit(
     | { executor?: { getTimeoutMs?: () => unknown }; providerSpecificData?: unknown }
     | undefined = undefined
 ) {
-  const executionController = new AbortController();
-  const linked = createLinkedAbortSignal(signal, executionController.signal);
-  const effectiveSignal = linked.signal;
-  const abortExecution = (reason = signal?.reason) => {
-    if (!executionController.signal.aborted) {
-      executionController.abort(
-        reason ?? new DOMException("The operation was aborted", "AbortError")
-      );
-    }
-  };
-
-
-
+  let linked: LinkedAbortSignal | undefined;
   try {
     if (!enabledConnections.has(connectionId)) {
-      return await fn(effectiveSignal);
+      return fn();
     }
 
     if (signal?.aborted) {
@@ -726,7 +714,7 @@ export async function withRateLimit(
       );
     }
     const slotStart = Date.now();
-    await awaitProviderDefaultSlot(provider, connectionId, effectiveSignal, budgetForSlot);
+    await awaitProviderDefaultSlot(provider, connectionId, signal, budgetForSlot);
     const elapsedSlot = Date.now() - slotStart;
     const remainingForQueue = hasBudget
       ? Math.max(0, remainingBudgetMs - elapsedSlot)
@@ -801,6 +789,23 @@ export async function withRateLimit(
       }, queueRemainingMs);
     });
     timeoutPromise.catch(() => {});
+    // Fork overlay: link the caller's abort with a limiter-owned execution abort.
+    // When the execution backstop fires, the in-flight upstream request is aborted
+    // too instead of leaking until it finishes and holding a slot that queued work
+    // must wait on.
+    const executionController = new AbortController();
+    // AbortSignal.any() cannot be explicitly detached on older Node releases and
+    // leaves listeners behind for long-lived request streams. Keep one local
+    // controller and remove both forwarding listeners in the outer finally.
+    linked = createLinkedAbortSignal(signal, executionController.signal);
+    const effectiveSignal = linked.signal;
+    const abortExecution = (reason: unknown = signal?.reason) => {
+      if (!executionController.signal.aborted) {
+        executionController.abort(
+          reason ?? new DOMException("The operation was aborted", "AbortError")
+        );
+      }
+    };
     // Clear the queue-wait timer once the job leaves QUEUED and starts executing.
     // Without this, the timer would also bound execution (queueRemainingMs ≈ 40ms
     // would kill a 300ms execution that correctly left the queue immediately).
@@ -813,14 +818,11 @@ export async function withRateLimit(
       return (fn as unknown as (s?: AbortSignal) => Promise<unknown>)(effectiveSignal);
     };
     // A queued job must run in the async context of the caller that scheduled
-    // it (upstream #14621). Bottleneck dispatches from the job that frees the
-    // slot, so without binding a queued request would borrow the
-    // output/logging/attribution of another request.
+    // it. Bottleneck dispatches from the job that frees the slot, so without
+    // binding a queued request would borrow the output/logging/attribution of
+    // another request.
     const boundFn = AsyncResource.bind(wrappedFn);
-    const scheduled = limiter.schedule(
-      scheduleOpts,
-      boundFn as unknown as () => Promise<unknown>
-    );
+    const scheduled = limiter.schedule(scheduleOpts, boundFn as unknown as () => Promise<unknown>);
     scheduled.catch(() => {});
     // Note: if timeoutPromise wins while the job is still QUEUED (blocked by
     // maxConcurrent), Bottleneck cannot cancel it — wrappedFn rejects only on
@@ -931,10 +933,9 @@ export async function withRateLimit(
       throw err;
     }
   } finally {
-    linked.dispose();
+    linked?.dispose();
   }
 }
-
 interface LinkedAbortSignal {
   signal: AbortSignal;
   dispose: () => void;

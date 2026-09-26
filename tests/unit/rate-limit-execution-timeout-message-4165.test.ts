@@ -1,9 +1,9 @@
 /**
  * #4165 — classify Bottleneck's execution expiration accurately.
  *
- * OmniRoute passes the legacy `requestQueue.maxWaitMs` value to Bottleneck as
- * the job `expiration`. Bottleneck starts that timer only after a job leaves
- * QUEUED, so it bounds limiter-managed execution and does not bound queue wait.
+ * OmniRoute passes `requestQueue.executionMaxWaitMs` to Bottleneck as the job
+ * `expiration`. Bottleneck starts that timer only after a job leaves QUEUED, so
+ * it bounds limiter-managed execution and does not bound queue wait.
  *
  * The raw Bottleneck message (`This job timed out after <N> ms.`) still needs an
  * OmniRoute-owned code and message so it cannot masquerade as an upstream-

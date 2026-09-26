@@ -113,8 +113,7 @@ async function main(): Promise<void> {
         JSON.stringify({
           delivered,
           replayMatches: JSON.stringify(replayed.payload) === JSON.stringify(delivered),
-          internalLogRedacted:
-            persisted.error === delivered.error && !persisted.error.includes("sk-live"),
+          internalRawPreserved: persisted.error === rawDiagnostic,
           writerDrained,
         })
     );

@@ -44,6 +44,18 @@ memory-bank/
 .claude/state.json
 .claude/settings.local.json
 
+# Agent tool state (local-only) — learned preferences, plans, sleep/optimizer config.
+# Each of these is per-machine working state, not project content; keeping them out
+# of `git status` is what lets a fresh session see a clean tree.
+.commandcode/
+.skillopt-sleep/
+
+# Agent session transcripts. These are conversation dumps, not documents — they land
+# in the repo root when a harness writes them there and must never be committed.
+codex-session-*.md
+command-code-session-*.jsonl
+*-session-*.jsonl
+
 # Root-level underscore-prefixed directories (private/draft — never commit)
 /_*/
 /_*

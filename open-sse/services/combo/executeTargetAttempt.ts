@@ -80,6 +80,7 @@ import {
   releaseQualityClone,
   releaseRejectedQualityResponse,
 } from "./validateQuality.ts";
+import { raceFirstContentDeadline, resolveFirstContentBudgetMs } from "./firstContentDeadline.ts";
 import {
   isQuotaExhaustionResponse,
   recordQuotaExhaustionClassification,
@@ -382,11 +383,14 @@ export async function executeTargetAttempt(opts: {
       } catch {
         qualityClone = result;
       }
-      const quality = await validateResponseQuality(
-        qualityClone,
-        deps.clientRequestedStream,
-        deps.log,
-        deps.config.responseValidation as ResponseValidationConfig | null | undefined
+      const quality = await raceFirstContentDeadline(
+        validateResponseQuality(
+          qualityClone,
+          deps.clientRequestedStream,
+          deps.log,
+          deps.config.responseValidation as ResponseValidationConfig | null | undefined
+        ),
+        resolveFirstContentBudgetMs(deps.config, deps.clientRequestedStream)
       );
       releaseQualityClone(qualityClone, result, quality);
       if (!quality.valid) {

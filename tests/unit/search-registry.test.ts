@@ -520,3 +520,9 @@ test("v1SearchSchema allows unknown fields (forward compat)", async () => {
   });
   assert.ok(result.success);
 });
+
+test("selectProvider auto-selection never lands on silent-quota ollama-search", async () => {
+  assert.notEqual(selectProvider()?.id, "ollama-search");
+  assert.notEqual(selectProvider(undefined, "web")?.id, "ollama-search");
+  assert.equal(selectProvider("ollama-search", "web")?.id, "ollama-search");
+});

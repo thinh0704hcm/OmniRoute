@@ -59,22 +59,39 @@ test("normalizeExecutorResult rejects malformed executor output", () => {
     /must contain a Response/
   );
 });
-test("executeWithUpstreamStartTimeout leaves no abort listener on the client signal after a resolving execute", async () => {
+test("executeWithUpstreamStartTimeout keeps the client-abort link after resolve so post-resolve disconnects reach upstream", async () => {
+  // The timeout only bounds time-to-headers: once execute() resolves, the
+  // response body still streams on the combined signal, so the client-abort
+  // link is intentionally retained (bounded: `once` + per-request signal)
+  // instead of removed. Aborting after resolve must propagate to the
+  // in-flight execution signal; the once-listener then detaches itself.
   const client = new AbortController();
   const before = getEventListeners(client.signal, "abort").length;
+  let captured: AbortSignal | undefined;
   const result = await executeWithUpstreamStartTimeout({
     executor: {},
     provider: "test-provider",
     model: "test-model",
     connectionTimeoutMs: 5_000,
     signal: client.signal,
-    execute: async () => "ok",
+    execute: async (sig) => {
+      captured = sig;
+      return "ok";
+    },
   });
   assert.equal(result, "ok");
+  assert.ok(captured, "execute must receive the combined signal");
+  assert.equal(
+    getEventListeners(client.signal, "abort").length,
+    before + 1,
+    "the abort-forwarding link outlives a resolved execute"
+  );
+  client.abort();
+  assert.equal(captured.aborted, true, "post-resolve client abort must reach upstream");
   assert.equal(
     getEventListeners(client.signal, "abort").length,
     before,
-    "every listener registered for the race must be removed once it settles"
+    "the once-link detaches after it fires"
   );
 });
 

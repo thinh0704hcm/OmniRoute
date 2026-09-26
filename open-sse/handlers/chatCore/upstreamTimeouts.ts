@@ -233,13 +233,21 @@ export async function executeWithUpstreamStartTimeout<T>({
   provider: string;
   model: string;
   connectionTimeoutMs?: number;
-  signal: AbortSignal;
+  /**
+   * The caller's abort signal, when the dispatch has one. Absent is normal — the
+   * rate-limit grant path can hand back no signal at all — and this was typed as
+   * a required `AbortSignal`, so `signal.aborted` below threw
+   * "Cannot read properties of undefined (reading 'aborted')" on every such
+   * dispatch. That TypeError then escaped the process crash guard (which only
+   * absorbs abort-shaped errors) and killed the server mid-qualification.
+   */
+  signal?: AbortSignal | null;
   log?: { warn?: (tag: string, message: string) => void } | null;
-  execute: (signal: AbortSignal) => Promise<T>;
+  execute: (signal: AbortSignal | undefined) => Promise<T>;
 }): Promise<T> {
   const timeoutMs = getExecutorTimeoutMs(executor, provider, model, connectionTimeoutMs);
-  if (timeoutMs <= 0) return execute(signal);
-  if (signal.aborted) throw createAbortError(signal);
+  if (timeoutMs <= 0) return execute(signal ?? undefined);
+  if (signal?.aborted) throw createAbortError(signal);
 
   const timeoutController = new AbortController();
   const combinedController = new AbortController();
@@ -248,6 +256,7 @@ export async function executeWithUpstreamStartTimeout<T>({
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let abortListener: (() => void) | null = null;
   let timeoutAbortListener: (() => void) | null = null;
+  let abortPromiseListener: (() => void) | null = null;
 
   const abortCombined = (source: AbortSignal) => {
     if (combinedController.signal.aborted) return;
@@ -255,9 +264,11 @@ export async function executeWithUpstreamStartTimeout<T>({
     combinedController.abort(reason);
   };
 
-  abortListener = () => abortCombined(signal);
+  if (signal) {
+    abortListener = () => abortCombined(signal);
+    signal.addEventListener("abort", abortListener, { once: true });
+  }
   timeoutAbortListener = () => abortCombined(timeoutController.signal);
-  signal.addEventListener("abort", abortListener, { once: true });
   timeoutController.signal.addEventListener("abort", timeoutAbortListener, { once: true });
 
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -268,8 +279,10 @@ export async function executeWithUpstreamStartTimeout<T>({
     }, timeoutMs);
   });
 
-  let abortPromiseListener: (() => void) | null = null;
   const abortPromise = new Promise<never>((_, reject) => {
+    // No caller signal means nothing can abort this dispatch, so the race below
+    // simply has one fewer branch to settle.
+    if (!signal) return;
     abortPromiseListener = () => reject(createAbortError(signal));
     signal.addEventListener("abort", abortPromiseListener, { once: true });
   });
@@ -302,10 +315,12 @@ export async function executeWithUpstreamStartTimeout<T>({
     // link only when the attempt failed (the signal is not wired to a live body).
     // The listener is `once` and the client signal is per-request, so keeping it
     // is bounded.
-    if (abortListener && !settled) signal.removeEventListener("abort", abortListener);
+    if (abortListener && !settled && signal) signal.removeEventListener("abort", abortListener);
     // Never removed before this fix: one listener leaked onto the client signal
     // per call (chatCore.ts invokes this once per executor attempt, plus retries).
-    if (abortPromiseListener) signal.removeEventListener("abort", abortPromiseListener);
+    if (abortPromiseListener && signal) {
+      signal.removeEventListener("abort", abortPromiseListener);
+    }
     if (timeoutAbortListener) {
       timeoutController.signal.removeEventListener("abort", timeoutAbortListener);
     }

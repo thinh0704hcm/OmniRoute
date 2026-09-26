@@ -119,32 +119,6 @@ export const TRANSLATION_SYSTEM = (englishName, native) =>
     `Keep punctuation and trailing whitespace identical to the source.`,
   ].join(" ");
 
-/**
- * Restores the ICU literal escape the backends drop around angle placeholders.
- *
- * English writes `'<name>'`: those single quotes are ICU's escape, so the span
- * renders as the literal text `<name>`. Translations come back as a bare
- * `<nome>`, which ICU then parses as an (unclosed) tag and the message fails to
- * compile — every locale in the first batch shipped two of these.
- *
- * Only messages whose English side quotes EVERY angle span are touched: when the
- * source mixes real markup (`<b>`) with a literal span there is no safe way to
- * tell which is which, so the translation is left exactly as it came back. An
- * apostrophe inside the span is doubled, otherwise it closes the literal early.
- */
-export function preserveIcuLiteralQuotes(englishValue, translated) {
-  if (typeof englishValue !== "string" || typeof translated !== "string") return translated;
-  if (!englishValue.includes("'<")) return translated;
-  // Every "<" in the source must be the start of an escaped span.
-  for (let i = 0; i < englishValue.length; i++) {
-    if (englishValue[i] === "<" && englishValue[i - 1] !== "'") return translated;
-  }
-  return translated.replace(
-    /(?<!')<([^<>]*)>(?!')/g,
-    (_m, inner) => `'<${inner.replace(/'/g, "''")}>'`
-  );
-}
-
 export async function translateString(englishValue, localeEntry, backend) {
   const englishName = localeEntry.english ?? localeEntry.name;
   const native = localeEntry.native ?? localeEntry.name;
@@ -153,7 +127,7 @@ export async function translateString(englishValue, localeEntry, backend) {
     { role: "user", content: englishValue },
   ];
   const out = await callChat(messages, backend);
-  return preserveIcuLiteralQuotes(englishValue, out.trim());
+  return out.trim();
 }
 
 // ----- Batch mode ----------------------------------------------------------
@@ -224,14 +198,8 @@ export async function translateBatch(entries, localeEntry, backend) {
     { role: "user", content: JSON.stringify(payload) },
   ];
   const out = await callChat(messages, backend);
-  const parsed = parseBatchResponse(
+  return parseBatchResponse(
     out,
     entries.map((e) => e.id)
   );
-  for (const entry of entries) {
-    if (typeof parsed[entry.id] === "string") {
-      parsed[entry.id] = preserveIcuLiteralQuotes(entry.text, parsed[entry.id]);
-    }
-  }
-  return parsed;
 }

@@ -1,5 +1,6 @@
 import type { SearchProviderConfig } from "../../config/searchRegistry.ts";
 import { parseAndValidatePublicUrl } from "@/shared/network/outboundUrlGuard";
+import { normalizePublishedAt } from "./publishedAt.ts";
 
 export interface FirecrawlSearchParams {
   query: string;
@@ -73,7 +74,10 @@ export function buildFirecrawlSearchRequest(
   const envBase = process.env.FIRECRAWL_BASE_URL?.trim().replace(/\/+$/, "");
   const providerData = params.providerSpecificData as Record<string, unknown> | undefined;
   const paramBase = typeof params.baseUrl === "string" ? params.baseUrl : providerData?.baseUrl;
-  const customBase = typeof paramBase === "string" && paramBase.trim() ? paramBase.trim().replace(/\/+$/, "") : undefined;
+  const customBase =
+    typeof paramBase === "string" && paramBase.trim()
+      ? paramBase.trim().replace(/\/+$/, "")
+      : undefined;
   const rawBase = envBase || customBase;
   // #3049: `customBase` (params.baseUrl / providerSpecificData.baseUrl) is client-controlled —
   // validate it as a public URL before it is used to build the server-side fetch target, so a
@@ -136,7 +140,10 @@ export function collectFirecrawlSearchHits(
       item.markdown?.slice(0, 300) ||
       item.content?.slice(0, 300) ||
       "",
-    published_at: item.date || item.published_at || item.metadata?.publishedTime || null,
+    published_at:
+      normalizePublishedAt(item.date) ??
+      normalizePublishedAt(item.published_at) ??
+      normalizePublishedAt(item.metadata?.publishedTime),
     image_url: item.imageUrl || undefined,
     source_type: isNews ? "news" : undefined,
   }));

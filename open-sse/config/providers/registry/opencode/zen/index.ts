@@ -81,6 +81,15 @@ export const opencode_zenProvider: RegistryEntry = {
       contextLength: 1048576,
       maxOutputTokens: 131072,
     },
+    {
+      id: "muse-spark-1.3-contributor-free",
+      name: "Muse Spark 1.3 Contributor Free",
+      contextLength: 1048576,
+      supportsReasoning: true,
+      targetFormat: "openai-responses",
+      supportedToolChoiceModes: ["auto"],
+      maxOutputTokens: 131072,
+    },
     // Explicit wire-format overlay of the base opencode provider's muse-spark entry
     // (targetFormat: openai-responses). Keep in sync with base on catalog syncs.
     {
@@ -97,14 +106,6 @@ export const opencode_zenProvider: RegistryEntry = {
     {
       id: "muse-spark-1.3",
       name: "Muse Spark 1.3",
-      supportsReasoning: true,
-      targetFormat: "openai-responses",
-      contextLength: 1048576,
-      maxOutputTokens: 131072,
-    },
-    {
-      id: "muse-spark-1.3-contributor-free",
-      name: "Muse Spark 1.3 Contributor Free",
       supportsReasoning: true,
       targetFormat: "openai-responses",
       contextLength: 1048576,

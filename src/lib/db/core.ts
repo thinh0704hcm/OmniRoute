@@ -1609,8 +1609,7 @@ function migrateFromJson(db: SqliteDatabase, jsonPath: string) {
         let rateLimitOverridesJson = serializeJsonField(conn.rateLimitOverrides);
         if (!hasOverrides && typeof conn.id === "string") {
           const existing = selectExistingOverrides.get(conn.id) as
-            | { rate_limit_overrides_json: string | null }
-            | undefined;
+            { rate_limit_overrides_json: string | null } | undefined;
           if (existing) rateLimitOverridesJson = existing.rate_limit_overrides_json;
         }
         insertConn.run({

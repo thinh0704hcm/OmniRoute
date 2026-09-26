@@ -17,6 +17,8 @@ import {
   releaseQualityClone,
   releaseRejectedQualityResponse,
 } from "./validateQuality.ts";
+import { raceFirstContentDeadline, resolveFirstContentBudgetMs } from "./firstContentDeadline.ts";
+import type { ResponseQualityResult } from "./validateQuality.ts";
 import type { ResponseValidationConfig } from "./responseValidation.ts";
 import type {
   ComboCollectionLike,
@@ -330,13 +332,20 @@ export async function executeRuntimeUnitCombo(args: {
         } catch {
           unitClone = response;
         }
-        const quality = await validateResponseQuality(
-          unitClone,
-          clientRequestedStream,
-          args.log,
-          args.config.responseValidation as ResponseValidationConfig | undefined,
-          args.signal
-        );
+        // The race narrows statically to FirstContentQuality, but the peek
+        // winner is the rich validateResponseQuality object at runtime; the
+        // timeout synthesis only ever lacks the optional upstreamFailure,
+        // which every use below already guards with ?..
+        const quality = (await raceFirstContentDeadline(
+          validateResponseQuality(
+            unitClone,
+            clientRequestedStream,
+            args.log,
+            args.config.responseValidation as ResponseValidationConfig | undefined,
+            args.signal
+          ),
+          resolveFirstContentBudgetMs(args.config, clientRequestedStream)
+        )) as ResponseQualityResult;
         releaseQualityClone(unitClone, response, quality);
         if (quality.valid) {
           recordComboRequest(args.combo.name, unit.modelStr, {

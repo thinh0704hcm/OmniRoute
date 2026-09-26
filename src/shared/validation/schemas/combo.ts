@@ -178,7 +178,9 @@ export const comboRuntimeConfigSchema = z
     targetTimeoutMs: z.coerce.number().int().min(0).max(MAX_TIMER_TIMEOUT_MS).optional(),
     // Whole-combo wall-clock budget. 0 (default) means unlimited iteration;
     // the 10-minute COMBO_LOOP_SAFETY_TIMEOUT_MS hang-stop still applies.
-    // A positive value replaces that safety net for this combo.
+    // A positive value replaces that safety net for this combo. Declared here
+    // (single key) so pool-optimizer writes are range-checked rather than
+    // round-tripping unvalidated.
     comboTimeoutMs: z.coerce.number().int().min(0).max(MAX_TIMER_TIMEOUT_MS).optional(),
     concurrencyPerModel: z.coerce.number().int().min(1).max(20).optional(),
     queueTimeoutMs: z.coerce.number().int().min(1000).max(120000).optional(),
@@ -219,6 +221,11 @@ export const comboRuntimeConfigSchema = z
     fallbackCompressionMode: compressionModeSchema.optional(),
     fallbackCompressionThreshold: z.coerce.number().int().min(0).max(2_000_000).optional(),
     predictiveTtftMs: z.coerce.number().int().min(0).max(300000).optional(),
+    // Streaming first-content (TTFT) failover budget. Zod strips undeclared
+    // keys, so a knob missing here is silently dropped between storage and the
+    // runtime: the value stays visible in the combo API's response while the
+    // engine sees only the default. Keep this in sync with DEFAULT_COMBO_CONFIG.
+    firstContentTimeoutMs: z.coerce.number().int().min(0).max(300000).optional(),
     relayMode: z.enum(["schema-locked", "standard"]).optional(),
     // Auto-Combo / LKGP Extensions
     candidatePool: z.array(z.string().min(1)).optional(),
