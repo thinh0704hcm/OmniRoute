@@ -323,9 +323,7 @@ export function __getDeadlineTokenRegistrySizeForTests(): number {
 /**
  * Route-side half of the slow-path deadline contract. Creates the internal
  * deadline controller and returns it alongside a request whose signal follows
- * both the client signal and the deadline (a self-cleaning merge — not
- * `AbortSignal.any`, whose composites Node pins in memory while they carry an
- * abort listener; see `streamDeadlineSignal.ts`), so the handler
+ * both the client signal and the deadline (`AbortSignal.any`), so the handler
  * observes a deadline abort exactly like a client disconnect.
  *
  * The wrapped request MUST be the one the route hands downstream (admission,
@@ -354,6 +352,30 @@ export function withDeadlineSignal(request: Request): {
   deadlineController: AbortController;
 } {
   const deadlineController = new AbortController();
+  // Rebuilding can throw when the incoming request object comes from a
+  // different fetch implementation than this module's globals (observed in
+  // production bundles as "Cannot read private member #state"). A route must
+  // never 500 for that: fall back to the original request with an inert
+  // controller (pre-wrapper behavior; downstream treats it as no deadline).
+  // The warn below doubles as the canary signal for the underlying mismatch.
+  try {
+    return withDeadlineSignalInner(request, deadlineController);
+  } catch (err) {
+    console.warn(
+      "[earlyStreamKeepalive] request rebuild failed, continuing unwrapped:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return { wrappedReq: request, deadlineController: new AbortController() };
+  }
+}
+
+function withDeadlineSignalInner(
+  request: Request,
+  deadlineController: AbortController
+): {
+  wrappedReq: Request;
+  deadlineController: AbortController;
+} {
   const combined = request.signal
     ? mergeAbortSignals(request.signal, deadlineController.signal)
     : deadlineController.signal;
@@ -551,7 +573,6 @@ export async function withEarlyStreamKeepalive(
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let stopped = false;
-      let streamErrored = false;
       let nextApplicationKeepaliveAt = applicationKeepalive
         ? performance.now() + applicationKeepalive.intervalMs
         : Number.POSITIVE_INFINITY;
@@ -591,13 +612,6 @@ export async function withEarlyStreamKeepalive(
 
       const onAbort = () => {
         if (aborted) return;
-        // The route's combined signal follows the deadline controller through a merge
-        // listener registered before onExpired, so a deadline abort can reach this
-        // handler first. Route it to the expiry path so the error frame is still sent.
-        if (deadlineEnabled && deadlineController?.signal.aborted) {
-          onExpired();
-          return;
-        }
         aborted = true;
         stopDeadline();
         stopKeepalive();
@@ -693,17 +707,15 @@ export async function withEarlyStreamKeepalive(
                   bytesForwarded += value.byteLength;
                 }
               }
-            } catch {
-              if (aborted) return;
+            } catch (_readErr) {
+              // Upstream stream failed mid-flight. Only emit an error frame if
+              // NO content was forwarded yet — otherwise the client already
+              // received partial content and a late error frame would corrupt
+              // the SSE stream. Silently close instead; the client will see
+              // the stream end naturally.
               if (bytesForwarded === 0) {
                 controller.enqueue(errorFrame);
                 recordClientBytes(errorFrame);
-              } else {
-                // The last forwarded bytes may end inside an SSE frame. Fail the
-                // transport instead of appending invalid SSE or reporting clean EOF.
-                // Never expose the upstream exception, its stack, or its cause.
-                streamErrored = true;
-                controller.error(new Error("Upstream stream failed before completion."));
               }
             }
           } else {
@@ -747,7 +759,7 @@ export async function withEarlyStreamKeepalive(
           deadlineController.signal.removeEventListener("abort", onExpired);
         }
         try {
-          if (!streamErrored) controller.close();
+          controller.close();
         } catch {
           /* already closed */
         }
