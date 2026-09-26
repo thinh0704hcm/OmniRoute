@@ -111,14 +111,6 @@ export const opencode_zenProvider: RegistryEntry = {
       contextLength: 1048576,
       maxOutputTokens: 131072,
     },
-    {
-      id: "muse-spark-1.3-contributor-free",
-      name: "Muse Spark 1.3 Contributor Free",
-      supportsReasoning: true,
-      targetFormat: "openai-responses",
-      contextLength: 1048576,
-      maxOutputTokens: 131072,
-    },
 
     // ── DeepSeek ────────────────────────────────────────────────
     // #10788: same tier vocabulary as opencode-go's DeepSeek rows — the Zen
