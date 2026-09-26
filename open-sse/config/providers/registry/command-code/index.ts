@@ -118,6 +118,27 @@ export const command_codeProvider: RegistryEntry = {
       maxOutputTokens: 131072,
     },
     {
+      // Live-verified in the 82-model /provider/v1/models pull: served on
+      // /chat/completions + /responses. No -max form exists upstream; the
+      // declared vocabulary lets suffixed requests split to base+effort.
+      id: "deepseek/deepseek-v4.1-flash",
+      name: "DeepSeek V4.1 Flash (CC)",
+      supportsReasoning: true,
+      supportedThinkingEfforts: COMMAND_CODE_REASONING_EFFORTS,
+      contextLength: 1000000,
+      maxOutputTokens: 131072,
+    },
+    {
+      // Live-verified: served (hidden server-side reasoning phase; effort
+      // vocabulary mirrors the provider enum, go parity 1M/131072).
+      id: "meta/muse-spark-1.3-contributor",
+      name: "Muse Spark 1.3 Contributor (CC)",
+      supportsReasoning: true,
+      supportedThinkingEfforts: COMMAND_CODE_REASONING_EFFORTS,
+      contextLength: 1048576,
+      maxOutputTokens: 131072,
+    },
+    {
       id: "moonshotai/Kimi-K2.6",
       name: "Kimi K2.6 (CC)",
       supportsReasoning: true,
