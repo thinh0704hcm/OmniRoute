@@ -9,6 +9,8 @@ import {
   refreshOpencodeCliVersion,
   resetOpencodeCliVersionCache,
 } from "../../open-sse/utils/opencodeCliVersion.ts";
+import { resolveOpencodeCliDefaults } from "../../open-sse/utils/opencodeHeaders.ts";
+
 test.afterEach(() => {
   resetOpencodeCliVersionCache();
 });
@@ -90,4 +92,30 @@ test("malformed registry payloads are rejected", () => {
   assert.equal(isOpencodeCliVersion(""), false);
   assert.equal(isOpencodeCliVersion(null), false);
   assert.throws(() => configureOpencodeCliVersionForTests("not-a-version"), TypeError);
+});
+
+test("header synthesis combines the refreshed version with native CLI metadata", () => {
+  const names = ["OPENCODE_USER_AGENT", "OPENCODE_CLIENT", "OPENCODE_SYNTHESIZE_CLI_HEADERS"];
+  const previous = names.map((name) => process.env[name]);
+  try {
+    for (const name of names) delete process.env[name];
+    configureOpencodeCliVersionForTests("9.9.9", Date.now());
+    const gated = resolveOpencodeCliDefaults("opencode", true);
+    assert.equal(
+      gated?.userAgent,
+      "opencode/9.9.9 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"
+    );
+    assert.equal(gated?.client, "cli");
+    assert.equal(resolveOpencodeCliDefaults("opencode-go", false)?.client, "desktop");
+    process.env.OPENCODE_USER_AGENT = "opencode/8.8.8 custom-client";
+    assert.equal(
+      resolveOpencodeCliDefaults("opencode", true)?.userAgent,
+      process.env.OPENCODE_USER_AGENT
+    );
+  } finally {
+    names.forEach((name, index) => {
+      if (previous[index] === undefined) delete process.env[name];
+      else process.env[name] = previous[index];
+    });
+  }
 });
