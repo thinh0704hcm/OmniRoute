@@ -13093,6 +13093,14 @@ paths:
       responses:
         "200":
           description: OK
+  /api/v1/muse-code/search:
+    post:
+      tags:
+        - V1 Muse-code
+      summary: "POST muse code › search"
+      responses:
+        "200":
+          description: OK
   /api/v1/music/generations:
     get:
       tags:
