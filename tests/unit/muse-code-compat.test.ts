@@ -20,7 +20,7 @@ import {
   shortHash,
   toMuseCodeSearchShape,
 } from "../../open-sse/handlers/museCode.ts";
-import { resolveMuseCodeApiModel } from "../src/app/api/internal/muse-code/modelResolution.ts";
+import { resolveMuseCodeApiModel } from "../../src/app/api/internal/muse-code/modelResolution.ts";
 import { errorResponse } from "../../open-sse/utils/error.ts";
 import { HTTP_STATUS } from "../../open-sse/config/constants.ts";
 
