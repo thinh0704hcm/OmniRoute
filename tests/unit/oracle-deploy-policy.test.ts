@@ -9,6 +9,7 @@ import {
   evaluatePublicGate,
   isImmutableOmniRouteImage,
   promoteWithRollback,
+  type DeploymentManifest,
   type LocalRuntimeGate,
   type OracleDeployAdapter,
   type PublicGate,
@@ -338,4 +339,68 @@ test("promote auto-enforces prune-backups best-effort after verified promotion",
   // Auto-prune never fails the promotion: wrapped in try/catch, manual path intact.
   assert.match(deployCli, /manual prune-backups remains/i);
   assert.match(deployCli, /if \(!result\.ok\) process\.exitCode = 1;/);
+});
+
+test("rollback_failed preserves the gate failure that triggered the rollback", async () => {
+  // 2026-10-04 incident: the manifest named only the rollback error and the
+  // trigger gate was unrecoverable from artifacts.
+  const calls: string[] = [];
+  const manifests: DeploymentManifest[] = [];
+  const adapter = makeAdapter(calls, {
+    probeLocalGates: async () => {
+      calls.push("local");
+      return { ...PASSING_LOCAL, healthOk: false };
+    },
+    restoreGateway: async () => {
+      calls.push("restore-gateway");
+      throw new Error("gateway reset failed");
+    },
+    writeManifest: async (manifest) => {
+      calls.push(`manifest:${manifest.state}`);
+      manifests.push(manifest);
+    },
+  });
+  await assert.rejects(promoteWithRollback(CANDIDATE, adapter), /rollback_failed/);
+  const failed = manifests.find((manifest) => manifest.state === "rollback_failed");
+  assert.ok(failed, "expected a rollback_failed manifest");
+  assert.match(
+    failed.failures.join("\n"),
+    /health probe failed/,
+    "trigger gate failure must survive alongside the rollback error"
+  );
+});
+
+test("pre-cutover failure records its reason when the rollback also fails", async () => {
+  const calls: string[] = [];
+  const manifests: DeploymentManifest[] = [];
+  const adapter = makeAdapter(calls, {
+    reconcileEnvironment: async () => {
+      calls.push("env");
+      throw new Error("compose config invalid");
+    },
+    restoreGateway: async () => {
+      calls.push("restore-gateway");
+      throw new Error("gateway reset failed");
+    },
+    writeManifest: async (manifest) => {
+      calls.push(`manifest:${manifest.state}`);
+      manifests.push(manifest);
+    },
+  });
+  await assert.rejects(promoteWithRollback(CANDIDATE, adapter), /rollback_failed/);
+  const failed = manifests.find((manifest) => manifest.state === "rollback_failed");
+  assert.ok(failed, "expected a rollback_failed manifest");
+  assert.match(
+    failed.failures.join("\n"),
+    /compose config invalid/,
+    "original failure reason must lead the rollback_failed failures"
+  );
+});
+
+test("preflight fails closed when the data .env is unreadable by the runtime user", () => {
+  // 2026-10-04 incident: EACCES /app/data/.env crash-looped node after
+  // cutover and the rollback failed its own health gate.
+  assert.match(remoteHelper, /not readable by runtime user/);
+  assert.match(remoteHelper, /--entrypoint \/bin\/test/);
+  assert.match(remoteHelper, /-r \/app\/data\/\.env/);
 });

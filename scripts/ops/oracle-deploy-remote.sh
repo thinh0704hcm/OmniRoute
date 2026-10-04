@@ -801,6 +801,19 @@ raise SystemExit(result.returncode)
     ensure_layout
     require_compose_version
     compose_prod config --quiet
+    # 2026-10-04 incident: a data-dir .env unreadable by the runtime uid
+    # crash-loops node at bootstrap (EACCES /app/data/.env) and the
+    # rollback then fails its own health gate. Fail closed here instead.
+    if test -f "$DATA_DIR/.env" && docker container inspect "$PROD_CONTAINER" >/dev/null 2>&1; then
+      prod_image="$(docker inspect "$PROD_CONTAINER" --format '{{.Image}}')"
+      runtime_user="$(docker image inspect "$prod_image" --format '{{.Config.User}}')"
+      if test -n "$runtime_user" && test "$runtime_user" != "0" && test "$runtime_user" != "root"; then
+        if ! docker run --rm -v "$DATA_DIR:/app/data:ro" --user "$runtime_user" \
+          --entrypoint /bin/test "$prod_image" -r /app/data/.env >/dev/null 2>&1; then
+          fail "data .env at $DATA_DIR/.env is not readable by runtime user $runtime_user; fix ownership/permissions before deploying"
+        fi
+      fi
+    fi
     printf '%s\n' "ok"
     ;;
 
