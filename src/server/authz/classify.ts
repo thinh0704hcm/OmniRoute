@@ -8,6 +8,7 @@ const CLIENT_API_ALIAS_PREFIXES: ReadonlyArray<{ alias: string; canonical: strin
   { alias: "/chat/completions", canonical: "/api/v1/chat/completions" },
   { alias: "/responses", canonical: "/api/v1/responses" },
   { alias: "/models", canonical: "/api/v1/models" },
+  { alias: "/muse-code", canonical: "/api/v1/muse-code" },
 ];
 
 function normalizePathname(rawPath: string): { path: string; reason?: ClassificationReason } {

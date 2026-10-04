@@ -48,6 +48,8 @@ export const config = {
     "/:respseg([rR][eE][sS][pP][oO][nN][sS][eE][sS])",
     "/:codexseg([cC][oO][dD][eE][xX])/:path*",
     "/:codexseg([cC][oO][dD][eE][xX])",
+    "/:museseg([mM][uU][sS][eE]-[cC][oO][dD][eE])/:path*",
+    "/:museseg([mM][uU][sS][eE]-[cC][oO][dD][eE])",
     "/:modelsseg([mM][oO][dD][eE][lL][sS])",
   ],
 };

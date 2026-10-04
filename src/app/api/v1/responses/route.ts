@@ -3,6 +3,11 @@ import { handleChat } from "@/sse/handlers/chat";
 import { CORS_HEADERS } from "@/shared/utils/cors";
 import { createInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { resolveResponsesApiModel } from "@/app/api/internal/codex-responses-ws/modelResolution";
+import { resolveMuseCodeApiModel } from "@/app/api/internal/muse-code/modelResolution";
+import {
+  deriveMuseCodeSessionId,
+  isMuseSparkModel,
+} from "@omniroute/open-sse/handlers/museCode.ts";
 import { getModelInfo, getComboForModel } from "@/sse/services/model";
 import { generateRequestId } from "@/shared/utils/requestId";
 import {
@@ -77,18 +82,50 @@ export async function withCodexPreferredModel(
       getModelInfo,
       async (name) => !!(await getComboForModel(name))
     );
-    if (!changed) return { request, body };
+    if (changed) {
+      const rewrittenBody = { ...body, model };
+      return {
+        request: new Request(request.url, {
+          method: request.method,
+          headers: request.headers,
+          body: JSON.stringify(rewrittenBody),
+          signal: request.signal,
+        }),
+        body: rewrittenBody,
+      };
+    }
 
-    const rewrittenBody = { ...body, model };
-    return {
-      request: new Request(request.url, {
-        method: request.method,
-        headers: request.headers,
-        body: JSON.stringify(rewrittenBody),
-        signal: request.signal,
-      }),
-      body: rewrittenBody,
-    };
+    // Muse Code compat: bare Spark ids ("muse-spark-1.3-contributor") do not
+    // resolve to the zen-backed provider under global routing, so prefer the
+    // opencode-go/ prefix when it is genuinely registered. Also pin the
+    // upstream zen conversation: derive a stable x-opencode-session from the
+    // client's prompt_cache_key + workspace when the client sent none.
+    const muse = await resolveMuseCodeApiModel(
+      body.model,
+      getModelInfo,
+      async (name) => !!(await getComboForModel(name))
+    );
+    if (muse.changed || isMuseSparkModel(body.model)) {
+      const rewrittenBody = muse.changed ? { ...body, model: muse.model } : body;
+      const headers = new Headers(request.headers);
+      if (!headers.get("x-opencode-session")) {
+        headers.set(
+          "x-opencode-session",
+          deriveMuseCodeSessionId(rewrittenBody, JSON.stringify(rewrittenBody))
+        );
+        if (!headers.get("x-opencode-client")) headers.set("x-opencode-client", "muse");
+      }
+      return {
+        request: new Request(request.url, {
+          method: request.method,
+          headers,
+          body: JSON.stringify(rewrittenBody),
+          signal: request.signal,
+        }),
+        body: rewrittenBody,
+      };
+    }
+    return { request, body };
   } catch {
     return { request, body: preParsedBody };
   }

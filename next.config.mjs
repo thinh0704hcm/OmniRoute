@@ -479,7 +479,10 @@ const nextConfig = {
       // does the importing.
       const replacements = [
         [/^@\/mitm\/cert\/install$/, join(projectRoot, "src/mitm/cert/install.stub.ts")],
-        [/^@\/lib\/zed-oauth\/keychain-reader$/, join(projectRoot, "src/lib/zed-oauth/keychain-reader.stub.ts")],
+        [
+          /^@\/lib\/zed-oauth\/keychain-reader$/,
+          join(projectRoot, "src/lib/zed-oauth/keychain-reader.stub.ts"),
+        ],
         [/^@\/lib\/cloudSync$/, join(projectRoot, "src/lib/cloudSync.stub.ts")],
         [
           /^@\/lib\/services\/installers\/ninerouter$/,
@@ -747,6 +750,12 @@ const nextConfig = {
       {
         source: "/codex/:path*",
         destination: "/api/v1/responses",
+      },
+      {
+        // Muse Code compat: `muse` calls GET /muse-code/models and
+        // POST /muse-code/search at the gateway root.
+        source: "/muse-code/:path*",
+        destination: "/api/v1/muse-code/:path*",
       },
       {
         source: "/v1/:path*",
