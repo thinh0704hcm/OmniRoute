@@ -1,0 +1,95 @@
+{
+  "_readme": [
+    "External model-performance evidence for scripts/ops/optimize-pools.mjs.",
+    "",
+    "WHY THIS FILE EXISTS: the pool optimizer ranks members by performance first,",
+    "response time second, quota third. In-DB evidence is thin — arena Elo covers",
+    "only ~10% of pool members, and everything else falls back to a coarse catalog",
+    "proxy. This file is the seam for a gathering agent (or a human) to supply",
+    "real benchmark evidence.",
+    "",
+    "HOW TO USE: point the optimizer at it with",
+    "  PERFORMANCE_FILE=/app/data/model-performance.json",
+    "or copy it to the default path. Missing file => optimizer falls back to",
+    "arena Elo + catalog proxy and says so in its output.",
+    "",
+    "MATCHING: 'model' is the BARE model leaf (no provider, no ':free'/'-free'),",
+    "matched case-insensitively against each pool member. 'nvidia/nemotron-3-ultra-550b-a55b:free'",
+    "-> \"nemotron-3-ultra-550b-a55b\". Vendor prefixes are stripped:",
+    "'openrouter/nvidia/nemotron-3-ultra-550b-a55b:free' -> same leaf.",
+    "",
+    "SCORING: 'scores.*' are normalized 0..1 and win over arena Elo and the proxy.",
+    "Prefer 'default' (else 'coding', else the mean of the given categories).",
+    "'metrics.*' are the RAW evidence a reviewer can audit — not used for ranking,",
+    "except ttftMs/outputTokensPerSec which fill response time when we have no",
+    "measured latency of our own.",
+    "",
+    "HONESTY RULE: only include numbers you actually retrieved, and cite the source",
+    "in 'provenance'. Do not interpolate between models. An absent model is better",
+    "than an invented score."
+  ],
+
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-11T00:00:00.000Z",
+
+  "provenance": [
+    {
+      "source": "openrouter_rankings",
+      "url": "https://openrouter.ai/models?order=top-weekly",
+      "retrievedAt": "2026-09-11T00:00:00.000Z",
+      "note": "Serving latency + throughput for free-tier models (portal table)."
+    }
+  ],
+
+  "models": [
+    {
+      "_comment": "EXAMPLE — served-tier evidence only (latency/throughput). No benchmark score supplied, so 'scores' is omitted and the optimizer keeps arena/proxy quality while using this latency.",
+      "model": "laguna-s-2.1",
+      "metrics": { "latencyMs": 1900, "outputTokensPerSec": 33 },
+      "confidence": "medium",
+      "sources": ["openrouter_rankings"]
+    },
+    {
+      "_comment": "EXAMPLE — over the 15s pool budget at 39.4s; the optimizer will demote it regardless of quality.",
+      "model": "nemotron-3-ultra-550b-a55b",
+      "metrics": { "latencyMs": 39400, "outputTokensPerSec": 5 },
+      "confidence": "medium",
+      "sources": ["openrouter_rankings"]
+    },
+    {
+      "_comment": "EXAMPLE — fast + high throughput free model not yet in any pool.",
+      "model": "ling-3.0-flash-fin",
+      "metrics": { "latencyMs": 1300, "outputTokensPerSec": 135 },
+      "confidence": "medium",
+      "sources": ["openrouter_rankings"]
+    },
+    {
+      "_comment": "EXAMPLE — the fully-populated shape a gathering agent should produce. Every number below must be traceable to 'sources'.",
+      "model": "example-model-with-full-evidence",
+      "scores": {
+        "coding": 0.82,
+        "reasoning": 0.79,
+        "agentic": 0.74,
+        "default": 0.8
+      },
+      "metrics": {
+        "sweBenchVerified": 72.1,
+        "aiderPolyglot": 68.4,
+        "liveCodeBench": 61.2,
+        "terminalBench": 0.44,
+        "bfcl": 0.88,
+        "tauBench": 0.65,
+        "intelligenceIndex": 64,
+        "gpqaDiamond": 0.81,
+        "aime": 0.9,
+        "mmluPro": 0.78,
+        "arenaElo": 1589,
+        "latencyMs": 1200,
+        "ttftMs": 420,
+        "outputTokensPerSec": 85
+      },
+      "confidence": "high",
+      "sources": ["artificial_analysis", "swebench", "livecodebench", "bfcl"]
+    }
+  ]
+}

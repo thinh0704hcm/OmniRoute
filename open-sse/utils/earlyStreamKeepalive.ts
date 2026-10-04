@@ -336,6 +336,30 @@ export function withDeadlineSignal(request: Request): {
   deadlineController: AbortController;
 } {
   const deadlineController = new AbortController();
+  // Rebuilding can throw when the incoming request object comes from a
+  // different fetch implementation than this module's globals (observed in
+  // production bundles as "Cannot read private member #state"). A route must
+  // never 500 for that: fall back to the original request with an inert
+  // controller (pre-wrapper behavior; downstream treats it as no deadline).
+  // The warn below doubles as the canary signal for the underlying mismatch.
+  try {
+    return withDeadlineSignalInner(request, deadlineController);
+  } catch (err) {
+    console.warn(
+      "[earlyStreamKeepalive] request rebuild failed, continuing unwrapped:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return { wrappedReq: request, deadlineController: new AbortController() };
+  }
+}
+
+function withDeadlineSignalInner(
+  request: Request,
+  deadlineController: AbortController
+): {
+  wrappedReq: Request;
+  deadlineController: AbortController;
+} {
   const combined = request.signal
     ? AbortSignal.any([request.signal, deadlineController.signal])
     : deadlineController.signal;

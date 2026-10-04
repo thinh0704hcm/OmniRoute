@@ -165,6 +165,12 @@ const DEFAULT_COMBO_CONFIG = {
   fallbackCompressionThreshold: 1000,
   // Predictive TTFT Circuit Breaker defaults
   predictiveTtftMs: 0,
+  // Streaming first-content (TTFT) failover deadline. The per-target
+  // `targetTimeoutMs` above bounds time-to-first-headers only for streaming
+  // requests, so a target that answers 200 and then goes quiet holds the combo
+  // (and the client, on keepalives) until the upstream eventually speaks. Pools
+  // of interchangeable models want a bound here instead: 0 = disabled.
+  firstContentTimeoutMs: 0,
   // Pipeline defaults
   pipeline_enabled: false,
   task_detection: "pattern",

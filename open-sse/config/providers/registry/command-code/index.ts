@@ -34,6 +34,7 @@ export const command_codeProvider: RegistryEntry = {
       name: "Claude Opus 4.7 (CC)",
       supportsReasoning: true,
       supportedThinkingEfforts: COMMAND_CODE_REASONING_EFFORTS,
+      targetFormat: "claude",
       supportsVision: true,
       contextLength: 200000,
       maxOutputTokens: 32000,
@@ -43,6 +44,7 @@ export const command_codeProvider: RegistryEntry = {
       name: "Claude Opus 4.6 (CC)",
       supportsReasoning: true,
       supportedThinkingEfforts: COMMAND_CODE_REASONING_EFFORTS,
+      targetFormat: "claude",
       supportsVision: true,
       contextLength: 200000,
       maxOutputTokens: 32000,
@@ -52,6 +54,7 @@ export const command_codeProvider: RegistryEntry = {
       name: "Claude Sonnet 4.6 (CC)",
       supportsReasoning: true,
       supportedThinkingEfforts: COMMAND_CODE_REASONING_EFFORTS,
+      targetFormat: "claude",
       supportsVision: true,
       contextLength: 200000,
       maxOutputTokens: 16384,
@@ -61,6 +64,7 @@ export const command_codeProvider: RegistryEntry = {
       name: "Claude Haiku 4.5 (CC)",
       supportsReasoning: true,
       supportedThinkingEfforts: COMMAND_CODE_REASONING_EFFORTS,
+      targetFormat: "claude",
       supportsVision: true,
       contextLength: 200000,
       maxOutputTokens: 8192,
@@ -115,6 +119,27 @@ export const command_codeProvider: RegistryEntry = {
       supportsReasoning: true,
       supportedThinkingEfforts: COMMAND_CODE_REASONING_EFFORTS,
       contextLength: 1000000,
+      maxOutputTokens: 131072,
+    },
+    {
+      // Live-verified in the 82-model /provider/v1/models pull: served on
+      // /chat/completions + /responses. No -max form exists upstream; the
+      // declared vocabulary lets suffixed requests split to base+effort.
+      id: "deepseek/deepseek-v4.1-flash",
+      name: "DeepSeek V4.1 Flash (CC)",
+      supportsReasoning: true,
+      supportedThinkingEfforts: COMMAND_CODE_REASONING_EFFORTS,
+      contextLength: 1000000,
+      maxOutputTokens: 131072,
+    },
+    {
+      // Live-verified: served (hidden server-side reasoning phase; effort
+      // vocabulary mirrors the provider enum, go parity 1M/131072).
+      id: "meta/muse-spark-1.3-contributor",
+      name: "Muse Spark 1.3 Contributor (CC)",
+      supportsReasoning: true,
+      supportedThinkingEfforts: COMMAND_CODE_REASONING_EFFORTS,
+      contextLength: 1048576,
       maxOutputTokens: 131072,
     },
     {

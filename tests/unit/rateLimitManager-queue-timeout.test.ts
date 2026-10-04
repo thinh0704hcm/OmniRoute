@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
 
 const rlm = await import("../../open-sse/services/rateLimitManager.ts");
 const { enableRateLimitProtection, withRateLimit, __resetRateLimitManagerForTests } = rlm;
@@ -26,6 +27,53 @@ test("withRateLimit works with AbortSignal", async () => {
   );
   assert.equal(result, "ok");
   ac.abort();
+});
+
+test("client abort reaches running rate-limited work and releases signal listeners", async () => {
+  enableRateLimitProtection("test-queue-forward-abort");
+  const ac = new AbortController();
+  const abortReason = new Error("client disconnected");
+  const started = Promise.withResolvers<void>();
+  let effectiveSignal: AbortSignal | undefined;
+
+  const running = withRateLimit(
+    "openai",
+    "test-queue-forward-abort",
+    "gpt-4",
+    async (signal: AbortSignal) => {
+      effectiveSignal = signal;
+      started.resolve();
+      await new Promise<never>((_, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    },
+    ac.signal
+  );
+
+  await started.promise;
+  assert.notEqual(effectiveSignal, ac.signal, "execution receives a linked, disposable signal");
+  ac.abort(abortReason);
+  await assert.rejects(running, abortReason);
+  assert.equal(effectiveSignal?.aborted, true);
+  assert.equal(effectiveSignal?.reason, abortReason);
+  assert.equal(getEventListeners(ac.signal, "abort").length, 0);
+
+  const sameConnection = await Promise.race([
+    withRateLimit("openai", "test-queue-forward-abort", "gpt-4", async () => "same-connection-ok"),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("aborted limiter slot was not released")), 500)
+    ),
+  ]);
+  assert.equal(sameConnection, "same-connection-ok");
+
+  enableRateLimitProtection("test-queue-other-key");
+  const otherTenant = await withRateLimit(
+    "openai",
+    "test-queue-other-key",
+    "gpt-4",
+    async () => "other-tenant-ok"
+  );
+  assert.equal(otherTenant, "other-tenant-ok");
 });
 
 test("multiple sequential withRateLimit calls work", async () => {

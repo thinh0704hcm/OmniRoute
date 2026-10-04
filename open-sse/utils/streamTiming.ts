@@ -40,6 +40,10 @@ export interface StreamTiming {
   /** First forwarded chunk that carried text, reasoning or a tool call. */
   firstOutputAt: number | null;
   lastForwardAt: number | null;
+  /** First upstream fetch dispatched (executor fetch start). */
+  upstreamStartAt: number | null;
+  /** First byte received from upstream (before keepalive filtering). */
+  upstreamFirstByteAt: number | null;
   /** Mean gap between forwarded chunks (ms), bounded window. */
   interChunkGaps: number[];
   forwardedChunks: number;
@@ -55,6 +59,14 @@ export interface StreamTiming {
    */
   observeOutput(bytes: Uint8Array): void;
   markInterrupted(): void;
+  /** Upstream fetch dispatched — call once before the provider fetch. */
+  markUpstreamStart(): void;
+  /** First upstream byte received — call on first body chunk, keepalives included. */
+  markUpstreamFirstByte(): void;
+  /** Gateway queue wait: stream start → upstream dispatch, or null. */
+  queueMs(): number | null;
+  /** Upstream TTFB: dispatch → first upstream byte, or null. */
+  upstreamTtfbMs(): number | null;
   /** First-forwarded-SSE-chunk latency in ms, or null if nothing was forwarded. */
   ttftMs(): number | null;
   /**
@@ -128,6 +140,8 @@ export function createStreamTiming(): StreamTiming {
     firstForwardAt: null,
     firstOutputAt: null,
     lastForwardAt: null,
+    upstreamStartAt: null,
+    upstreamFirstByteAt: null,
     interChunkGaps: [],
     forwardedChunks: 0,
     interrupted: false,
@@ -153,6 +167,20 @@ export function createStreamTiming(): StreamTiming {
     },
     markInterrupted() {
       this.interrupted = true;
+    },
+    markUpstreamStart() {
+      if (this.upstreamStartAt === null) this.upstreamStartAt = performance.now();
+    },
+    markUpstreamFirstByte() {
+      if (this.upstreamFirstByteAt === null) this.upstreamFirstByteAt = performance.now();
+    },
+    queueMs() {
+      return this.upstreamStartAt === null ? null : this.upstreamStartAt - this.startedAt;
+    },
+    upstreamTtfbMs() {
+      return this.upstreamStartAt === null || this.upstreamFirstByteAt === null
+        ? null
+        : this.upstreamFirstByteAt - this.upstreamStartAt;
     },
     ttftMs() {
       return this.firstForwardAt === null ? null : this.firstForwardAt - this.startedAt;

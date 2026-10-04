@@ -62,6 +62,8 @@ export type AttemptLoopDeps = {
     failoverBeforeRetryExplicit?: boolean;
     failoverBeforeRetry?: boolean;
     predictiveTtftMs?: number;
+    /** Streaming first-content budget; 0/unset disables the failover deadline. */
+    firstContentTimeoutMs?: number;
     fallbackCompressionMode?: string;
     fallbackCompressionThreshold?: number;
     retryDelayMs?: number;

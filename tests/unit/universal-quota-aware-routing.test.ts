@@ -144,19 +144,8 @@ test("scoreResetAwareQuota ranks lower-used Antigravity quota higher and avoids 
 
 test("orderTargetsByResetAwareQuota prefers Antigravity connection with more remaining quota", async () => {
   registerGenericQuotaFetchers();
-  const { createProviderConnection } = await import("../../src/lib/db/providers.ts");
-  const [low, high] = await Promise.all(
-    ["low", "high"].map(async (label) => {
-      const connection = await createProviderConnection({
-        provider: "antigravity",
-        authType: "oauth",
-        name: `${label}-${randomUUID()}`,
-        isActive: true,
-        testStatus: "active",
-      });
-      return String(connection.id);
-    })
-  );
+  const low = `low-${randomUUID()}`;
+  const high = `high-${randomUUID()}`;
   const resetAt5h = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
   const resetAt7d = new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString();
 

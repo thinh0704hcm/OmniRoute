@@ -102,6 +102,12 @@ export interface RegistryModel {
    * variants are derived by `resolveScoresAs` and need no entry here.
    */
   scoresAs?: string;
+  /**
+   * Tool-choice modes the model accepts beyond "auto" (e.g. ["auto"] for
+   * Darkbloom-backed models that reject forced required/named choices).
+   * Absent = unknown, callers must fail open.
+   */
+  supportedToolChoiceModes?: readonly string[];
 }
 
 // Reasoning models reject temperature, top_p, penalties, logprobs, n.

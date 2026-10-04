@@ -5,6 +5,9 @@ import { resolveWildcardAlias } from "./wildcardRouter.ts";
 import { getRegisteredProviderEffortBaseModelId } from "../utils/registeredEffortVariants.ts";
 import { hasProviderModelAlias, resolveProviderModelAlias } from "./modelCanonicalization.ts";
 
+// Kept re-exported so every existing `model.ts` consumer keeps its import path.
+// The implementation lives in providerAlias.ts, which is client-safe; importing
+// it from here would drag this module's DB/browser graph into a browser bundle.
 export { resolveProviderAlias };
 export { resolveCanonicalProviderModel } from "./modelCanonicalization.ts";
 

@@ -436,6 +436,7 @@ export const FREE_MODEL_BUDGETS: FreeModelBudget[] = [
   { provider: "t3-web", modelId: "qwen3-32b", displayName: "Qwen3 32B (via t3.chat)", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-daily", poolKey: "t3-web", tos: "avoid" },
   { provider: "t3-web", modelId: "kimi-k2", displayName: "Kimi K2 (via t3.chat)", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-daily", poolKey: "t3-web", tos: "avoid" },
   { provider: "tencent", modelId: "hunyuan-pro", displayName: "Hunyuan Pro", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-uncapped", poolKey: "tencent", tos: "caution" },
+  { provider: "together", modelId: "together-signup-credit", displayName: "Together — $25 signup credit (any model)", monthlyTokens: 0, creditTokens: 25000000, freeType: "one-time-initial", poolKey: "together-signup", tos: "caution" },
   // 2026-09-15 refresh: upstream /v1/models serves a single live model; the
   // three previously catalogued ids 404 on /v1/chat/completions (see the
   // matching comment in providers/registry/uncloseai/index.ts).

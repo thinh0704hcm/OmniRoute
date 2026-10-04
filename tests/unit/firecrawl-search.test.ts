@@ -199,7 +199,7 @@ test("handleSearch firecrawl maps search_type news to sources news", async () =>
     assert.equal(result.data!.results[0].title, "Breaking");
     assert.equal(result.data!.results[0].url, "https://news.example/story");
     assert.equal(result.data!.results[0].snippet, "Headline blurb");
-    assert.equal(result.data!.results[0].published_at, "2026-07-01T12:00:00Z");
+    assert.equal(result.data!.results[0].published_at, "2026-07-01T12:00:00.000Z");
     assert.equal(result.data!.results[0].metadata?.image_url, "https://news.example/img.png");
     assert.equal(result.data!.results[0].metadata?.source_type, "news");
   } finally {

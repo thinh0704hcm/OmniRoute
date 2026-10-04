@@ -373,13 +373,10 @@ class AdaptiveAdmissionRuntimeImpl implements AdaptiveAdmissionRuntime {
       };
     }
 
-    const features = extractAdmissionCostFeatures(
-      input.body,
-      {
-        streaming: input.streaming,
-        cost: this.costConfig,
-      }
-    );
+    const features = extractAdmissionCostFeatures(input.body, {
+      streaming: input.streaming,
+      cost: this.costConfig,
+    });
     let result: AdmissionAcquireResult;
     try {
       result = await this.controller.acquire({
@@ -458,6 +455,8 @@ class AdaptiveAdmissionRuntimeImpl implements AdaptiveAdmissionRuntime {
   ): Response {
     const nowMs = options.nowMs ?? this.nowMs;
     const admittedAtMs = options.admittedAtMs;
+    const responseReadyLatencyMs =
+      admittedAtMs === undefined ? undefined : Math.max(0, nowMs() - admittedAtMs);
 
     if (!response.body || !isSseResponse(response)) {
       releaseOnce(lease, classifyHttpOutcome(response.status, options.signal), admittedAtMs, nowMs);
@@ -472,7 +471,12 @@ class AdaptiveAdmissionRuntimeImpl implements AdaptiveAdmissionRuntime {
     const settle = (outcome: AdmissionReleaseOutcome): void => {
       if (settled) return;
       settled = true;
-      releaseOnce(lease, outcome, admittedAtMs, nowMs);
+      if (lease.released) return;
+      if (responseReadyLatencyMs === undefined) {
+        releaseOnce(lease, outcome, admittedAtMs, nowMs);
+      } else {
+        lease.release(outcome, { latencyMs: responseReadyLatencyMs });
+      }
     };
 
     const cancelReader = (reason?: unknown): void => {

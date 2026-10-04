@@ -1,9 +1,9 @@
 /**
  * #4165 — classify Bottleneck's execution expiration accurately.
  *
- * OmniRoute passes the legacy `requestQueue.maxWaitMs` value to Bottleneck as
- * the job `expiration`. Bottleneck starts that timer only after a job leaves
- * QUEUED, so it bounds limiter-managed execution and does not bound queue wait.
+ * OmniRoute passes `requestQueue.executionMaxWaitMs` to Bottleneck as the job
+ * `expiration`. Bottleneck starts that timer only after a job leaves QUEUED, so
+ * it bounds limiter-managed execution and does not bound queue wait.
  *
  * The raw Bottleneck message (`This job timed out after <N> ms.`) still needs an
  * OmniRoute-owned code and message so it cannot masquerade as an upstream-
@@ -139,7 +139,6 @@ test("execution outliving the queue-wait budget completes (opencode-go 504 regre
   assert.equal(result, "ok", "execution must not be killed by the queue-wait budget");
 });
 
-
 test("#4165 a job that completes within the execution expiration is unaffected", async () => {
   await rateLimitManager.applyRequestQueueSettings({
     ...resilienceSettings.DEFAULT_RESILIENCE_SETTINGS.requestQueue,
@@ -158,4 +157,37 @@ test("#4165 a job that completes within the execution expiration is unaffected",
     async () => "ok"
   );
   assert.equal(result, "ok");
+});
+
+test("#4165 execution expiration aborts the running callback signal", async () => {
+  await rateLimitManager.applyRequestQueueSettings({
+    ...resilienceSettings.DEFAULT_RESILIENCE_SETTINGS.requestQueue,
+    autoEnableApiKeyProviders: false,
+    concurrentRequests: 1,
+    requestsPerMinute: 100000,
+    minTimeBetweenRequestsMs: 0,
+    executionMaxWaitMs: 40,
+  });
+  rateLimitManager.enableRateLimitProtection("conn-expiration-abort");
+  const callbackAborted = Promise.withResolvers<unknown>();
+
+  const expired = rateLimitManager.withRateLimit(
+    "openai",
+    "conn-expiration-abort",
+    "gpt-4o",
+    async (signal: AbortSignal) => {
+      signal.addEventListener("abort", () => callbackAborted.resolve(signal.reason), {
+        once: true,
+      });
+      await wait(400);
+      return "should-not-reach";
+    }
+  );
+
+  await assert.rejects(expired, (error: Error & { code?: string }) => {
+    assert.equal(error.code, "RATE_LIMIT_EXECUTION_TIMEOUT");
+    return true;
+  });
+  const reason = await callbackAborted.promise;
+  assert.equal((reason as Error)?.name, "AbortError");
 });

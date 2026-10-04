@@ -120,13 +120,13 @@ describe("accountRotation", () => {
 describe("isEmptyUpstreamRejection", () => {
   it("matches the observed malformed completion envelope (no error field, empty content, null finish_reason)", () => {
     const observed =
-      '{"id":"chatcmpl_44fn2g6e7kk","object":"chat.completion","created":1787419957,"model":"muse-spark-1.2-contributor-free","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":null}]}';
+      '{"id":"chatcmpl_44fn2g6e7kk","object":"chat.completion","created":1787419957,"model":"muse-spark-1.3-contributor-free","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":null}]}';
     assert.strictEqual(isEmptyUpstreamRejection(400, observed), true);
   });
 
   it("does not match a non-400 status", () => {
     const observed =
-      '{"id":"chatcmpl_44fn2g6e7kk","object":"chat.completion","created":1787419957,"model":"muse-spark-1.2-contributor-free","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":null}]}';
+      '{"id":"chatcmpl_44fn2g6e7kk","object":"chat.completion","created":1787419957,"model":"muse-spark-1.3-contributor-free","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":null}]}';
     assert.strictEqual(isEmptyUpstreamRejection(200, observed), false);
     assert.strictEqual(isEmptyUpstreamRejection(429, observed), false);
     assert.strictEqual(isEmptyUpstreamRejection(502, observed), false);
@@ -203,7 +203,7 @@ describe("isEmptyUpstreamRejection", () => {
 describe("extractChatcmplId", () => {
   it("extracts the chatcmpl id from an observed envelope", () => {
     const observed =
-      '{"id":"chatcmpl_44fn2g6e7kk","object":"chat.completion","created":1787419957,"model":"muse-spark-1.2-contributor-free","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":null}]}';
+      '{"id":"chatcmpl_44fn2g6e7kk","object":"chat.completion","created":1787419957,"model":"muse-spark-1.3-contributor-free","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":null}]}';
     assert.strictEqual(extractChatcmplId(observed), "chatcmpl_44fn2g6e7kk");
   });
 

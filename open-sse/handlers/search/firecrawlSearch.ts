@@ -1,5 +1,6 @@
 import type { SearchProviderConfig } from "../../config/searchRegistry.ts";
 import { parseAndValidatePublicUrl } from "@/shared/network/outboundUrlGuard";
+import { normalizePublishedAt } from "./publishedAt.ts";
 
 export interface FirecrawlSearchParams {
   query: string;
@@ -139,7 +140,10 @@ export function collectFirecrawlSearchHits(
       item.markdown?.slice(0, 300) ||
       item.content?.slice(0, 300) ||
       "",
-    published_at: item.date || item.published_at || item.metadata?.publishedTime || null,
+    published_at:
+      normalizePublishedAt(item.date) ??
+      normalizePublishedAt(item.published_at) ??
+      normalizePublishedAt(item.metadata?.publishedTime),
     image_url: item.imageUrl || undefined,
     source_type: isNews ? "news" : undefined,
   }));
