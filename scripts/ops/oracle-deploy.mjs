@@ -113,6 +113,24 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/**
+ * Loopback-safe tunnel offset. The canary publishes 127.0.0.1:30130/30131
+ * (compose.canary.yaml) and the probes forward-bind the same local ports —
+ * which collides when the deploy host IS the target (ssh oracle-vps
+ * resolving to loopback). Set OMNIROUTE_TUNNEL_LOCAL_OFFSET (e.g. 10000)
+ * to shift only the LOCAL bind (remote/canary side untouched):
+ * local 40130/40131 -> remote 30130/30131. Default 0 = historic behavior.
+ */
+function tunnelLocalPort(remotePort) {
+  const offset = Number.parseInt(process.env.OMNIROUTE_TUNNEL_LOCAL_OFFSET ?? "0", 10);
+  if (!Number.isFinite(offset) || offset < 0 || offset > 30000) {
+    throw new Error(
+      `OMNIROUTE_TUNNEL_LOCAL_OFFSET must be an integer 0-30000 (got ${process.env.OMNIROUTE_TUNNEL_LOCAL_OFFSET ?? "(unset)"})`
+    );
+  }
+  return remotePort + offset;
+}
+
 async function withTunnel(host, localPort, remotePort, callback) {
   validateHost(host);
   const tunnel = spawn(
@@ -406,8 +424,10 @@ function sanitizeFailure(error) {
 }
 
 async function withDualTunnels(host, canary, callback) {
-  return withTunnel(host, canary ? 30130 : 31130, canary ? 30130 : 20130, async (dashUrl) => {
-    return withTunnel(host, canary ? 30131 : 31131, canary ? 30131 : 20131, async (apiUrl) => {
+  const dashRemote = canary ? 30130 : 20130;
+  const apiRemote = canary ? 30131 : 20131;
+  return withTunnel(host, tunnelLocalPort(dashRemote), dashRemote, async (dashUrl) => {
+    return withTunnel(host, tunnelLocalPort(apiRemote), apiRemote, async (apiUrl) => {
       return callback({ dashboard: dashUrl, api: apiUrl });
     });
   });

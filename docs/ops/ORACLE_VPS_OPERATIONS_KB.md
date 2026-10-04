@@ -78,6 +78,18 @@ limits, restart/OOM state, dashboard, authenticated model catalog, completion, s
 call-log, and LiveWS probes all pass. The canary never shares production Redis, network identity,
 or mutable data.
 
+Loopback operation: when the deploy host IS the target (ssh oracle-vps
+resolves to loopback), the canary's published 127.0.0.1:30130/30131 collide
+with the probe tunnels' local bind. Export OMNIROUTE_TUNNEL_LOCAL_OFFSET
+(e.g. 10000) to shift only the local bind — remote/canary side untouched:
+
+```bash
+OMNIROUTE_TUNNEL_LOCAL_OFFSET=10000 node --import tsx/esm scripts/ops/oracle-deploy.mjs qualify ...
+```
+
+Default 0 preserves historic behavior; non-integer or out-of-range values
+fail closed.
+
 ## Promote
 
 Promotion performs a fresh qualification, then acquires the production lock and records all
