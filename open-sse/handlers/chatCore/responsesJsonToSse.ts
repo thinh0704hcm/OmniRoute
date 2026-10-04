@@ -10,6 +10,19 @@ import { synthesizeOpenAiSseFromJson } from "../../utils/jsonToSse.ts";
 import { buildNonStreamingJsonResponse } from "./nonStreamingJsonResponse.ts";
 import { isResponsesObject, synthesizeResponsesSseFromObject } from "./responsesObjectToSse.ts";
 
+/**
+ * Marker-less Responses objects also replay as SSE: native Responses upstreams
+ * may omit `object: "response"`, but `output: [...]` without a non-empty
+ * `choices: [...]` is Responses-shaped, never Chat-shaped.
+ */
+function isResponsesLikeObject(body: unknown): body is Record<string, unknown> {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const record = body as Record<string, unknown>;
+  if (isResponsesObject(record)) return true;
+  if (!Array.isArray(record.output)) return false;
+  return !(Array.isArray(record.choices) && record.choices.length > 0);
+}
+
 function copyForwardHeaders(headers: Record<string, string> | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!headers) return out;
@@ -25,7 +38,7 @@ export function wrapChatCompletionJsonAsResponsesSse(
   completion: Record<string, unknown>,
   headers?: Record<string, string>
 ): Response {
-  if (isResponsesObject(completion)) {
+  if (isResponsesLikeObject(completion)) {
     return new Response(synthesizeResponsesSseFromObject(completion), {
       status: 200,
       headers: {

@@ -231,7 +231,6 @@ export const PROVIDER_CONNECTIONS_COLUMNS = new Set([
   "rate_limit_overrides_json",
   "created_at",
   "updated_at",
-  "synced_models_at",
 ]);
 
 // ──────────────── Provider Connections ────────────────

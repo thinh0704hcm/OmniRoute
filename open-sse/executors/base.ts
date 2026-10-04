@@ -208,6 +208,13 @@ export type ExecuteInput = {
   skipUpstreamRetry?: boolean;
   /** In-process capability; never accepted from an HTTP body or client header. */
   validationDispatch?: StrictValidationDispatch;
+  /** Stream timing marks: stamped around the upstream fetch so Server-Timing
+   * can split gateway queue wait from upstream TTFB. Optional — executors
+   * that dispatch outside execute() (custom transports) simply omit it. */
+  timing?: {
+    markUpstreamStart(): void;
+    markUpstreamFirstByte(): void;
+  } | null;
   /** Request-scoped id for log attribution; absent off the chat path, never fabricated. */
   correlationId?: string | null;
   /** Delegated Context Editing (Claude only): when enabled, attach the
@@ -719,6 +726,7 @@ export class BaseExecutor {
       skipUpstreamRetry = false,
       onCredentialsRefreshed,
       contextEditing,
+      timing,
     } = input;
     assertValidationCredentials(input.validationDispatch, credentials);
     const fallbackCount = this.getFallbackCount();
@@ -958,12 +966,18 @@ export class BaseExecutor {
             : requestOptions;
 
           try {
-            return await validationFetch(
+            timing?.markUpstreamStart();
+            const upstreamResponse = await validationFetch(
               input.validationDispatch,
               this.provider,
               model,
               requestCredentials
             )(requestUrl, optionsWithSignal);
+            // First byte received (headers + body stream open) — stamped even
+            // when the body turns out to be keepalives; the SSE transform
+            // filters those later without moving this mark.
+            timing?.markUpstreamFirstByte();
+            return upstreamResponse;
           } finally {
             if (timeoutId) clearTimeout(timeoutId);
           }
