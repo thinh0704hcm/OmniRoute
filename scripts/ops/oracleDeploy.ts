@@ -270,7 +270,11 @@ function sanitizeFailure(component: string, error: unknown): string {
     .replace(/Bearer\s+[^\s]+/gi, "Bearer <redacted>")
     .replace(/https?:\/\/[^\s]+/gi, "<url-redacted>")
     .replace(/[?&](?:key|token|secret|api_key|authorization)=[^\s&]+/gi, "<$&-redacted>");
-  return `${component} restoration failed${safe ? `: ${safe.slice(0, 240)}` : ""}`;
+  // Cap raised 240 -> 2000 (2026-10-04 promote incident): the 240-char slice cut
+  // the failing docker step's output down to bare container lifecycle lines,
+  // hiding which gate/command actually failed and forcing blind archaeology.
+  // Redaction above still applies; length alone carries no secret.
+  return `${component} restoration failed${safe ? `: ${safe.slice(0, 2000)}` : ""}`;
 }
 
 class RollbackFailure extends Error {
@@ -426,7 +430,20 @@ export async function promoteWithRollback(
     const localVerdict = evaluateLocalRuntimeGate(await adapter.probeLocalGates(candidate));
     if (!localVerdict.ok) {
       rollbackAttempted = true;
-      await restoreAndVerify(previous, adapter, manifest);
+      // Preserve the trigger: if the rollback itself fails, the rollback_failed
+      // manifest must still name the gate that started the rollback (2026-10-04
+      // incident: only "image restoration failed" survived, the trigger was lost).
+      try {
+        await restoreAndVerify(previous, adapter, manifest);
+      } catch (rollbackError) {
+        const rollbackFailures =
+          rollbackError instanceof RollbackFailure
+            ? rollbackError.failures
+            : [sanitizeFailure("rollback", rollbackError)];
+        const merged = [...localVerdict.failures, ...rollbackFailures];
+        await adapter.writeManifest(createRollbackFailedManifest(manifest, merged));
+        throw new RollbackFailure(merged);
+      }
       const rolledBack = createRolledBackManifest(manifest, previous, localVerdict.failures);
       await adapter.writeManifest(rolledBack);
       return { ok: false, rolledBack: true, failures: localVerdict.failures, manifest: rolledBack };
@@ -437,7 +454,18 @@ export async function promoteWithRollback(
     const publicVerdict = evaluatePublicGate(await adapter.probePublicGates(candidate));
     if (!publicVerdict.ok) {
       rollbackAttempted = true;
-      await restoreAndVerify(previous, adapter, manifest);
+      // Same trigger preservation as the local-gate branch above.
+      try {
+        await restoreAndVerify(previous, adapter, manifest);
+      } catch (rollbackError) {
+        const rollbackFailures =
+          rollbackError instanceof RollbackFailure
+            ? rollbackError.failures
+            : [sanitizeFailure("rollback", rollbackError)];
+        const merged = [...publicVerdict.failures, ...rollbackFailures];
+        await adapter.writeManifest(createRollbackFailedManifest(manifest, merged));
+        throw new RollbackFailure(merged);
+      }
       const rolledBack = createRolledBackManifest(manifest, previous, publicVerdict.failures);
       await adapter.writeManifest(rolledBack);
       return {
@@ -459,10 +487,14 @@ export async function promoteWithRollback(
         const reason = error instanceof Error ? error.message : String(error);
         await adapter.writeManifest(createRolledBackManifest(manifest, previous, [reason]));
       } catch (rollbackError) {
-        const failures =
+        const rollbackFailures =
           rollbackError instanceof RollbackFailure
             ? rollbackError.failures
             : [sanitizeFailure("rollback", rollbackError)];
+        // Preserve the original trigger ahead of the rollback failures
+        // (2026-10-04 incident: only "image restoration failed" survived).
+        const reason = error instanceof Error ? error.message : String(error);
+        const failures = [`promote failed before rollback: ${reason}`, ...rollbackFailures];
         try {
           await adapter.writeManifest(createRollbackFailedManifest(manifest, failures));
         } catch (manifestError) {
