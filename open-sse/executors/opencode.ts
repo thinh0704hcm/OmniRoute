@@ -30,6 +30,7 @@ import {
   clientSuppliedOpencodeSession,
   forwardOpencodeClientHeaders,
   resolveOpencodeCliDefaults,
+  resolveOpencodeGoIdentity,
 } from "../utils/opencodeHeaders.ts";
 import { projectOpencodeSessionBody } from "../utils/opencodeSessionIdentity.ts";
 import { listForRequest, releaseRequestList } from "./opencodeAccountScope.ts";
@@ -1312,10 +1313,13 @@ export class OpencodeExecutor extends BaseExecutor {
     // OPENCODE_SYNTHESIZE_CLI_HEADERS=false. Client-supplied headers always win;
     // User-Agent is replaced with the CLI UA unless the client already sends one that
     // looks like the OpenCode CLI. Default values match 9router's proven defaults.
-    const cliDefaults = resolveOpencodeCliDefaults(
-      this.config?.id || this.provider || "opencode",
-      gatedScope
-    );
+    // The opencode-go (paid) surface instead uses Pi's agent formulation — Pi's own
+    // User-Agent plus `x-opencode-client: pi`, no CLI impersonation, no project
+    // header — which is what that surface requires (own UA + stable session id).
+    const goIdentity = this._surface() === "go" ? resolveOpencodeGoIdentity() : undefined;
+    const cliDefaults =
+      goIdentity ??
+      resolveOpencodeCliDefaults(this.config?.id || this.provider || "opencode", gatedScope);
 
     this._clientSession = clientSuppliedOpencodeSession(clientHeaders, body);
     if (clientHeaders || cliDefaults) {
