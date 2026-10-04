@@ -56,10 +56,25 @@ export function clientSuppliedOpencodeSession(
  * that does not satisfy the version rule is replaced — an operator still carrying the
  * previous unversioned default would otherwise be refused.
  */
+/**
+ * Identity defaults applied to upstream OpenCode request headers.
+ *
+ * `project` is optional: the CLI-impersonation mode always sets it, while the
+ * agent-identity mode (opencode-go, Pi formulation) omits it — Pi sends no
+ * project header. `preserveClientUA` keeps any client-supplied User-Agent as-is
+ * instead of replacing non-CLI ones (agent surfaces expect the caller's own UA).
+ */
+export interface OpencodeIdentityDefaults {
+  userAgent: string;
+  client: string;
+  project?: string;
+  preserveClientUA?: boolean;
+}
+
 export function resolveOpencodeCliDefaults(
   providerId: string,
   gated: boolean
-): { userAgent: string; client: string; project: string } | undefined {
+): OpencodeIdentityDefaults | undefined {
   if (/^(0|false|no|off)$/i.test(process.env.OPENCODE_SYNTHESIZE_CLI_HEADERS?.trim() ?? "")) {
     return undefined;
   }
@@ -79,6 +94,42 @@ export function resolveOpencodeCliDefaults(
         : `opencode/${getCachedOpencodeCliVersion()}`,
     client: process.env.OPENCODE_CLIENT?.trim() || "desktop",
     project: process.env.OPENCODE_PROJECT?.trim() || "global",
+  };
+}
+
+/** Pi agent version whose request formulation the opencode-go surface copies. */
+const PI_AGENT_VERSION = "1.0.1";
+
+/**
+ * Build the Pi coding-agent User-Agent — the exact `getPiUserAgent()` formulation
+ * from pi-coding-agent's `utils/pi-user-agent`:
+ * `pi/<version> (<platform>; <runtime>; <arch>)`.
+ */
+export function buildPiUserAgent(): string {
+  const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;
+  return `pi/${PI_AGENT_VERSION} (${process.platform}; ${runtime}; ${process.arch})`;
+}
+
+/**
+ * The agent identity defaults for the opencode-go (paid) surface, copying Pi's
+ * request formulation: Pi's own User-Agent plus `x-opencode-client: pi` and the
+ * stable conversation-scoped `x-opencode-session` the shared session logic
+ * already synthesizes — no CLI impersonation, no project header. This matches
+ * what opencode-go now requires: the caller's own user agent (not a generic
+ * SDK/HTTP-library name) and a stable per-conversation session id for routing
+ * and prompt caching. The free-tier gate keeps CLI impersonation untouched.
+ *
+ * Overridable via `OPENCODE_GO_USER_AGENT` / `OPENCODE_GO_CLIENT`; the master
+ * `OPENCODE_SYNTHESIZE_CLI_HEADERS` opt-out disables this too.
+ */
+export function resolveOpencodeGoIdentity(): OpencodeIdentityDefaults | undefined {
+  if (/^(0|false|no|off)$/i.test(process.env.OPENCODE_SYNTHESIZE_CLI_HEADERS?.trim() ?? "")) {
+    return undefined;
+  }
+  return {
+    userAgent: process.env.OPENCODE_GO_USER_AGENT?.trim() || buildPiUserAgent(),
+    client: process.env.OPENCODE_GO_CLIENT?.trim() || "pi",
+    preserveClientUA: true,
   };
 }
 
@@ -146,13 +197,16 @@ function findHeader(headers: Record<string, string>, name: string): string | und
  *   x-session-affinity / x-session-id to x-opencode-session when the latter is
  *   missing, and synthesizes a UUID for x-opencode-request if also missing.
  * @param options.cliDefaults - When provided (OpencodeExecutor only), synthesize
- *   the OpenCode CLI identity headers that Cloudflare requires on VPS egress
- *   (User-Agent, x-opencode-client, x-opencode-project) plus fresh request/session
- *   UUIDs, but ONLY for keys the client did not already supply. Client values always
- *   win; these defaults only fill gaps. User-Agent is the one exception: a client UA
+ *   the identity headers the upstream expects (User-Agent, x-opencode-client,
+ *   x-opencode-project) plus fresh request/session UUIDs, but ONLY for keys the
+ *   client did not already supply. Client values always win; these defaults only
+ *   fill gaps. In CLI mode the User-Agent is the one exception: a client UA
  *   that is not already the OpenCode CLI (e.g. curl/8.5.0) is REPLACED with the
  *   synthesized CLI UA, because opencode.ai's free tier rejects generic client UAs
  *   from datacenter IPs with FreeUsageLimitError 429. (#5997, follow-up #10229)
+ *   In agent mode (`preserveClientUA`, opencode-go) any client UA is kept — the
+ *   paid surface expects the caller's own agent identity — and no project header
+ *   is synthesized, matching Pi's formulation.
  * @param options.sessionBody - Request body fields used to generate a
  *   conversation-stable session fingerprint (model, system, messages or input, tools).
  *   When provided, x-opencode-session is a deterministic hash instead of a random
@@ -163,7 +217,7 @@ export function forwardOpencodeClientHeaders(
   clientHeaders: Record<string, string>,
   options?: {
     synthesizeRequestId?: boolean;
-    cliDefaults?: { userAgent: string; client: string; project: string };
+    cliDefaults?: OpencodeIdentityDefaults;
     sessionBody?: OpencodeSessionBody;
   }
 ): void {
@@ -227,18 +281,26 @@ function applySessionFallback(
  */
 function applyCliDefaults(
   headers: Record<string, string>,
-  cliDefaults: { userAgent: string; client: string; project: string },
+  cliDefaults: OpencodeIdentityDefaults,
   sessionBody?: OpencodeSessionBody
 ): void {
-  // A client User-Agent is kept only when it already satisfies the upstream contract.
-  // The previous rule kept anything starting with `opencode-cli/`, which carries no
-  // parsable version and is refused by the free tier.
+  // CLI mode: a client User-Agent is kept only when it already satisfies the
+  // upstream contract. The previous rule kept anything starting with
+  // `opencode-cli/`, which carries no parsable version and is refused by the
+  // free tier. Agent mode (opencode-go): any client UA is the caller's own
+  // identity and is kept; the default fills only a missing UA.
   const existingUa = headers["User-Agent"] || headers["user-agent"];
-  if (!satisfiesOpencodeUserAgentContract(existingUa)) {
+  const keepUa = cliDefaults.preserveClientUA
+    ? Boolean(existingUa)
+    : satisfiesOpencodeUserAgentContract(existingUa);
+  if (!keepUa) {
     setUserAgentHeader(headers, cliDefaults.userAgent);
   }
   headers["x-opencode-client"] ||= cliDefaults.client;
-  headers["x-opencode-project"] ||= cliDefaults.project;
+  // Agent mode (Pi formulation) sends no project header; CLI mode fills the gap.
+  if (cliDefaults.project !== undefined) {
+    headers["x-opencode-project"] ||= cliDefaults.project;
+  }
   // Both ids go out in the canonical shape. A client value already in that shape is kept;
   // anything else (a UUID from a generic client, an opaque conversation key) is translated
   // deterministically, so one client conversation still maps to one upstream session.

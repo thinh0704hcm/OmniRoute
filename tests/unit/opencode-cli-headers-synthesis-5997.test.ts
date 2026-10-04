@@ -27,7 +27,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { forwardOpencodeClientHeaders } from "../../open-sse/utils/opencodeHeaders.ts";
+import {
+  buildPiUserAgent,
+  forwardOpencodeClientHeaders,
+  resolveOpencodeGoIdentity,
+} from "../../open-sse/utils/opencodeHeaders.ts";
 import { OpencodeExecutor } from "../../open-sse/executors/opencode.ts";
 
 // Since 2026-09-17 the free tier requires the canonical OpenCode id shapes; a UUID is
@@ -128,7 +132,9 @@ test("forwardOpencodeClientHeaders: without cliDefaults, no synthesis (DefaultEx
 
 test("OpencodeExecutor.buildHeaders: synthesizes CLI defaults by default — flag unset [#10571]", () => {
   withEnv("OPENCODE_SYNTHESIZE_CLI_HEADERS", undefined, () => {
-    const executor = new OpencodeExecutor("opencode-go");
+    // CLI impersonation lives on the zen (free-tier) surface; the go surface now
+    // carries Pi's agent formulation (covered below).
+    const executor = new OpencodeExecutor("opencode-zen");
     const headers = executor.buildHeaders(null, true, null, "glm-5.2");
     assert.equal(headers["User-Agent"], OPENCODE_DEFAULTS.userAgent);
     assert.equal(headers["x-opencode-client"], OPENCODE_DEFAULTS.client);
@@ -139,7 +145,7 @@ test("OpencodeExecutor.buildHeaders: synthesizes CLI defaults by default — fla
 
 test("OpencodeExecutor.buildHeaders: synthesizes CLI defaults with flag explicitly on + no client headers [#5997]", () => {
   withEnv("OPENCODE_SYNTHESIZE_CLI_HEADERS", "true", () => {
-    const executor = new OpencodeExecutor("opencode-go");
+    const executor = new OpencodeExecutor("opencode-zen");
     const headers = executor.buildHeaders(null, true, null, "glm-5.2");
 
     assert.equal(headers["User-Agent"], OPENCODE_DEFAULTS.userAgent);
@@ -152,7 +158,7 @@ test("OpencodeExecutor.buildHeaders: synthesizes CLI defaults with flag explicit
 
 test("OpencodeExecutor.buildHeaders: forward-only — no fabrication when flag is explicitly off [#10571 opt-out]", () => {
   withEnv("OPENCODE_SYNTHESIZE_CLI_HEADERS", "false", () => {
-    const executor = new OpencodeExecutor("opencode-go");
+    const executor = new OpencodeExecutor("opencode-zen");
     const headers = executor.buildHeaders(null, true, null, "glm-5.2");
     assert.equal(headers["User-Agent"], undefined);
     assert.equal(headers["x-opencode-client"], undefined);
@@ -168,4 +174,100 @@ test("OpencodeExecutor.buildHeaders: OPENCODE_GO_USER_AGENT env overrides the de
       assert.equal(headers["User-Agent"], "opencode-cli/2.5.0");
     });
   });
+});
+
+// The opencode-go (paid) surface copies Pi's request formulation instead of CLI
+// impersonation: Pi's own User-Agent plus `x-opencode-client: pi`, no project
+// header. opencode-go requires the caller's own agent UA (not a generic
+// SDK/HTTP-library name) and a stable per-conversation session id for routing
+// and prompt caching — a session id the gateway synthesizes or forwards.
+
+test("buildPiUserAgent: exact pi-coding-agent getPiUserAgent() formulation", () => {
+  const ua = buildPiUserAgent();
+  assert.match(ua, /^pi\/1\.0\.1 \([a-z0-9_]+; (node\/v\d+\.\d+\.\d+|bun\/[\d.]+); (x64|arm64)\)$/);
+});
+
+test("resolveOpencodeGoIdentity: Pi formulation by default, env-overridable, master opt-out respected", () => {
+  withEnv("OPENCODE_SYNTHESIZE_CLI_HEADERS", undefined, () => {
+    withEnv("OPENCODE_GO_USER_AGENT", undefined, () => {
+      withEnv("OPENCODE_GO_CLIENT", undefined, () => {
+        const identity = resolveOpencodeGoIdentity();
+        assert.equal(identity?.userAgent, buildPiUserAgent());
+        assert.equal(identity?.client, "pi");
+        assert.equal(identity?.project, undefined);
+        assert.equal(identity?.preserveClientUA, true);
+      });
+    });
+  });
+  withEnv("OPENCODE_GO_USER_AGENT", "my-agent/9.9", () => {
+    withEnv("OPENCODE_GO_CLIENT", "my-client", () => {
+      const identity = resolveOpencodeGoIdentity();
+      assert.equal(identity?.userAgent, "my-agent/9.9");
+      assert.equal(identity?.client, "my-client");
+    });
+  });
+  withEnv("OPENCODE_SYNTHESIZE_CLI_HEADERS", "false", () => {
+    assert.equal(resolveOpencodeGoIdentity(), undefined);
+  });
+});
+
+test("OpencodeExecutor.buildHeaders: go surface sends Pi agent identity, no project header", () => {
+  withEnv("OPENCODE_SYNTHESIZE_CLI_HEADERS", undefined, () => {
+    const executor = new OpencodeExecutor("opencode-go");
+    const headers = executor.buildHeaders(null, true, null, "glm-5.2");
+    assert.equal(headers["User-Agent"], buildPiUserAgent());
+    assert.equal(headers["x-opencode-client"], "pi");
+    assert.equal(headers["x-opencode-project"], undefined);
+    // The session/request half of the contract still applies: Go routes and
+    // caches on a stable per-conversation session id.
+    assert.match(headers["x-opencode-request"] ?? "", REQUEST_RE);
+    assert.match(headers["x-opencode-session"] ?? "", SESSION_RE);
+  });
+});
+
+test("OpencodeExecutor.buildHeaders: go surface KEEPS any client UA — even a generic one the zen surface would replace", () => {
+  withEnv("OPENCODE_SYNTHESIZE_CLI_HEADERS", undefined, () => {
+    const executor = new OpencodeExecutor("opencode-go");
+    for (const ua of ["curl/8.5.0", "opencode/2.5.0", "my-agent/1.0"]) {
+      const headers = executor.buildHeaders(null, true, { "User-Agent": ua }, "glm-5.2");
+      assert.equal(headers["User-Agent"], ua, `client UA ${ua} must survive on the go surface`);
+      assert.equal(headers["x-opencode-client"], "pi");
+    }
+  });
+});
+
+test("forwardOpencodeClientHeaders: agent-mode cliDefaults keep a generic client UA and skip the project header", () => {
+  const headers: Record<string, string> = {};
+  forwardOpencodeClientHeaders(
+    headers,
+    { "User-Agent": "curl/8.5.0" },
+    {
+      cliDefaults: {
+        userAgent: "pi/1.0.1 (linux; node/v1.2.3; x64)",
+        client: "pi",
+        preserveClientUA: true,
+      },
+    }
+  );
+  assert.equal(headers["User-Agent"], "curl/8.5.0");
+  assert.equal(headers["x-opencode-client"], "pi");
+  assert.equal(headers["x-opencode-project"], undefined);
+  assert.match(headers["x-opencode-session"] ?? "", SESSION_RE);
+});
+
+test("forwardOpencodeClientHeaders: agent-mode cliDefaults fill a missing UA with the agent default", () => {
+  const headers: Record<string, string> = {};
+  forwardOpencodeClientHeaders(
+    headers,
+    {},
+    {
+      cliDefaults: {
+        userAgent: "pi/1.0.1 (linux; node/v1.2.3; x64)",
+        client: "pi",
+        preserveClientUA: true,
+      },
+    }
+  );
+  assert.equal(headers["User-Agent"], "pi/1.0.1 (linux; node/v1.2.3; x64)");
+  assert.equal(headers["x-opencode-client"], "pi");
 });
