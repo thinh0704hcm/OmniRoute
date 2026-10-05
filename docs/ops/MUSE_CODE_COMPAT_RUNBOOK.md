@@ -71,3 +71,13 @@ return HTML 403s even with valid auth.
 - `src/app/api/v1/muse-code/models/route.ts` — catalog (+ MSP metadata)
 - `src/app/api/v1/muse-code/search/route.ts` — search wrapper
 - `src/app/api/v1/responses/route.ts` — rewrite + session pinning hook
+
+## Build note (2026-10-05): dashboard webpack OOMs at default heap
+
+`docker buildx build` of this branch OOMs (`FATAL ERROR: Ineffective
+mark-compacts near heap limit`) during `npm run build` with the Dockerfile
+default `ARG OMNIROUTE_BUILD_MEMORY_MB=6144`. Rebuild with
+`--build-arg OMNIROUTE_BUILD_MEMORY_MB=8192` (host had 23 GB; safe there).
+Also note the revision label requires the exact arg name
+`OMNIROUTE_BUILD_SHA` — `BUILD_SHA` is silently ignored and qualify then
+fails closed on the empty `org.opencontainers.image.revision` label.
