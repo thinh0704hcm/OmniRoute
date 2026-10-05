@@ -571,13 +571,8 @@
     "open-sse/services/combo/roundRobinCombo.ts": 1285,
     "src/shared/components/RequestLoggerDetail.tsx": 1241,
     "src/shared/middleware/chatBodyAdmission.ts": 1206,
-<<<<<<< HEAD
     "open-sse/executors/deepseek-web.ts": 1228,
-    "open-sse/executors/default.ts": 1209,
-=======
-    "open-sse/executors/deepseek-web.ts": 1224,
-    "open-sse/executors/default.ts": 1219,
->>>>>>> pr-15393
+    "open-sse/executors/default.ts": 1192,
     "open-sse/services/rateLimitManager.ts": 1329,
     "open-sse/executors/opencode.ts": 1457,
     "open-sse/handlers/responseSanitizer.ts": 1204
