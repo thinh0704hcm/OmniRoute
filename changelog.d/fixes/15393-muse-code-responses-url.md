@@ -1,0 +1,1 @@
+- **fix(executor):** responses-target models on custom-base connections route to `/responses` — Meta muse-code OAuth (every `mc/muse-spark-*` request) no longer carries a Responses body to `/chat/completions` and 400s with `unknown parameter 'input'` ([#15393](https://github.com/diegosouzapw/OmniRoute/pull/15393)) — thanks @hongkongkiwi
