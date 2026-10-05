@@ -1,3 +1,4 @@
+import { noteUpstreamModelFailure } from "@omniroute/open-sse/services/upstreamModelCooldown.ts";
 import { randomUUID } from "crypto";
 import { resolveChatRequestBody } from "./requestBody";
 import * as chatAdmission from "./chatAdmission.ts";
@@ -2096,6 +2097,10 @@ async function handleSingleModelChat(
         return muse.museFailureResponse(museOwner, result);
       }
 
+      if (noteUpstreamModelFailure(provider, model, result.status, result.error)) {
+        return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+      }
+
       // A final hard-lease fence rejection is authoritative. It must never mutate
       // connection health/cooldown state or fall through to ordinary account/model
       // fallback, which could turn a stale lifecycle into unmanaged dispatch.
@@ -2527,8 +2532,6 @@ async function handleSingleModelChat(
         log.warn("AUTH", `Account ${accountId}... unavailable (${result.status}), trying fallback`);
         // #6219: evict the sticky session pin when the pinned account fails over,
         // otherwise the next request re-pins the same throttled account until
-        // restart. Guarded by connection match so a pin for a different (healthy)
-        // account is left intact.
         if (runtimeOptions.sessionAffinityKey) {
           try {
             evictSessionAccountAffinityForConnection(
@@ -2536,9 +2539,7 @@ async function handleSingleModelChat(
               provider,
               credentials.connectionId
             );
-          } catch {
-            // best-effort: selection also excludes this connection for the current retry.
-          }
+          } catch {}
         }
         excludedConnectionIds.add(credentials.connectionId);
         lastError = result.error;
@@ -2548,8 +2549,6 @@ async function handleSingleModelChat(
         continue;
       }
 
-      // T-PROBE: a probe failure must not degrade the provider-wide circuit
-      // breaker for real traffic (#9817).
       if (
         !(await shouldIsolateProbeFailures()) &&
         classifyProviderBreakerResult(result, isCombo, forceLiveComboTest) === "failure"
