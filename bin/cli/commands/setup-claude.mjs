@@ -21,6 +21,7 @@ import { join } from "node:path";
 import os from "node:os";
 import { printHeading, printInfo, printSuccess, printError, printWarning } from "../io.mjs";
 import { guardHostConfigTarget } from "../utils/config-home-guard.mjs";
+import { resolveClaudeAutoCompactWindow } from "../launch-env.mjs";
 import {
   categoriseModel,
   isCodexCompatibleTextModel,
@@ -91,20 +92,24 @@ export function inheritedAnthropicKeyWarning(env = process.env) {
   if (!key || !String(key).trim()) return null;
   return (
     "ANTHROPIC_API_KEY is set in this shell. Claude Code sends it as x-api-key and asks " +
-    "\"Detected a custom API key in your environment\" — if ANTHROPIC_BASE_URL is not " +
+    '"Detected a custom API key in your environment" — if ANTHROPIC_BASE_URL is not ' +
     "picked up, that key goes to api.anthropic.com and you get a real Anthropic 401. " +
     "Unset it, or use `omniroute launch --profile <name>` (it strips every inherited " +
     "ANTHROPIC_* var before spawning claude)."
   );
 }
 
-/** Build the settings.json content for one Claude Code profile. */
-export function buildProfileSettings(modelId, baseUrl, cfg) {
+/** Build the settings.json content for one Claude Code profile.
+ * @param {{ autoCompactWindow?: unknown, contextLength?: unknown }} [opts]
+ *   Explicit window wins; otherwise 95% of the model's real context length
+ *   (from the live /v1/models catalog entry); otherwise the 190000 default.
+ */
+export function buildProfileSettings(modelId, baseUrl, cfg, opts = {}) {
   const env = {
     ANTHROPIC_BASE_URL: baseUrl,
     ANTHROPIC_MODEL: modelId,
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
-    CLAUDE_CODE_AUTO_COMPACT_WINDOW: "190000",
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(resolveClaudeAutoCompactWindow(opts)),
   };
   const settings = {
     $schema: "https://json.schemastore.org/claude-code-settings.json",
@@ -168,7 +173,10 @@ export async function syncClaudeProfilesFromModels(models, opts = {}) {
 
     const dir = join(profilesRoot, cfg.name);
     const filePath = join(dir, "settings.json");
-    const content = buildProfileSettings(id, baseUrl, cfg);
+    // Thread the live catalog's advertised window so the profile's
+    // auto-compact threshold tracks the model's real context length.
+    const contextLength = typeof m === "string" ? undefined : (m.context_length ?? m.contextLength);
+    const content = buildProfileSettings(id, baseUrl, cfg, { contextLength });
 
     if (dryRun) {
       log(`\n── [dry-run] ${filePath} ──`);
@@ -222,8 +230,7 @@ export async function runSetupClaudeCommand(opts = {}) {
       let detail = `HTTP ${res.status}`;
       try {
         const errorBody = await res.json();
-        const serverMsg =
-          errorBody?.error?.message || errorBody?.error || errorBody?.message || "";
+        const serverMsg = errorBody?.error?.message || errorBody?.error || errorBody?.message || "";
         if (serverMsg) detail += ` — ${serverMsg}`;
       } catch {}
       throw new Error(detail);

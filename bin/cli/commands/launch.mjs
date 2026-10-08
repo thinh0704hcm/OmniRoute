@@ -4,7 +4,11 @@ import os from "node:os";
 import { t } from "../i18n.mjs";
 import { resolveActiveContext } from "../contexts.mjs";
 import { quoteShellArgs } from "../utils/winShellArgs.mjs";
-import { buildSafeCliLaunchEnv } from "../launch-env.mjs";
+import {
+  buildSafeCliLaunchEnv,
+  readProfileAutoCompactWindow,
+  resolveClaudeAutoCompactWindow,
+} from "../launch-env.mjs";
 
 function stripTrailingSlash(value) {
   let s = String(value);
@@ -22,7 +26,7 @@ function stripTrailingSlash(value) {
  * @param {Record<string,string>} baseEnv
  * @param {number|string} baseUrlOrPort  a port (→ http://localhost:<port>) or a full base URL
  * @param {string|undefined} authToken
- * @param {{ configDir?:string, model?:string }} [opts]
+ * @param {{ configDir?:string, model?:string, autoCompactWindow?:unknown, contextLength?:unknown }} [opts]
  * @returns {Record<string,string>}
  */
 export function buildClaudeEnv(baseEnv, baseUrlOrPort, authToken, opts = {}) {
@@ -47,7 +51,7 @@ export function buildClaudeEnv(baseEnv, baseUrlOrPort, authToken, opts = {}) {
   // stays stripped (above) so it can't shadow the Bearer token.
   env.ANTHROPIC_AUTH_TOKEN = (authToken && String(authToken).trim()) || "omniroute-no-auth";
   env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1";
-  env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = "190000";
+  env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(resolveClaudeAutoCompactWindow(opts));
   // Profile isolation (Claude Code has no native profiles — CLAUDE_CONFIG_DIR is
   // the idiomatic mechanism: separate settings/credentials/history/cache per dir).
   if (opts.configDir) env.CLAUDE_CONFIG_DIR = opts.configDir;
@@ -195,6 +199,9 @@ export async function runLaunchCommand(opts = {}, claudeArgs = []) {
     configDir,
     model: opts.model,
     inheritEnv: opts.inheritEnv,
+    // A generated profile already carries its model's window: keep it instead
+    // of clobbering it with the 190000 default (compact thrash on 1M models).
+    autoCompactWindow: readProfileAutoCompactWindow(configDir),
   });
 
   const { command, shell } = await resolveClaudeSpawn(process.platform);

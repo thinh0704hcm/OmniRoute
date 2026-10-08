@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { buildClaudeEnv } from "../../../bin/cli/commands/launch.mjs";
 
 test("buildClaudeEnv strips ANTHROPIC_* and injects proxy vars", () => {
-  const env = buildClaudeEnv({ ANTHROPIC_API_KEY: "leak", ANTHROPIC_BASE_URL: "old", PATH: "/bin" }, 20128, "secret");
+  const env = buildClaudeEnv(
+    { ANTHROPIC_API_KEY: "leak", ANTHROPIC_BASE_URL: "old", PATH: "/bin" },
+    20128,
+    "secret"
+  );
   assert.equal(env.ANTHROPIC_API_KEY, undefined);
   assert.equal(env.ANTHROPIC_BASE_URL, "http://localhost:20128");
   assert.equal(env.ANTHROPIC_AUTH_TOKEN, "secret");
@@ -22,4 +26,21 @@ test("buildClaudeEnv does not mutate the input env object", () => {
   const input = { ANTHROPIC_API_KEY: "leak", PATH: "/bin" };
   buildClaudeEnv(input, 20128, "x");
   assert.equal(input.ANTHROPIC_API_KEY, "leak");
+});
+
+test("buildClaudeEnv honors opts.autoCompactWindow for large-window models (1M -> 950000)", () => {
+  const env = buildClaudeEnv({ PATH: "/bin" }, 20128, "x", { autoCompactWindow: 950000 });
+  assert.equal(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, "950000");
+});
+
+test("buildClaudeEnv derives the window from opts.contextLength when no explicit window", () => {
+  const env = buildClaudeEnv({ PATH: "/bin" }, 20128, "x", { contextLength: 1000000 });
+  assert.equal(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, "950000");
+});
+
+test("buildClaudeEnv ignores invalid window overrides and keeps the 190000 default", () => {
+  for (const bad of [0, -5, NaN, Infinity, "huge"]) {
+    const env = buildClaudeEnv({ PATH: "/bin" }, 20128, "x", { autoCompactWindow: bad });
+    assert.equal(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, "190000");
+  }
 });

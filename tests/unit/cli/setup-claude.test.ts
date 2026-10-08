@@ -10,6 +10,7 @@ import {
   inheritedAnthropicKeyWarning,
   syncClaudeProfilesFromModels,
 } from "../../../bin/cli/commands/setup-claude.mjs";
+import { readProfileAutoCompactWindow } from "../../../bin/cli/launch-env.mjs";
 import { buildClaudeEnv, resolveLaunchTarget } from "../../../bin/cli/commands/launch.mjs";
 import { categoriseModel } from "../../../bin/cli/commands/setup-codex.mjs";
 
@@ -248,4 +249,89 @@ test("inheritedAnthropicKeyWarning fires only when ANTHROPIC_API_KEY is set (#11
   assert.ok(warning.includes("api.anthropic.com"));
   // Never echo the key itself back to the terminal.
   assert.equal(warning.includes("oma_live_xxx"), false);
+});
+
+// ── compact-window thrash: client threshold must track the model's real window ──
+//
+// Claude Code assumes a 200K window for any model id it does not recognize, and
+// OmniRoute hardcoded CLAUDE_CODE_AUTO_COMPACT_WINDOW=190000 everywhere. A 1M
+// model (e.g. claude-opus-5.5) therefore compacted ~5x too early, thrashing work.
+// The window must scale with the model's real context length (95% headroom).
+
+test("buildProfileSettings defaults the auto-compact window to 190000 (200K models)", () => {
+  const cfg = categoriseModel("glm/glm-5.2");
+  const json = JSON.parse(buildProfileSettings("glm/glm-5.2", "http://vps:20128", cfg));
+  assert.equal(json.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, "190000");
+});
+
+test("buildProfileSettings honors an explicit autoCompactWindow", () => {
+  const cfg = categoriseModel("glm/glm-5.2");
+  const json = JSON.parse(
+    buildProfileSettings("glm/glm-5.2", "http://vps:20128", cfg, {
+      autoCompactWindow: 950000,
+    })
+  );
+  assert.equal(json.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, "950000");
+});
+
+test("buildProfileSettings derives the window from contextLength (1M model -> 950000)", () => {
+  const cfg =
+    categoriseModel("claude/claude-opus-5.5") ??
+    fallbackClaudeProfile("claude/claude-opus-5.5", { id: "claude/claude-opus-5.5" });
+  const json = JSON.parse(
+    buildProfileSettings("claude/claude-opus-5.5", "http://vps:20128", cfg, {
+      contextLength: 1000000,
+    })
+  );
+  assert.equal(json.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, "950000");
+});
+
+test("syncClaudeProfilesFromModels threads catalog context_length into the window", async () => {
+  const claudeHome = await fs.mkdtemp(path.join(os.tmpdir(), "omniroute-claude-ctxlen-"));
+  try {
+    const result = await syncClaudeProfilesFromModels(
+      [{ id: "claude/claude-opus-5.5", context_length: 1000000 }],
+      { claudeHome, baseUrl: "http://vps:20128" }
+    );
+    assert.equal(result.written, 1);
+    const profile = result.profiles[0];
+    const json = JSON.parse(await fs.readFile(profile.filePath, "utf8"));
+    assert.equal(json.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, "950000");
+  } finally {
+    await fs.rm(claudeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+test("readProfileAutoCompactWindow returns the profile's baked window", async () => {
+  const claudeHome = await fs.mkdtemp(path.join(os.tmpdir(), "omniroute-claude-readwin-"));
+  try {
+    const dir = path.join(claudeHome, "profiles", "opus55");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "settings.json"),
+      JSON.stringify({ env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "950000" } })
+    );
+    assert.equal(readProfileAutoCompactWindow(dir), 950000);
+  } finally {
+    await fs.rm(claudeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+test("readProfileAutoCompactWindow yields undefined for missing/invalid profiles", async () => {
+  const claudeHome = await fs.mkdtemp(path.join(os.tmpdir(), "omniroute-claude-readwin-bad-"));
+  try {
+    assert.equal(readProfileAutoCompactWindow(undefined), undefined);
+    assert.equal(readProfileAutoCompactWindow(path.join(claudeHome, "nope")), undefined);
+    const dir = path.join(claudeHome, "profiles", "bad");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, "settings.json"), "{not json");
+    assert.equal(readProfileAutoCompactWindow(dir), undefined);
+    await fs.writeFile(
+      path.join(dir, "settings.json"),
+      JSON.stringify({ env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "huge" } })
+    );
+    assert.equal(readProfileAutoCompactWindow(dir), undefined);
+  } finally {
+    await fs.rm(claudeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 });

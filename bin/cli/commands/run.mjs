@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolveActiveContext } from "../contexts.mjs";
-import { buildSafeCliLaunchEnv } from "../launch-env.mjs";
+import { buildSafeCliLaunchEnv, readProfileAutoCompactWindow } from "../launch-env.mjs";
 import { quoteShellArgs } from "../utils/winShellArgs.mjs";
 import {
   listManifestTargets,
@@ -133,6 +133,8 @@ async function buildClaudePlan(rawOpts, args = []) {
     configDir,
     model: merged.model || undefined,
     inheritEnv: merged.inheritEnv,
+    // Keep a generated profile's per-model window (see launch.mjs).
+    autoCompactWindow: readProfileAutoCompactWindow(configDir),
   });
   const quotedArgs = quoteClaudeArgs(args, process.platform);
 

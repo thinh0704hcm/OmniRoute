@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildSafeCliLaunchEnv } from "../../../bin/cli/launch-env.mjs";
+import {
+  buildSafeCliLaunchEnv,
+  DEFAULT_CLAUDE_AUTO_COMPACT_WINDOW,
+  resolveClaudeAutoCompactWindow,
+} from "../../../bin/cli/launch-env.mjs";
 
 test("CLI launch environment keeps runtime essentials and drops ambient credentials", () => {
   const result = buildSafeCliLaunchEnv({
@@ -33,4 +37,27 @@ test("CLI launch environment inheritance is an explicit opt-in", () => {
   const source = { PATH: "/bin", GITHUB_TOKEN: "explicitly-inherited" };
   assert.deepEqual(buildSafeCliLaunchEnv(source, { inheritEnv: true }), source);
   assert.notEqual(buildSafeCliLaunchEnv(source, { inheritEnv: true }), source);
+});
+
+test("resolveClaudeAutoCompactWindow defaults to 190000 (200K-assumption models)", () => {
+  assert.equal(resolveClaudeAutoCompactWindow(), DEFAULT_CLAUDE_AUTO_COMPACT_WINDOW);
+  assert.equal(resolveClaudeAutoCompactWindow({}), 190000);
+});
+
+test("resolveClaudeAutoCompactWindow prefers an explicit window", () => {
+  assert.equal(resolveClaudeAutoCompactWindow({ autoCompactWindow: 950000 }), 950000);
+  assert.equal(resolveClaudeAutoCompactWindow({ autoCompactWindow: "950000" }), 950000);
+});
+
+test("resolveClaudeAutoCompactWindow derives 95% of the real context length", () => {
+  assert.equal(resolveClaudeAutoCompactWindow({ contextLength: 1000000 }), 950000);
+  assert.equal(resolveClaudeAutoCompactWindow({ contextLength: 256000 }), 243200);
+  assert.equal(resolveClaudeAutoCompactWindow({ contextLength: 200000 }), 190000);
+});
+
+test("resolveClaudeAutoCompactWindow rejects invalid input", () => {
+  for (const bad of [0, -1, NaN, Infinity, "huge", null]) {
+    assert.equal(resolveClaudeAutoCompactWindow({ autoCompactWindow: bad }), 190000);
+    assert.equal(resolveClaudeAutoCompactWindow({ contextLength: bad }), 190000);
+  }
 });
