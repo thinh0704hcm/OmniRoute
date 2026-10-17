@@ -52,6 +52,8 @@ function parseArgs(argv) {
       index += 1;
     } else if (flag === "--dry-run") {
       args.dryRun = true;
+    } else if (flag === "--build") {
+      args.build = true;
     } else if (flag === "--keep") {
       args.keep = value;
       index += 1;
@@ -122,7 +124,7 @@ function sleep(milliseconds) {
  * local 40130/40131 -> remote 30130/30131. Default 0 = historic behavior.
  */
 function tunnelLocalPort(remotePort) {
-  const offset = Number.parseInt(process.env.OMNIROUTE_TUNNEL_LOCAL_OFFSET ?? "0", 10);
+  const offset = Number.parseInt(process.env.OMNIROUTE_TUNNEL_LOCAL_OFFSET ?? "10000", 10);
   if (!Number.isFinite(offset) || offset < 0 || offset > 30000) {
     throw new Error(
       `OMNIROUTE_TUNNEL_LOCAL_OFFSET must be an integer 0-30000 (got ${process.env.OMNIROUTE_TUNNEL_LOCAL_OFFSET ?? "(unset)"})`
@@ -406,7 +408,41 @@ async function runTrafficProbes(baseUrl, models) {
   };
 }
 
+function buildCandidate(sha) {
+  const buildSha =
+    sha ||
+    spawnSync("git", ["rev-parse", "--short=10", "HEAD"], { encoding: "utf8" }).stdout?.trim();
+  if (!buildSha || !/^[a-f0-9]{7,40}$/.test(buildSha)) {
+    throw new Error("could not determine git SHA for build");
+  }
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const imageRef = `omniroute:canary-${buildSha}-${dateStr}`;
+  console.log(`Building canary image ${imageRef} (${buildSha})...`);
+  const buildArgs = [
+    "buildx",
+    "build",
+    "--target",
+    "runner-cli",
+    "--build-arg",
+    "OMNIROUTE_BUILD_MEMORY_MB=8192",
+    "--build-arg",
+    `OMNIROUTE_BUILD_SHA=${buildSha}`,
+    "--label",
+    `org.opencontainers.image.revision=${buildSha}`,
+    "-t",
+    imageRef,
+    "--load",
+    ".",
+  ];
+  const result = spawnSync("docker", buildArgs, { stdio: "inherit" });
+  if (result.status !== 0) throw new Error("Docker build failed");
+  return { imageRef, buildSha };
+}
+
 function requireCandidate(args) {
+  if (args.build || (!args.image && !args.sha)) {
+    return buildCandidate(args.sha);
+  }
   if (!args.image || !isImmutableOmniRouteImage(args.image)) {
     throw new Error("--image must be an immutable digest or SHA-bearing tag");
   }
@@ -434,7 +470,7 @@ async function withDualTunnels(host, canary, callback) {
 }
 
 async function qualify(host, input, models) {
-  requireSmokeApiKey();
+  requireSmokeApiKey(host);
   runRemote(host, "lock-canary");
   let canaryDir = null;
   try {
@@ -634,7 +670,7 @@ async function promote(host, candidate, models) {
 }
 
 async function rollback(host, models) {
-  requireSmokeApiKey();
+  requireSmokeApiKey(host);
   runRemote(host, "lock");
   let manifest = null;
   let mutationStarted = false;
@@ -770,6 +806,9 @@ try {
         2
       )
     );
+  } else if (args.command === "build") {
+    const candidate = buildCandidate(args.sha);
+    console.log(JSON.stringify({ ok: true, ...candidate }, null, 2));
   } else if (args.command === "status") {
     console.log(runRemote(args.host, "status", [], { timeoutMs: 30_000 }));
   } else if (args.command === "qualify") {
@@ -808,7 +847,7 @@ try {
     console.log(runRemote(args.host, "prune-backups", [keep], { timeoutMs: 300_000 }));
   } else {
     throw new Error(
-      "command must be status, qualify, promote, rollback, adopt-gateway, or prune-backups"
+      "command must be status, qualify, promote, rollback, adopt-gateway, prune-backups, or build"
     );
   }
 } catch (error) {

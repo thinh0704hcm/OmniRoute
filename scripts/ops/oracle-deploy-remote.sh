@@ -1105,6 +1105,28 @@ PY
     printf '%s\n' "$manifest_path"
     ;;
 
+  smoke-key)
+    ensure_layout
+    sudo -n chmod 666 "$DATA_DIR/storage.sqlite"* 2>/dev/null || true
+    node --import tsx/esm -e "
+      import dotenv from 'dotenv';
+      import Database from 'better-sqlite3';
+      import { decryptApiKeySecret } from '$REPO_DIR/src/lib/db/apiKeys/secretAtRest.ts';
+      dotenv.config({ path: '$DATA_DIR/server.env' });
+      dotenv.config({ path: '$DATA_DIR/.env' });
+      const db = new Database('$DATA_DIR/storage.sqlite', { readonly: true });
+      const rows = db.prepare('SELECT key FROM api_keys WHERE is_active = 1').all();
+      for (const r of rows) {
+        const k = decryptApiKeySecret(r.key);
+        if (typeof k === 'string' && k.startsWith('sk-')) {
+          process.stdout.write(k);
+          process.exit(0);
+        }
+      }
+      process.exit(1);
+    " 2>/dev/null || true
+    ;;
+
   read-manifest)
     require_file "$STATE_DIR/current.json"
     cat "$STATE_DIR/current.json"
