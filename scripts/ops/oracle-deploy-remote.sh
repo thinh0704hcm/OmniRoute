@@ -117,6 +117,7 @@ compose_canary() {
 backup_sqlite() {
   local source_path="$1"
   local destination_path="$2"
+  sudo -n chmod 666 "$source_path"* 2>/dev/null || true
   python3 - "$source_path" "$destination_path" <<'PY'
 import os
 import sqlite3
@@ -939,6 +940,7 @@ print(hashlib.sha256(serialized).hexdigest())
 
   call-log-max)
     database_path="${1:-$DATA_DIR/storage.sqlite}"
+    sudo -n chmod 666 "$database_path"* 2>/dev/null || true
     python3 - "$database_path" <<'PY'
 import sqlite3
 import sys
@@ -955,6 +957,7 @@ PY
   combo-log-evidence)
     database_path="${1:-$DATA_DIR/storage.sqlite}"
     since_timestamp="${2:-}"
+    sudo -n chmod 666 "$database_path"* 2>/dev/null || true
     python3 - "$database_path" "$since_timestamp" <<'PY'
 import json
 import sqlite3
