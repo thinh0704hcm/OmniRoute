@@ -126,6 +126,8 @@ Tunnel, Tailscale, Ngrok) પાછળ ચલાવો છો, તો પણ લ
   જે દૂરસ્થ ડૅશબોર્ડ દ્વારા પ્રોવાઇડર CRUD માટે યોગ્ય રીતે વપરાતા રૂટ ટ્રીને
   અતિશય વ્યાપક રીતે મર્યાદિત કરી દેશે.
 
+  રનટાઇમ સ્નૅપશૉટ લોડર સંગ્રહિત સેટિંગ્સની પંક્તિમાંથી પણ આવી એન્ટ્રીઓ દૂર કરે છે, અને જૂનું JSON આયાત (`/api/settings/import-json`) બાયપાસ કીઓ ક્યારેય લખતું નથી. `LOCAL_ONLY_API_PREFIXES` ની દરેક એન્ટ્રી પ્રતિબંધ સૂચિમાં હોવી જોઈએ અથવા સમીક્ષા પછી બાયપાસ માટે યોગ્ય તરીકે મંજૂર થયેલી હોવી જોઈએ. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **ઍક્સેસનું ઑડિટિંગ** — આ રૂટ્સ સુધી હોસ્ટની બહારથી કશું પહોંચી રહ્યું નથી તેની ખાતરી કરવા માટે:
 
 - `/dashboard/settings/security` પર **અધિકૃતતા ઇન્વેન્ટરી** ખોલો: તે
@@ -164,6 +166,23 @@ Tunnel, Tailscale, Ngrok) પાછળ ચલાવો છો, તો પણ લ
 Obsidian REST API ટોકન સંગ્રહે છે. GHSA-62vwએ માત્ર `GET` દ્વારા પાસવર્ડ જાહેર થવાનું છુપાવ્યું હતું;
 જારી કરવાની પ્રક્રિયા હજી પણ ફેલ-ઓપન ટિયર પર હતી (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()`
 વધુમાં એવા વૉલ્ટને નકારે છે જે ડેટા ડિરેક્ટરી જ હોય, તેની અંદર હોય અથવા તેને સમાવે.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### નવા ઇન્સ્ટોલનું બૂટસ્ટ્રૅપ માત્ર લૂપબૅક માટે છે — વાસ્તવિક પિયર મુજબ, `Host` મુજબ નહીં
 

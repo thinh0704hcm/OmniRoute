@@ -103,6 +103,8 @@ Si vous exécutez OmniRoute derrière un proxy inverse ou un tunnel (nginx, Cadd
 - **Ne "réparez" pas une erreur 403 en falsifiant l'IP client en loopback.** Définir `X-Forwarded-For: 127.0.0.1`, ou un proxy qui réécrit l'adresse source en loopback, rouvre exactement la classe de RCE que ce niveau ferme. Exposez le tableau de bord/API via le proxy — jamais les routes capables de lancer des processus.
 - **Maintenez le contournement de la portée de gestion minimal.** Seul `/api/mcp/` est contournable, et uniquement avec une clé API de portée `manage`. Les `SPAWN_CAPABLE_PREFIXES` ne peuvent jamais être ajoutés à la liste de contournement — le schéma zod les rejette et `isLocalOnlyBypassableByManageScope` les refuse à l'exécution (défense en profondeur), ce qui est ce que le tableau de bord entend par "ne peut pas être rendu contournable". Les routes capables de lancer des processus à segment dynamique et à chemin statique sous `/api/providers/` (par exemple `/login`, `/refresh-cursor`) sont couvertes par le compagnon basé sur des expressions régulières `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` dans `src/shared/constants/spawnCapablePrefixes.ts`, et non par le tableau plat `SPAWN_CAPABLE_PREFIXES` — le tableau plat devrait couvrir l'intégralité du préfixe `/api/providers/` pour les intercepter, élargissant excessivement une arborescence de routes que les tableaux de bord distants utilisent légitimement pour le CRUD des fournisseurs.
 
+  Le chargeur d’instantanés d’exécution supprime aussi ces entrées d’une ligne de paramètres enregistrée, et l’import JSON historique (`/api/settings/import-json`) n’écrit jamais les clés de contournement. Chaque entrée de `LOCAL_ONLY_API_PREFIXES` doit figurer dans la liste de refus ou avoir été examinée et jugée admissible au contournement. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Audit d'accès** — pour vérifier que rien d'extérieur à l'hôte n'atteint ces routes :
 
 - Ouvrez l'**Inventaire des autorisations** sur `/dashboard/settings/security` : il affiche la liste des préfixes LOCAL_ONLY en direct, quels préfixes sont contournables, et l'ensemble des éléments capables d'être générés à la compilation ("ne peuvent pas être rendus contournables").
@@ -129,6 +131,23 @@ Ces routes sont destructrices ou irréversibles. Les autoriser dans une installa
 **Réponse en cas de violation :** `401 Authentification requise`
 
 `/api/settings/obsidian` couvre son enfant `/webdav` : `POST` pointe le service de fichiers WebDAV — servi par la couche Node personnalisée avant Next.js, en dehors de ce pipeline — vers une racine choisie par l'appelant et renvoie des identifiants Basic fraîchement créés, `DELETE` les fait pivoter, et le `POST` parent stocke le jeton de l'API REST d'Obsidian. GHSA-62vw n'a masqué que la révélation du mot de passe `GET` ; l'émission était toujours au niveau "fail-open" (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` refuse en outre un coffre-fort qui est, se trouve à l'intérieur, ou contient le répertoire de données.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Le démarrage d'une nouvelle installation est en boucle locale uniquement — par pair réel, pas par `Host`
 

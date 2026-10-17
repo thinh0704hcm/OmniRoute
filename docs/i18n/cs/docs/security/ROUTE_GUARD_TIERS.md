@@ -145,6 +145,8 @@ operátora:
   `/api/providers/`, aby je zachytilo, čímž by se příliš rozšířil strom cest,
   které vzdálené dashboardy legitimně používají pro CRUD poskytovatelů.
 
+  Zavaděč běhových snímků takové položky odstraňuje i z uloženého řádku nastavení a starší import JSON (`/api/settings/import-json`) nikdy nezapisuje klíče pro obejití ochrany. Každá položka `LOCAL_ONLY_API_PREFIXES` musí být na seznamu zákazů nebo musí být po kontrole schválena jako způsobilá k obejití. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Audit přístupu** — pro ověření, že se k těmto cestám nedostává nic mimo hostitele:
 
 - Otevřete **Inventář autorizací** na `/dashboard/settings/security`: zobrazuje živý seznam prefixů LOCAL_ONLY, které prefixy lze obejít, a sadu kompilace schopnou spuštění ("nelze obejít").
@@ -171,6 +173,23 @@ Tyto cesty jsou destruktivní nebo nevratné. Povolení v instalaci „bez hesla
 **Odpověď při porušení:** `401 Authentication required`
 
 `/api/settings/obsidian` pokrývá svého potomka `/webdav`: `POST` nasměruje službu souborů WebDAV – obsluhovanou vlastní vrstvou Node před Next.js, mimo tuto pipeline – na kořen zvolený volajícím a vrací čerstvě vytvořené Basic pověření, `DELETE` je rotuje a rodičovský `POST` ukládá token Obsidian REST API. GHSA-62vw pouze maskovalo odhalení hesla `GET`; vydávání bylo stále na úrovni fail-open (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` navíc odmítá trezor, který je, nachází se uvnitř nebo obsahuje datový adresář.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Bootstrap čerstvé instalace je pouze loopback – skutečným peerem, nikoli `Host`
 

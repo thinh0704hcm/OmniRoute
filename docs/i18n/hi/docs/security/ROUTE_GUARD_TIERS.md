@@ -87,6 +87,8 @@
 - **403 को क्लाइंट IP को लूपबैक के रूप में जाली बनाकर "ठीक" न करें।** `X-Forwarded-For: 127.0.0.1` सेट करना, या एक प्रॉक्सी जो स्रोत पते को लूपबैक में फिर से लिखता है, ठीक उसी RCE वर्ग को फिर से खोलता है जिसे यह टियर बंद करता है। डैशबोर्ड/API को प्रॉक्सी के माध्यम से उजागर करें — कभी भी स्पॉन-सक्षम मार्गों को नहीं।
 - **प्रबंध-स्कोप बाईपास को न्यूनतम रखें।** केवल `/api/mcp/` ही बाईपास करने योग्य है, और वह भी केवल `manage`-स्कोप वाली API कुंजी के साथ। `SPAWN_CAPABLE_PREFIXES` को कभी भी बाईपास सूची में नहीं जोड़ा जा सकता है — `zod` स्कीमा उन्हें अस्वीकृत करता है और `isLocalOnlyBypassableByManageScope` उन्हें रनटाइम पर अस्वीकार करता है (गहराई में बचाव), जिसका अर्थ डैशबोर्ड के "बाईपास करने योग्य नहीं बनाया जा सकता" से है। `/api/providers/` के तहत डायनामिक-सेगमेंट और स्टैटिक-पाथ स्पॉन-सक्षम मार्ग (जैसे `/login`, `/refresh-cursor`) `src/shared/constants/spawnCapablePrefixes.ts` में `regex`-आधारित `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` साथी द्वारा कवर किए जाते हैं, न कि फ्लैट `SPAWN_CAPABLE_PREFIXES` सरणी द्वारा — फ्लैट सरणी को उन्हें पकड़ने के लिए पूरे `/api/providers/` उपसर्ग को कवर करना होगा, जिससे एक मार्ग ट्री का अत्यधिक विस्तार होगा जिसका दूरस्थ डैशबोर्ड प्रदाता CRUD के लिए वैध रूप से उपयोग करते हैं।
 
+  रनटाइम स्नैपशॉट लोडर सहेजी गई सेटिंग पंक्ति से भी ऐसी प्रविष्टियाँ हटा देता है, और पुराना JSON आयात (`/api/settings/import-json`) बायपास कुंजियाँ कभी नहीं लिखता। `LOCAL_ONLY_API_PREFIXES` की हर प्रविष्टि या तो निषेध सूची में होनी चाहिए या समीक्षा के बाद बायपास के योग्य स्वीकृत होनी चाहिए। (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **पहुँच का ऑडिट करना** — यह सत्यापित करने के लिए कि कोई भी ऑफ-होस्ट इन मार्गों तक नहीं पहुँच रहा है:
 
 - `/dashboard/settings/security` पर **Authorization Inventory** खोलें: यह लाइव LOCAL_ONLY प्रीफिक्स सूची को प्रस्तुत करता है, जिसमें बताया गया है कि कौन से प्रीफिक्स बायपास किए जा सकते हैं, और कंपाइल-टाइम स्पॉन-सक्षम ("बायपास नहीं किए जा सकते") सेट को भी।
@@ -113,6 +115,23 @@
 **उल्लंघन पर प्रतिक्रिया:** `401 Authentication required`
 
 `/api/settings/obsidian` अपने `/webdav` चाइल्ड को कवर करता है: `POST` WebDAV फ़ाइल सेवा को — Next.js से पहले कस्टम Node लेयर द्वारा, इस पाइपलाइन के बाहर — एक कॉलर-चुने हुए रूट पर इंगित करता है और नए बनाए गए बेसिक क्रेडेंशियल को इको करता है, `DELETE` उन्हें घुमाता है, और पैरेंट `POST` Obsidian REST API टोकन को संग्रहीत करता है। GHSA-62vw ने केवल `GET` पासवर्ड के प्रकटीकरण को छिपाया; जारी करना अभी भी फेल-ओपन टियर पर था (GHSA-7pq4-8pvv-rx7r)। `enableObsidianVaultSync()` इसके अतिरिक्त एक वॉल्ट को अस्वीकार करता है जो डेटा डायरेक्टरी है, उसके अंदर स्थित है, या उसे समाहित करता है।
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### फ्रेश-इंस्टॉल बूटस्ट्रैप केवल लूपबैक है — वास्तविक पीयर द्वारा, `Host` द्वारा नहीं
 

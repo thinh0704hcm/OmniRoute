@@ -108,6 +108,8 @@ local-only
 - **อย่า "แก้ไข" 403 ด้วยการปลอม IP ของไคลเอนต์ให้เป็นลูปแบ็ก** การตั้งค่า `X-Forwarded-For: 127.0.0.1` หรือใช้พร็อกซีที่เขียนที่อยู่ต้นทางใหม่ให้เป็นลูปแบ็ก จะเปิดช่องโหว่คลาส RCE ที่ระดับนี้ปิดไว้ขึ้นมาอีกครั้ง เปิดเผยแดชบอร์ด/API ผ่านพร็อกซี — ห้ามเปิดเผยเส้นทางที่สามารถสร้างโพรเซสได้
 - **รักษาข้อยกเว้นสำหรับขอบเขต manage ให้เหลือน้อยที่สุด** มีเพียง `/api/mcp/` เท่านั้นที่ข้ามข้อจำกัดได้ และต้องใช้ API key ที่มีขอบเขต `manage` เท่านั้น ห้ามเพิ่ม `SPAWN_CAPABLE_PREFIXES` ลงในรายการข้อยกเว้นโดยเด็ดขาด — สคีมา zod จะปฏิเสธ และ `isLocalOnlyBypassableByManageScope` จะไม่อนุญาตขณะรันไทม์ (การป้องกันเชิงลึก) ซึ่งเป็นสิ่งที่แดชบอร์ดหมายถึงเมื่อระบุว่า "ไม่สามารถทำให้ข้ามข้อจำกัดได้" เส้นทางที่สามารถสร้างโพรเซสซึ่งมีเซกเมนต์แบบไดนามิกและเส้นทางแบบคงที่ภายใต้ `/api/providers/` (เช่น `/login`, `/refresh-cursor`) ครอบคลุมโดยคู่ `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` ที่อิง regex ใน `src/shared/constants/spawnCapablePrefixes.ts` ไม่ใช่อาร์เรย์แบบแบน `SPAWN_CAPABLE_PREFIXES` — อาร์เรย์แบบแบนจะต้องครอบคลุมคำนำหน้า `/api/providers/` ทั้งหมดจึงจะตรวจจับเส้นทางเหล่านี้ได้ ซึ่งจะขยายขอบเขตของแผนผังเส้นทางมากเกินไป ทั้งที่แดชบอร์ดระยะไกลมีการใช้งานอย่างถูกต้องสำหรับ CRUD ของผู้ให้บริการ
 
+  ตัวโหลดสแนปช็อตขณะรันจะตัดรายการเหล่านี้ออกจากแถวการตั้งค่าที่บันทึกไว้ด้วย และการนำเข้า JSON แบบเดิม (`/api/settings/import-json`) จะไม่เขียนคีย์สำหรับข้ามการป้องกันเด็ดขาด แต่ละรายการใน `LOCAL_ONLY_API_PREFIXES` ต้องอยู่ในรายการปฏิเสธ หรือผ่านการตรวจสอบว่าอนุญาตให้ข้ามการป้องกันได้ (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **การตรวจสอบการเข้าถึง** — เพื่อยืนยันว่าไม่มีสิ่งใดจากภายนอกโฮสต์กำลังเข้าถึงเส้นทางเหล่านี้:
 
 - เปิด **คลังข้อมูลการอนุญาต** บน `/dashboard/settings/security`: หน้านี้จะแสดงรายการคำนำหน้า LOCAL_ONLY ที่ใช้งานอยู่แบบเรียลไทม์ คำนำหน้าใดบ้างที่สามารถข้ามได้ และชุดที่สามารถสร้างโพรเซสได้ซึ่งกำหนดไว้ ณ เวลาคอมไพล์ ("ไม่สามารถทำให้ข้ามได้")
@@ -139,6 +141,23 @@ local-only
 โทเค็น REST API ของ Obsidian GHSA-62vw ปกปิดเพียงการเปิดเผยรหัสผ่านผ่าน `GET`; การออกข้อมูลรับรอง
 ยังคงอยู่ในระดับที่เปิดให้ผ่านเมื่อเกิดข้อผิดพลาด (GHSA-7pq4-8pvv-rx7r) นอกจากนี้ `enableObsidianVaultSync()`
 ยังปฏิเสธ vault ที่เป็นไดเรกทอรีข้อมูล อยู่ภายในไดเรกทอรีข้อมูล หรือครอบคลุมไดเรกทอรีข้อมูล
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### การบูตสแตรปของการติดตั้งใหม่จำกัดไว้เฉพาะ loopback — โดยพิจารณาจาก peer จริง ไม่ใช่ `Host`
 

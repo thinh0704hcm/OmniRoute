@@ -54,7 +54,9 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     // #15513: added Antigravity/Gemini image edits support branch, 6->7.
     // #14269: SYNTX.ai image edits branch, same quota-preflight credential lookup
     // shape as the sibling provider branches, 7->8.
-    "src/app/api/v1/images/edits/route.ts": 8,
+    // #14619 extracted Firefly's credential lookup into adobeFireflyEdit.ts;
+    // the same class-B site moves with it, 8->7 here and 0->1 in the helper.
+    "src/app/api/v1/images/edits/route.ts": 7,
     "src/app/api/v1/images/generations/route.ts": 3,
     "src/app/api/v1/images/upscale/route.ts": 1,
     "src/app/api/v1/messages/count_tokens/route.ts": 1,
@@ -81,6 +83,7 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     // #15761: local embeddings resolve credentials through the serving-connection allowlist
     // (getProviderCredentials(provider, null, servingIds)) — one more site (3 -> 4).
     "src/lib/embeddings/service.ts": 4,
+    "src/lib/images/adobeFireflyEdit.ts": 1,
     // PR #11390: second site is the generic derived-provider listing fallback —
     // read-only key presence probe used to decide whether a configured chat
     // provider may appear in the memory embedding-source dropdown.
@@ -259,6 +262,9 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     // read, not connection selection or dispatch, class C like its siblings (3 -> 4).
     "src/lib/tokenHealthCheck.ts": 4,
     "src/lib/tokenHealthCheckCopilot.ts": 1,
+    // Selective provider-account transfer: one read of every connection to build the
+    // catalog, the export selection and the import match set. Read-only state, no dispatch.
+    "src/lib/transfer/providerTransfer.ts": 1,
     "src/lib/usage/callLogs.ts": 1,
     "src/lib/usage/codexResetCredits.ts": 1,
     "src/lib/usage/comboScoringInspector.ts": 1,
@@ -268,6 +274,11 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     // ACTIVE exclusive lease defers redemption (409 exclusive_lease_active).
     "src/lib/usage/grokResetCredits.ts": 1,
     "src/lib/usage/providerLimits.ts": 4,
+    // #4305 port: after a confirmed reset-credit redemption (whose caller already passed
+    // the auxiliary-lease gate) the row is re-read only to check its terminal/codex-scope
+    // state before lifting the local quota cooldown — a state read, never connection
+    // selection or dispatch, so class C.
+    "src/lib/usage/resetCreditCooldownRelease.ts": 1,
     "src/lib/usage/resilienceExplain.ts": 1,
     "src/lib/usage/usageStats.ts": 1,
     "src/lib/vncSession/service.ts": 2,

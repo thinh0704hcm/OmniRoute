@@ -124,6 +124,8 @@ Tunnel، Tailscale، Ngrok) کے پیچھے چلاتے ہیں تو لوپ بیک
   مکمل `/api/providers/` سابقہ کور کرنا پڑتا، جس سے روٹ ٹری ضرورت سے زیادہ وسیع ہو جاتی
   جسے ریموٹ ڈیش بورڈز فراہم کنندہ CRUD کے لیے جائز طور پر استعمال کرتے ہیں۔
 
+  رن ٹائم اسنیپ شاٹ لوڈر محفوظ شدہ ترتیبات کی قطار سے بھی ایسی اندراجات نکال دیتا ہے، اور پرانی JSON درآمد (`/api/settings/import-json`) بائی پاس کلیدیں کبھی نہیں لکھتی۔ `LOCAL_ONLY_API_PREFIXES` کی ہر اندراج یا تو ممانعت کی فہرست میں ہونی چاہیے یا جائزے کے بعد بائی پاس کے لیے منظور شدہ ہونی چاہیے۔ (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **رسائی کی آڈیٹنگ** — یہ تصدیق کرنے کے لیے کہ میزبان سے باہر کی کوئی چیز ان روٹس تک نہیں پہنچ رہی:
 
 - `/dashboard/settings/security` پر **Authorization Inventory** کھولیں: یہ براہِ راست LOCAL_ONLY سابقوں کی فہرست، وہ سابقے جنہیں بائی پاس کیا جا سکتا ہے، اور کمپائل کے وقت متعین spawn کی صلاحیت رکھنے والا ("جنہیں بائی پاس کے قابل نہیں بنایا جا سکتا") مجموعہ دکھاتا ہے۔
@@ -155,6 +157,23 @@ Tunnel، Tailscale، Ngrok) کے پیچھے چلاتے ہیں تو لوپ بیک
 Obsidian REST API ٹوکن محفوظ کرتا ہے۔ GHSA-62vw نے صرف `GET` کے ذریعے پاس ورڈ ظاہر ہونے کو چھپایا تھا؛ اسناد کا اجرا
 اب بھی fail-open درجے پر تھا (GHSA-7pq4-8pvv-rx7r)۔ `enableObsidianVaultSync()` اضافی طور پر
 ایسے vault کو مسترد کرتا ہے جو data directory ہی ہو، اس کے اندر واقع ہو، یا اسے اپنے اندر رکھتا ہو۔
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### نئی تنصیب کا bootstrap صرف loopback کے لیے ہے — حقیقی peer کی بنیاد پر، `Host` کی بنیاد پر نہیں
 

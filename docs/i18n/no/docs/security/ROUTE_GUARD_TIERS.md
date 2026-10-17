@@ -139,6 +139,8 @@ operatøransvar gjenstår:
   hele prefikset `/api/providers/` for å fange dem, noe som ville gjort et rutetre
   som eksterne kontrollpaneler legitimt bruker til CRUD-operasjoner for leverandører, for bredt.
 
+  Lasteren for runtime-øyeblikksbilder fjerner også slike oppføringer fra en lagret innstillingsrad, og den eldre JSON-importen (`/api/settings/import-json`) skriver aldri bypass-nøklene. Hver oppføring i `LOCAL_ONLY_API_PREFIXES` må være på avvisningslisten eller være gjennomgått og godkjent for bypass. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Revisjon av tilgang** — slik bekrefter du at ingenting utenfor verten når disse rutene:
 
 - Åpne **Autorisasjonsoversikten** på `/dashboard/settings/security`: Den viser den
@@ -178,6 +180,23 @@ valgt av kalleren, og returnerer nyutstedt Basic-legitimasjon, `DELETE` roterer 
 passordet via `GET`; utstedelsen befant seg fortsatt på nivået som feiler åpent
 (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` avviser i tillegg et hvelv som er datakatalogen,
 befinner seg i den eller inneholder den.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Oppstart av en ny installasjon er begrenset til loopback — basert på faktisk motpart, ikke `Host`
 

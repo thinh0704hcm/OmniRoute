@@ -105,6 +105,8 @@ Si ejecuta OmniRoute detrás de un proxy inverso o túnel (nginx, Caddy, Cloudfl
 - **No "solucione" un 403 falsificando la IP del cliente como loopback.** Establecer `X-Forwarded-For: 127.0.0.1`, o un proxy que reescriba la dirección de origen a loopback, reabre exactamente la clase de RCE que esta capa cierra. Exponga el panel de control/API a través del proxy — nunca las rutas capaces de iniciar procesos.
 - **Mantenga la omisión del ámbito de gestión al mínimo.** Solo `/api/mcp/` es omitible, y solo con una clave API con ámbito `manage`. Los `SPAWN_CAPABLE_PREFIXES` nunca pueden añadirse a la lista de omisión — el esquema zod los rechaza y `isLocalOnlyBypassableByManageScope` los deniega en tiempo de ejecución (defensa en profundidad), que es lo que el panel de control quiere decir con "no se puede hacer omitible". Las rutas capaces de iniciar procesos con segmentos dinámicos y rutas estáticas bajo `/api/providers/` (por ejemplo, `/login`, `/refresh-cursor`) están cubiertas por el compañero basado en expresiones regulares `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` en `src/shared/constants/spawnCapablePrefixes.ts`, no por el array plano `SPAWN_CAPABLE_PREFIXES` — el array plano tendría que cubrir todo el prefijo `/api/providers/` para detectarlas, ampliando demasiado un árbol de rutas que los paneles de control remotos utilizan legítimamente para el CRUD del proveedor.
 
+  El cargador de instantáneas de ejecución también descarta esas entradas de una fila de configuración almacenada, y la importación JSON heredada (`/api/settings/import-json`) nunca escribe las claves de bypass. Cada entrada de `LOCAL_ONLY_API_PREFIXES` debe estar en la lista de denegación o haber sido revisada como apta para bypass. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Auditoría de acceso** — para verificar que nada fuera del host está llegando a estas rutas:
 
 - Abrir el **Inventario de Autorización** en `/dashboard/settings/security`: muestra la lista de prefijos LOCAL_ONLY en vivo, qué prefijos son eludibles, y el conjunto compilado en tiempo de ejecución capaz de generar ("no se puede hacer eludible").
@@ -131,6 +133,23 @@ Estas rutas son destructivas o irreversibles. Permitirlas en una instalación "s
 **Respuesta en caso de violación:** `401 Authentication required`
 
 `/api/settings/obsidian` cubre su hijo `/webdav`: `POST` apunta el servicio de archivos WebDAV — servido por la capa Node personalizada antes de Next.js, fuera de este pipeline — a una raíz elegida por el llamador y devuelve credenciales Basic recién generadas, `DELETE` las rota, y el `POST` padre almacena el token de la API REST de Obsidian. GHSA-62vw solo enmascaró la revelación de contraseña `GET`; la emisión todavía estaba en el nivel de "fail-open" (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` además rechaza una bóveda que es, se encuentra dentro o contiene el directorio de datos.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### El arranque de una instalación nueva es solo de bucle invertido — por par real, no por `Host`
 

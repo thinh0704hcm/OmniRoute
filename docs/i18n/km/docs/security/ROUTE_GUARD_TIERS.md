@@ -141,6 +141,8 @@ process ខាងលើ — request ដែលអាសយដ្ឋាន client 
   prefix `/api/providers/` ទាំងមូល ដើម្បីចាប់ពួកវា ដែលនឹងធ្វើឱ្យវិសាលភាពរបស់ route tree ទូលំទូលាយ
   លើសកម្រិត ខណៈដែល dashboard ពីចម្ងាយប្រើប្រាស់ដោយស្របច្បាប់សម្រាប់ CRUD របស់ provider។
 
+  កម្មវិធីផ្ទុក snapshot ពេលដំណើរការក៏ដកធាតុទាំងនេះចេញពីជួរដេកការកំណត់ដែលបានរក្សាទុក ហើយការនាំចូល JSON ចាស់ (`/api/settings/import-json`) មិនដែលសរសេរសោសម្រាប់រំលងការការពារឡើយ។ ធាតុនីមួយៗក្នុង `LOCAL_ONLY_API_PREFIXES` ត្រូវស្ថិតក្នុងបញ្ជីបដិសេធ ឬត្រូវបានពិនិត្យ និងអនុម័តថាអាចរំលងការការពារបាន។ (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **ការធ្វើសវនកម្មលើការចូលប្រើ** — ដើម្បីផ្ទៀងផ្ទាត់ថា គ្មានអ្វីពីក្រៅ host កំពុងចូលដល់ route ទាំងនេះ៖
 
 - បើក **Authorization Inventory** នៅ `/dashboard/settings/security`៖ វាបង្ហាញបញ្ជីបុព្វបទ LOCAL_ONLY ដែលកំពុងប្រើ បុព្វបទណាខ្លះដែលអាចរំលងបាន និងសំណុំដែលអាចបង្កើតដំណើរការ (spawn-capable) ដែលកំណត់នៅពេល compile ("មិនអាចកំណត់ឱ្យរំលងបាន")។
@@ -174,6 +176,23 @@ server បាន។
 រក្សាទុក token របស់ Obsidian REST API។ GHSA-62vw បានត្រឹមតែបិទបាំងការបង្ហាញពាក្យសម្ងាត់តាម `GET`; ការចេញព័ត៌មានសម្គាល់
 នៅតែស្ថិតលើកម្រិត fail-open (GHSA-7pq4-8pvv-rx7r)។ `enableObsidianVaultSync()` បន្ថែមពីនេះ
 ក៏បដិសេធ vault ដែលជាថតទិន្នន័យ ស្ថិតនៅខាងក្នុងថតទិន្នន័យ ឬមានថតទិន្នន័យនៅខាងក្នុងវា។
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### ការចាប់ផ្ដើមដំបូងសម្រាប់ការដំឡើងថ្មី អនុញ្ញាតតែ loopback ប៉ុណ្ណោះ — ផ្អែកលើ peer ពិត មិនមែន `Host`
 

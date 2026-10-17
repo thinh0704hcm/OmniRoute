@@ -4,6 +4,16 @@ import { getVertexModelTargetFormat } from "./vertexModels.ts";
 // Lazy PROVIDER_MODELS: deferred until first property access to speed up startup.
 // The Proxy defers `generateModels()` from module-evaluation time to the first read.
 let _models: Record<string, RegistryModel[]> | null = null;
+
+// #16814 — memo for the exact-id / scoresAs lookups below. Both used to scan every provider
+// array per call, which made auto/* scoring O(candidates x registry). Cleared whenever the
+// registry is mutated through the Proxy (set / deleteProperty) and by resetRegistryLookupCache().
+const _modelByIdMemo = new Map<string, RegistryModel | undefined>();
+const _scoresAsMemo = new Map<string, string | undefined>();
+export function resetRegistryLookupCache(): void {
+  _modelByIdMemo.clear();
+  _scoresAsMemo.clear();
+}
 function initModels(): Record<string, RegistryModel[]> {
   if (!_models) _models = generateModels();
   return _models;
@@ -30,10 +40,12 @@ export const PROVIDER_MODELS: Record<string, RegistryModel[]> = new Proxy(
     set(_, prop, value) {
       if (typeof prop === "symbol") return false;
       (initModels() as Record<string, RegistryModel[]>)[prop] = value;
+      resetRegistryLookupCache();
       return true;
     },
     deleteProperty(_, prop) {
       if (typeof prop === "symbol") return false;
+      resetRegistryLookupCache();
       return Reflect.deleteProperty(initModels(), prop);
     },
   }
@@ -158,6 +170,13 @@ function getGlobalModel(modelId: string): RegistryModel | undefined {
  */
 export function findRegistryModelById(modelId: string): RegistryModel | undefined {
   if (typeof modelId !== "string" || modelId.length === 0) return undefined;
+  if (_modelByIdMemo.has(modelId)) return _modelByIdMemo.get(modelId);
+  const found = scanRegistryModelById(modelId);
+  _modelByIdMemo.set(modelId, found);
+  return found;
+}
+
+function scanRegistryModelById(modelId: string): RegistryModel | undefined {
   for (const models of Object.values(PROVIDER_MODELS)) {
     const found = models.find((m) => m.id === modelId);
     if (found) return found;
@@ -179,6 +198,13 @@ export function findRegistryModelById(modelId: string): RegistryModel | undefine
  */
 export function findRegistryScoresAs(modelId: string): string | undefined {
   if (typeof modelId !== "string" || modelId.length === 0) return undefined;
+  if (_scoresAsMemo.has(modelId)) return _scoresAsMemo.get(modelId);
+  const found = scanRegistryScoresAs(modelId);
+  _scoresAsMemo.set(modelId, found);
+  return found;
+}
+
+function scanRegistryScoresAs(modelId: string): string | undefined {
   const basename = modelId.split("/").pop() || modelId;
   for (const models of Object.values(PROVIDER_MODELS)) {
     for (const m of models) {
@@ -295,6 +321,16 @@ export function getModelTargetFormat(aliasOrId: string, modelId: string): string
     alias === "ghe-copilot" &&
     /^gpt-6/i.test(bareModelId) &&
     !/gemini|claude/i.test(bareModelId)
+  ) {
+    return "openai-responses";
+  }
+  // The gh executors send any *codex* id to /responses (9router#102);
+  // keep the body in Responses shape too, or an uncatalogued codex id goes out as
+  // a chat-completions body on the Responses endpoint.
+  if (
+    (alias === "gh" || alias === "ghe-copilot") &&
+    /codex/i.test(bareModelId) &&
+    !/gemini/i.test(bareModelId)
   ) {
     return "openai-responses";
   }

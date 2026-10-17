@@ -120,7 +120,7 @@ export const SEARCH_PROVIDERS: Record<string, SearchProviderConfig> = {
     authHeader: "bearer",
     costPerQuery: 0.008,
     freeMonthlyQuota: 1000,
-    searchTypes: ["web", "news"],
+    searchTypes: ["web", "news", "finance"],
     defaultMaxResults: 5,
     maxMaxResults: 20,
     timeoutMs: 10_000,

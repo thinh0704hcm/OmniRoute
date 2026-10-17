@@ -143,6 +143,8 @@ JWT が漏洩してもプロセス起動には到達できません。ただし�
   カバーする必要があり、リモートダッシュボードがプロバイダーの CRUD に正当に使用する
   ルートツリーまで過度に対象を広げてしまいます。
 
+  ランタイムのスナップショットローダーも、保存済み設定行からこれらのエントリを除外します。また、従来の JSON インポート（`/api/settings/import-json`）がバイパス用のキーを書き込むことはありません。`LOCAL_ONLY_API_PREFIXES` の各エントリは、拒否リストに含まれるか、レビューによってバイパス可能と承認されている必要があります。 (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **アクセスの監査** — ホスト外部からこれらのルートに到達していないことを確認するには:
 
 - `/dashboard/settings/security` で **認可インベントリ** を開きます。ここには、
@@ -181,6 +183,23 @@ JWT が漏洩してもプロセス起動には到達できません。ただし�
 Obsidian REST API トークンを保存します。GHSA-62vw で隠されたのは `GET` によるパスワードの公開だけであり、発行処理は
 依然としてフェイルオープンの Tier にありました（GHSA-7pq4-8pvv-rx7r）。`enableObsidianVaultSync()` はさらに、
 データディレクトリそのもの、その内部にある、またはデータディレクトリを含む vault を拒否します。
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### 新規インストール時のブートストラップはループバック専用 — `Host` ではなく実際のピアに基づく
 

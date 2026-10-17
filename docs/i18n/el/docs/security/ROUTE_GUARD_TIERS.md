@@ -105,6 +105,8 @@
 - **Μην "διορθώνετε" ένα 403 πλαστογραφώντας την IP του πελάτη ως loopback.** Η ρύθμιση `X-Forwarded-For: 127.0.0.1`, ή ένας διακομιστής μεσολάβησης που ξαναγράφει τη διεύθυνση προέλευσης σε loopback, ανοίγει ξανά ακριβώς την κατηγορία RCE που κλείνει αυτό το επίπεδο. Εκθέστε τον πίνακα ελέγχου/API μέσω του διακομιστή μεσολάβησης — ποτέ τις διαδρομές με δυνατότητα εκκίνησης.
 - **Διατηρήστε την παράκαμψη πεδίου διαχείρισης στο ελάχιστο.** Μόνο το `/api/mcp/` μπορεί να παρακαμφθεί, και μόνο με ένα κλειδί API με πεδίο `manage`. Τα `SPAWN_CAPABLE_PREFIXES` δεν μπορούν ποτέ να προστεθούν στη λίστα παράκαμψης — το σχήμα zod τα απορρίπτει και το `isLocalOnlyBypassableByManageScope` τα αρνείται κατά την εκτέλεση (άμυνα σε βάθος), κάτι που είναι αυτό που εννοεί ο πίνακας ελέγχου με το "δεν μπορεί να γίνει παρακάμψιμο". Οι διαδρομές με δυνατότητα εκκίνησης δυναμικού τμήματος και στατικής διαδρομής κάτω από το `/api/providers/` (π.χ. `/login`, `/refresh-cursor`) καλύπτονται από το συνοδευτικό `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` που βασίζεται σε regex στο `src/shared/constants/spawnCapablePrefixes.ts`, όχι από τον επίπεδο πίνακα `SPAWN_CAPABLE_PREFIXES` — ο επίπεδος πίνακας θα έπρεπε να καλύπτει ολόκληρο το πρόθεμα `/api/providers/` για να τις πιάσει, διευρύνοντας υπερβολικά ένα δέντρο διαδρομών που οι απομακρυσμένοι πίνακες ελέγχου χρησιμοποιούν νόμιμα για CRUD παρόχων.
 
+  Ο φορτωτής στιγμιοτύπων χρόνου εκτέλεσης απορρίπτει επίσης αυτές τις εγγραφές από μια αποθηκευμένη γραμμή ρυθμίσεων, ενώ η παλαιά εισαγωγή JSON (`/api/settings/import-json`) δεν γράφει ποτέ τα κλειδιά παράκαμψης. Κάθε εγγραφή στο `LOCAL_ONLY_API_PREFIXES` πρέπει είτε να βρίσκεται στη λίστα άρνησης είτε να έχει ελεγχθεί και εγκριθεί για παράκαμψη. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Έλεγχος πρόσβασης** — για να επαληθεύσετε ότι τίποτα εκτός του κεντρικού υπολογιστή δεν φτάνει σε αυτές τις διαδρομές:
 
 - Ανοίξτε το **Authorization Inventory** στο `/dashboard/settings/security`: εμφανίζει τη ζωντανή λίστα προθεμάτων LOCAL_ONLY, ποια προθέματα μπορούν να παρακαμφθούν και το σύνολο που μπορεί να δημιουργηθεί κατά τη μεταγλώττιση ("δεν μπορεί να γίνει παρακάμψιμο").
@@ -131,6 +133,23 @@
 **Απόκριση σε παραβίαση:** `401 Απαιτείται έλεγχος ταυτότητας`
 
 Το `/api/settings/obsidian` καλύπτει το παιδί του `/webdav`: το `POST` δείχνει την υπηρεσία αρχείων WebDAV — που εξυπηρετείται από το προσαρμοσμένο επίπεδο Node πριν από το Next.js, εκτός αυτής της διοχέτευσης — σε μια ρίζα που επιλέγεται από τον καλούντα και επαναλαμβάνει τα πρόσφατα δημιουργημένα βασικά διαπιστευτήρια, το `DELETE` τα περιστρέφει και το γονικό `POST` αποθηκεύει το διακριτικό API REST του Obsidian. Το GHSA-62vw κάλυψε μόνο την αποκάλυψη κωδικού πρόσβασης `GET`. Η έκδοση ήταν ακόμα στο επίπεδο fail-open (GHSA-7pq4-8pvv-rx7r). Το `enableObsidianVaultSync()` επιπλέον αρνείται ένα θησαυροφυλάκιο που είναι, βρίσκεται μέσα ή περιέχει τον κατάλογο δεδομένων.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Η αρχική εκκίνηση είναι μόνο loopback — από πραγματικό ομότιμο, όχι `Host`
 

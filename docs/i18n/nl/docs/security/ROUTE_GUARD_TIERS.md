@@ -108,6 +108,8 @@ Als u OmniRoute achter een reverse proxy of tunnel uitvoert (nginx, Caddy, Cloud
 - **Probeer een 403 niet te 'verhelpen' door het client-IP als loopback te vervalsen.** Het instellen van `X-Forwarded-For: 127.0.0.1`, of het gebruik van een proxy die het bronadres herschrijft naar loopback, heropent precies de RCE-klasse die deze laag afsluit. Stel het dashboard/de API beschikbaar via de proxy — nooit de routes die processen kunnen starten.
 - **Houd de uitzondering voor het beheersbereik minimaal.** Alleen voor `/api/mcp/` is een uitzondering mogelijk, en alleen met een API-sleutel met het bereik `manage`. De `SPAWN_CAPABLE_PREFIXES` kunnen nooit aan de uitzonderingslijst worden toegevoegd — het zod-schema wijst ze af en `isLocalOnlyBypassableByManageScope` weigert ze tijdens runtime (gelaagde beveiliging). Dit is wat het dashboard bedoelt met 'kan niet geschikt worden gemaakt voor uitzonderingen'. Routes met dynamische segmenten en statische paden onder `/api/providers/` die processen kunnen starten (bijvoorbeeld `/login`, `/refresh-cursor`) worden gedekt door de op reguliere expressies gebaseerde aanvulling `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` in `src/shared/constants/spawnCapablePrefixes.ts`, niet door de platte array `SPAWN_CAPABLE_PREFIXES` — de platte array zou het volledige voorvoegsel `/api/providers/` moeten omvatten om ze te detecteren, waardoor een routestructuur die externe dashboards legitiem gebruiken voor CRUD-bewerkingen op providers te ruim zou worden beperkt.
 
+  De loader voor runtime-snapshots verwijdert zulke vermeldingen ook uit een opgeslagen instellingenrij, en de oudere JSON-import (`/api/settings/import-json`) schrijft nooit bypass-sleutels. Elke vermelding in `LOCAL_ONLY_API_PREFIXES` moet op de blokkeerlijst staan of na beoordeling voor bypass zijn goedgekeurd. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Toegang auditen** — om te controleren of deze routes niet vanaf externe hosts worden benaderd:
 
 - Open de **Authorization Inventory** op `/dashboard/settings/security`: deze toont de
@@ -146,6 +148,23 @@ door de aanroeper gekozen root en retourneert nieuw gegenereerde Basic-referenti
 de bovenliggende `POST` slaat het Obsidian REST API-token op. GHSA-62vw maskeerde alleen de onthulling van het
 wachtwoord via `GET`; de uitgifte bevond zich nog steeds in de fail-open-laag (GHSA-7pq4-8pvv-rx7r).
 `enableObsidianVaultSync()` weigert bovendien een vault die de datamap is, zich daarin bevindt of deze bevat.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Bootstrap van een nieuwe installatie is alleen beschikbaar via loopback — op basis van de echte peer, niet van `Host`
 

@@ -85,6 +85,11 @@ const HARD_GATED_INVENTORY: ReadonlyArray<{ path: string; why: string }> = [
   { path: "/api/db-backups/exportAll", why: "GHSA-mghq-58h3-qcqj" },
   { path: "/api/settings/export-json", why: "GHSA-v7g9-7f55-5g46" },
   { path: "/api/settings/import-json", why: "GHSA-v7g9-7f55-5g46" },
+  {
+    path: "/api/settings/transfer/export",
+    why: "returns the selected accounts' credentials (passphrase-sealed)",
+  },
+  { path: "/api/settings/transfer/import", why: "writes provider connections and credentials" },
   { path: "/api/settings/database", why: "irreversible database replace" },
   { path: "/api/shutdown", why: "stops the server" },
   // ── Hard-gated by the LOCAL_ONLY tier instead ────────────────────────────

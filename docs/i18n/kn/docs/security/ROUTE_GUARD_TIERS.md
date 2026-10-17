@@ -128,6 +128,8 @@ Tunnel, Tailscale, Ngrok) ಹಿಂದೆ ಚಲಾಯಿಸಿದರೆ, ಲೂ
   ಅನ್ನು ಒಳಗೊಳ್ಳಬೇಕಾಗುತ್ತದೆ; ಇದರಿಂದ ದೂರಸ್ಥ ಡ್ಯಾಶ್ಬೋರ್ಡ್ಗಳು ಪೂರೈಕೆದಾರರ CRUD ಗಾಗಿ
   ನ್ಯಾಯಸಮ್ಮತವಾಗಿ ಬಳಸುವ ಮಾರ್ಗ ವೃಕ್ಷವು ಅತಿಯಾಗಿ ವಿಸ್ತಾರಗೊಳ್ಳುತ್ತದೆ.
 
+  ರನ್‌ಟೈಮ್ ಸ್ನ್ಯಾಪ್‌ಶಾಟ್ ಲೋಡರ್ ಸಂಗ್ರಹಿಸಿದ ಸೆಟ್ಟಿಂಗ್‌ಗಳ ಸಾಲಿನಿಂದಲೂ ಇಂತಹ ನಮೂದುಗಳನ್ನು ತೆಗೆದುಹಾಕುತ್ತದೆ; ಹಳೆಯ JSON ಆಮದು (`/api/settings/import-json`) ಬೈಪಾಸ್ ಕೀಗಳನ್ನು ಎಂದಿಗೂ ಬರೆಯುವುದಿಲ್ಲ. `LOCAL_ONLY_API_PREFIXES` ನ ಪ್ರತಿಯೊಂದು ನಮೂದು ನಿರಾಕರಣಾ ಪಟ್ಟಿಯಲ್ಲಿರಬೇಕು ಅಥವಾ ಪರಿಶೀಲನೆಯ ನಂತರ ಬೈಪಾಸ್‌ಗೆ ಅರ್ಹವೆಂದು ಅನುಮೋದಿತವಾಗಿರಬೇಕು. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **ಪ್ರವೇಶದ ಲೆಕ್ಕಪರಿಶೋಧನೆ** — ಹೋಸ್ಟ್ನ ಹೊರಗಿನಿಂದ ಯಾವುದೂ ಈ ಮಾರ್ಗಗಳನ್ನು ತಲುಪುತ್ತಿಲ್ಲ
 ಎಂಬುದನ್ನು ಪರಿಶೀಲಿಸಲು:
 
@@ -167,6 +169,23 @@ server process ಅನ್ನು ಕೊನೆಗೊಳಿಸಬಹುದು.
 Obsidian REST API token ಅನ್ನು ಸಂಗ್ರಹಿಸುತ್ತದೆ. GHSA-62vw ಕೇವಲ `GET` password ಬಹಿರಂಗಪಡಿಸುವಿಕೆಯನ್ನು ಮರೆಮಾಚಿತು; credentials ನೀಡುವಿಕೆ
 ಇನ್ನೂ fail-open ಶ್ರೇಣಿಯಲ್ಲೇ ಇತ್ತು (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` ಹೆಚ್ಚುವರಿಯಾಗಿ
 data directory ಆಗಿರುವ, ಅದರೊಳಗಿರುವ ಅಥವಾ ಅದನ್ನು ಒಳಗೊಂಡಿರುವ vault ಅನ್ನು ನಿರಾಕರಿಸುತ್ತದೆ.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### ಹೊಸ ಸ್ಥಾಪನೆಯ bootstrap loopback ಗೆ ಮಾತ್ರ ಸೀಮಿತ — `Host` ಆಧಾರಿತವಲ್ಲ, ನೈಜ peer ಆಧಾರಿತ
 

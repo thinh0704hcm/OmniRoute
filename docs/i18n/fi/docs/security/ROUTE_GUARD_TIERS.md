@@ -103,6 +103,8 @@ Jos käytät OmniRoutea käänteisen välityspalvelimen tai tunnelin (nginx, Cad
 - **Älä "korjaa" 403-virhettä väärentämällä asiakkaan IP-osoitetta loopbackiksi.** Asetus `X-Forwarded-For: 127.0.0.1` tai välityspalvelin, joka uudelleenkirjoittaa lähdeosoitteen loopbackiksi, avaa uudelleen juuri sen RCE-luokan, jonka tämä taso sulkee. Paljasta hallintapaneeli/API välityspalvelimen kautta — älä koskaan käynnistyskykyisiä reittejä.
 - **Pidä hallintalaajuuden ohitus minimaalisena.** Vain `/api/mcp/` on ohitettavissa, ja vain `manage`-laajuuden API-avaimella. `SPAWN_CAPABLE_PREFIXES`-listaa ei voi koskaan lisätä ohituslistaan — zod-skeema hylkää ne ja `isLocalOnlyBypassableByManageScope` estää ne ajon aikana (syvyyssuojaus), mikä tarkoittaa hallintapaneelin ilmaisua "ei voida tehdä ohitettavaksi". Dynaamiset segmentit ja staattiset polut käynnistyskykyisillä reiteillä `/api/providers/`-kohdassa (esim. `/login`, `/refresh-cursor`) katetaan regex-pohjaisella `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` -kumppanilla tiedostossa `src/shared/constants/spawnCapablePrefixes.ts`, ei tasaisella `SPAWN_CAPABLE_PREFIXES`-taulukolla — tasaisen taulukon pitäisi kattaa koko `/api/providers/`-etuliite niiden löytämiseksi, mikä laajentaisi liikaa reittipuuta, jota etähallintapaneelit laillisesti käyttävät palveluntarjoajan CRUD-toimintoihin.
 
+  Ajonaikaisen tilannekuvan lataaja poistaa tällaiset merkinnät myös tallennetulta asetusriviltä, eikä vanha JSON-tuonti (`/api/settings/import-json`) koskaan kirjoita ohitusavaimia. Jokaisen `LOCAL_ONLY_API_PREFIXES`-merkinnän on oltava estolistalla tai tarkastettu ohitukseen kelpaavaksi. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Pääsyn auditointi** — varmistaaksesi, ettei mikään isännän ulkopuolinen pääse näille reiteille:
 
 - Avaa **valtuutusinventaario** osoitteessa `/dashboard/settings/security`: se näyttää reaaliaikaisen LOCAL_ONLY-etuliiteluettelon, mitkä etuliitteet ovat ohitettavissa, ja käännösaikaisen käynnistyskykyisen ("ei voida tehdä ohitettavaksi") joukon.
@@ -129,6 +131,23 @@ Nämä reitit ovat tuhoisia tai peruuttamattomia. Niiden salliminen "ei-salasana
 **Vastaus rikkomuksesta:** `401 Authentication required`
 
 `/api/settings/obsidian` kattaa sen `/webdav`-alireitin: `POST` ohjaa WebDAV-tiedostopalvelun – jota tarjoaa mukautettu Node-kerros ennen Next.js:ää, tämän putkilinjan ulkopuolella – kutsujan valitsemaan juureen ja toistaa juuri luodut Basic-tunnukset, `DELETE` vaihtaa ne, ja pää-`POST` tallentaa Obsidian REST API -tunnuksen. GHSA-62vw peitti vain `GET`-salasanan paljastumisen; myöntäminen oli edelleen fail-open-tasolla (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` lisäksi kieltäytyy holvista, joka on, sijaitsee sisällä tai sisältää datahakemiston.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Uuden asennuksen käynnistys on vain silmukkaliitäntäinen – todellisen vertaislaitteen, ei `Host`-otsakkeen, kautta
 

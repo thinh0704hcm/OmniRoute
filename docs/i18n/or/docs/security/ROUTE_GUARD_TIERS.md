@@ -141,6 +141,8 @@ routeଗୁଡ଼ିକୁ ସୁରକ୍ଷିତ ରଖେ — ଯେଉଁ �
   ସମ୍ପୂର୍ଣ୍ଣ `/api/providers/` prefix ଆବୃତ କରିବାକୁ ପଡ଼ିବ, ଯାହା provider CRUD ପାଇଁ
   remote dashboardଗୁଡ଼ିକ ବୈଧ ଭାବେ ବ୍ୟବହାର କରୁଥିବା route treeକୁ ଅତ୍ୟଧିକ ବ୍ୟାପକ କରିଦେବ।
 
+  ରନଟାଇମ ସ୍ନାପସଟ ଲୋଡର ସଞ୍ଚିତ ସେଟିଂସ ପଙ୍କ୍ତିରୁ ମଧ୍ୟ ଏପରି ଏଣ୍ଟ୍ରିଗୁଡ଼ିକୁ ବାଦ ଦିଏ, ଏବଂ ପୁରୁଣା JSON ଆମଦାନି (`/api/settings/import-json`) ବାଇପାସ କୀଗୁଡ଼ିକୁ କେବେବି ଲେଖେ ନାହିଁ। `LOCAL_ONLY_API_PREFIXES` ର ପ୍ରତ୍ୟେକ ଏଣ୍ଟ୍ରି ନିଷେଧ ତାଲିକାରେ ରହିବା ଆବଶ୍ୟକ କିମ୍ବା ସମୀକ୍ଷା ପରେ ବାଇପାସ ପାଇଁ ଯୋଗ୍ୟ ଭାବେ ଅନୁମୋଦିତ ହୋଇଥିବା ଆବଶ୍ୟକ। (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **ପ୍ରବେଶ auditing** — off-hostରୁ କିଛି ମଧ୍ୟ ଏହି routeଗୁଡ଼ିକରେ ପହଞ୍ଚୁନାହିଁ ବୋଲି ଯାଞ୍ଚ କରିବା ପାଇଁ:
 
 - `/dashboard/settings/security`ରେ **ପ୍ରାଧିକରଣ ଇନଭେଣ୍ଟରି** ଖୋଲନ୍ତୁ: ଏହା ସକ୍ରିୟ LOCAL_ONLY ପ୍ରିଫିକ୍ସ ତାଲିକା, କେଉଁ ପ୍ରିଫିକ୍ସଗୁଡ଼ିକୁ ବାଇପାସ୍ କରାଯାଇପାରିବ, ଏବଂ କମ୍ପାଇଲ୍-ସମୟରେ ନିର୍ଦ୍ଧାରିତ
@@ -178,6 +180,23 @@ routeଗୁଡ଼ିକୁ ସୁରକ୍ଷିତ ରଖେ — ଯେଉଁ �
 Obsidian REST API ଟୋକନ୍ ସଂରକ୍ଷଣ କରେ। GHSA-62vw କେବଳ `GET` ପାସୱାର୍ଡ ପ୍ରକାଶକୁ ଲୁଚାଇଥିଲା; ଜାରିକରଣ
 ତଥାପି fail-open ସ୍ତରରେ ଥିଲା (GHSA-7pq4-8pvv-rx7r)। `enableObsidianVaultSync()` ଅତିରିକ୍ତ ଭାବରେ
 ଡାଟା ଡିରେକ୍ଟୋରୀ ସ୍ୱୟଂ ହୋଇଥିବା, ତାହା ଭିତରେ ଥିବା, କିମ୍ବା ତାହାକୁ ଧାରଣ କରୁଥିବା vaultକୁ ଅସ୍ୱୀକାର କରେ।
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### ନୂତନ ଇନ୍ଷ୍ଟଲେସନ୍ର ବୁଟ୍ଷ୍ଟ୍ରାପ୍ କେବଳ ଲୁପ୍ବ୍ୟାକ୍ ପାଇଁ — `Host` ଦ୍ୱାରା ନୁହେଁ, ପ୍ରକୃତ ପିଅର୍ ଦ୍ୱାରା
 

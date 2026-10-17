@@ -129,6 +129,8 @@ Operator တွင် တာဝန်နှစ်ရပ် ကျန်ရှိ
   တစ်ခုလုံးကို လွှမ်းခြုံရမည်ဖြစ်ပြီး၊ ယင်းက remote dashboard များသည် provider CRUD အတွက်
   တရားဝင်အသုံးပြုနေသော route tree ကို လိုအပ်သည်ထက် အလွန်ကျယ်ပြန့်စွာ ကန့်သတ်မိစေမည်ဖြစ်သည်။
 
+  လုပ်ဆောင်ချိန် အခြေအနေ snapshot ကို တင်ပေးသည့်စနစ်သည် သိမ်းထားသော setting အတန်းမှလည်း ထိုအချက်များကို ဖယ်ရှားပြီး အဟောင်း JSON import (`/api/settings/import-json`) သည် ကာကွယ်မှုကျော်လွှားရေး သော့များကို မည်သည့်အခါမျှ မရေးပါ။ `LOCAL_ONLY_API_PREFIXES` ရှိ အချက်တိုင်းသည် ပိတ်ပင်စာရင်းတွင် ပါရမည် သို့မဟုတ် စစ်ဆေးပြီး ကျော်လွှားရန် သင့်လျော်ကြောင်း အတည်ပြုထားရမည်။ (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **ဝင်ရောက်အသုံးပြုမှု စစ်ဆေးခြင်း** — host ပြင်ပမှ မည်သည့်အရာမျှ ဤ route များသို့ မရောက်ရှိကြောင်း အတည်ပြုရန်-
 
 - `/dashboard/settings/security` ရှိ **Authorization Inventory** ကို ဖွင့်ပါ။ ၎င်းသည် လက်ရှိအသုံးပြုနေသော LOCAL_ONLY ရှေ့ဆက်စာရင်း၊ ကျော်လွှားနိုင်သည့် ရှေ့ဆက်များနှင့် compile လုပ်ချိန်တွင် သတ်မှတ်ထားသည့်
@@ -166,6 +168,23 @@ custom Node layer က ပံ့ပိုးသည့် WebDAV file service က�
 Obsidian REST API token ကို သိမ်းဆည်းသည်။ GHSA-62vw သည် `GET` မှ စကားဝှက်ဖော်ပြမှုကိုသာ ဖုံးကွယ်ခဲ့ပြီး ထုတ်ပေးမှုမှာ
 fail-open tier ပေါ်တွင် ဆက်ရှိနေခဲ့သည် (GHSA-7pq4-8pvv-rx7r)။ ထို့အပြင် `enableObsidianVaultSync()` သည်
 data directory ကိုယ်တိုင်ဖြစ်သော၊ ၎င်းအတွင်းရှိသော သို့မဟုတ် ၎င်းကို အတွင်းတွင် ထည့်သွင်းထားသော vault တစ်ခုကို ငြင်းပယ်သည်။
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### အသစ်တပ်ဆင်မှု bootstrap သည် loopback အတွက်သာဖြစ်သည် — `Host` အရမဟုတ်ဘဲ peer အစစ်အရ
 

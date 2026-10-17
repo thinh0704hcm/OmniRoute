@@ -139,6 +139,8 @@ ya mwendeshaji yanasalia:
   `/api/providers/` ili kuzinasa, jambo ambalo lingepanua kupita kiasi mti wa njia ambao
   dashibodi za mbali hutumia kihalali kwa CRUD ya watoa huduma.
 
+  Kipakiaji cha picha ya hali ya wakati wa utekelezaji pia huondoa ingizo hizo kwenye safu ya mipangilio iliyohifadhiwa, na uingizaji wa zamani wa JSON (`/api/settings/import-json`) hauandiki kamwe funguo za kupita kinga. Kila ingizo la `LOCAL_ONLY_API_PREFIXES` lazima liwe katika orodha ya kukataliwa au liwe limekaguliwa na kuidhinishwa kupita kinga. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Kukagua ufikiaji** — ili kuthibitisha kuwa hakuna kitu kutoka nje ya seva kinachofikia njia hizi:
 
 - Fungua **Orodha ya Uidhinishaji** kwenye `/dashboard/settings/security`: inaonyesha
@@ -177,6 +179,23 @@ uliochaguliwa na mwitaji na kurudisha vitambulisho vipya vya Basic vilivyotolewa
 ya mzazi huhifadhi tokeni ya Obsidian REST API. GHSA-62vw ilificha tu ufichuaji wa nenosiri kupitia `GET`;
 utoaji bado ulikuwa kwenye kiwango kinachoruhusu ufikiaji iwapo uthibitishaji utashindwa (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` pia
 hukataa vault ambayo ni saraka ya data, iko ndani yake, au ina saraka hiyo.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Uanzishaji wa usakinishaji mpya ni wa loopback pekee — kwa peer halisi, si `Host`
 

@@ -145,6 +145,8 @@ responsibilidad ang operator:
   buong `/api/providers/` prefix upang mahuli ang mga ito, na magiging labis na pagpapalawak sa isang route tree
   na lehitimong ginagamit ng mga remote dashboard para sa provider CRUD.
 
+  Inaalis din ng loader ng runtime snapshot ang ganitong mga entry mula sa nakaimbak na hanay ng settings, at hindi kailanman isinusulat ng lumang JSON import (`/api/settings/import-json`) ang mga bypass key. Ang bawat entry sa `LOCAL_ONLY_API_PREFIXES` ay dapat nasa deny-list o nasuri at naaprubahan para sa bypass. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Pag-audit ng access** — upang matiyak na walang nakakaabot sa mga route na ito mula sa labas ng host:
 
 - Buksan ang **Imbentaryo ng Awtorisasyon** sa `/dashboard/settings/security`: ipinapakita nito ang
@@ -186,6 +188,23 @@ Itinago lamang ng GHSA-62vw ang pagbubunyag ng password sa `GET`; nanatili pa ri
 sa fail-open tier (GHSA-7pq4-8pvv-rx7r). Bukod dito, tinatanggihan ng
 `enableObsidianVaultSync()` ang vault na mismong data directory, nasa loob nito, o naglalaman
 dito.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Loopback-only ang bootstrap ng bagong pag-install — ayon sa tunay na peer, hindi sa `Host`
 

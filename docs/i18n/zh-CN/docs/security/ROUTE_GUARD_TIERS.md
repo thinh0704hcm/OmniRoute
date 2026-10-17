@@ -87,6 +87,8 @@
 - **不要通过伪造环回客户端 IP 来“修复”403。** 设置 `X-Forwarded-For: 127.0.0.1`，或使用将源地址重写为环回地址的代理，会重新引入此安全层所消除的 RCE 风险类型。通过代理公开仪表板/API — 切勿公开具备进程启动能力的路由。
 - **将管理作用域绕过保持在最小范围。** 只有 `/api/mcp/` 可以绕过，并且只能使用具有 `manage` 作用域的 API 密钥。`SPAWN_CAPABLE_PREFIXES` 永远不能添加到绕过列表中 — zod schema 会拒绝它们，且 `isLocalOnlyBypassableByManageScope` 会在运行时拒绝它们（纵深防御）；这就是仪表板中“无法设为可绕过”的含义。`/api/providers/` 下包含动态段和静态路径且具备进程启动能力的路由（例如 `/login`、`/refresh-cursor`）由 `src/shared/constants/spawnCapablePrefixes.ts` 中基于正则表达式的 `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` 配套项覆盖，而非扁平的 `SPAWN_CAPABLE_PREFIXES` 数组 — 若要使用该扁平数组捕获这些路由，就必须覆盖整个 `/api/providers/` 前缀，从而过度扩大路由树的限制范围，而远程仪表板需要合法使用该路由树进行提供者 CRUD 操作。
 
+  运行时快照加载器也会从已保存的设置行中剔除这些条目，而旧版 JSON 导入（`/api/settings/import-json`）绝不会写入绕过保护的键。`LOCAL_ONLY_API_PREFIXES` 的每个条目都必须位于拒绝列表中，或经过审核确认可以绕过保护。 (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **访问审计** — 要验证主机外部没有任何请求访问这些路由：
 
 - 在 `/dashboard/settings/security` 中打开 **Authorization Inventory**：它会呈现实时的 LOCAL_ONLY 前缀列表、哪些前缀可绕过，以及编译时确定的具备进程生成能力（“不可设为可绕过”）的集合。
@@ -113,6 +115,23 @@
 **违规响应：** `401 Authentication required`
 
 `/api/settings/obsidian` 涵盖其 `/webdav` 子项：`POST` 会让 WebDAV 文件服务——该服务由自定义 Node 层在 Next.js 之前提供，位于此管线之外——指向调用者选择的根目录，并回显新签发的 Basic 凭据；`DELETE` 会轮换这些凭据，而父级 `POST` 会存储 Obsidian REST API 令牌。GHSA-62vw 仅屏蔽了 `GET` 所泄露的密码；签发操作仍处于失效时开放的层级（GHSA-7pq4-8pvv-rx7r）。`enableObsidianVaultSync()` 还会拒绝以下保险库：其本身是数据目录、位于数据目录内，或包含数据目录。
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### 全新安装的引导仅限环回访问——依据真实对等端，而非 `Host`
 

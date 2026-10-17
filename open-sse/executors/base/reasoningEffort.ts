@@ -13,6 +13,7 @@ import {
   clampToLearned,
   REASONING_EFFORT_ORDER,
 } from "../../services/learnedReasoningEffortCaps.ts";
+import { isBasetenReasoningModel, mapBasetenReasoningParams } from "./basetenReasoning.ts";
 
 /**
  * Sanitize reasoning_effort for providers that don't accept all values.
@@ -326,6 +327,9 @@ export function sanitizeReasoningEffortForProvider(
   if (isNvidiaGlm52(provider, model)) {
     return mapNvidiaGlm52ReasoningParams(body, provider, model, log);
   }
+  if (isBasetenReasoningModel(provider, model)) {
+    return mapBasetenReasoningParams(body, provider, model, log);
+  }
 
   if (!body || typeof body !== "object" || Array.isArray(body)) return body;
   const b = body as Record<string, unknown>;
@@ -599,7 +603,17 @@ export function sanitizeReasoningEffortForProvider(
       isOpencodeGoProvider(provider) ||
       MAX_TIER_REASONING_MODEL_PATTERN.test(modelStr));
 
-  if (isMaxTierTarget && effortStr === "xhigh") {
+  // When OmniRoute has already learned this provider+model's accepted set and
+  // it lacks `max` (e.g. a custom OpenAI-compatible host serving deepseek-v4-*
+  // with a {..., high, xhigh} menu), the static rewrite would 400 forever:
+  // skip it and let the learned set decide (port of decolua/9router#3939).
+  const maxTierLearnedSet =
+    isMaxTierTarget && effortStr === "xhigh" ? getLearnedReasoningEffort(provider, modelStr) : null;
+  const learnedRejectsMax =
+    maxTierLearnedSet !== null && maxTierLearnedSet.size > 0 && !maxTierLearnedSet.has("max");
+  if (learnedRejectsMax && maxTierLearnedSet.has("xhigh")) return body;
+
+  if (isMaxTierTarget && effortStr === "xhigh" && !learnedRejectsMax) {
     log?.info?.(
       "REASONING_SANITIZE",
       `${provider}/${modelStr}: normalized reasoning_effort xhigh → max`

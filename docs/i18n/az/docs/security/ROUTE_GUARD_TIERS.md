@@ -87,6 +87,8 @@ OmniRoute-u bir tərs proksi və ya tunel (nginx, Caddy, Cloudflare Tunnel, Tail
 - **403 səhvini müştəri IP-sini loopback kimi saxtalaşdıraraq "düzəltməyin".** `X-Forwarded-For: 127.0.0.1` təyin etmək və ya mənbə ünvanını loopback-ə yenidən yazan bir proksi, bu səviyyənin bağladığı RCE sinfini tam olaraq yenidən açır. İdarəetmə panelini/API-ni proksi vasitəsilə ifşa edin — heç vaxt işə salma qabiliyyətli yolları deyil.
 - **İdarəetmə sahəsinin keçidini minimal saxlayın.** Yalnız `/api/mcp/` keçid edilə bilər və yalnız `manage` sahəli API açarı ilə. `SPAWN_CAPABLE_PREFIXES` heç vaxt keçid siyahısına əlavə edilə bilməz — zod sxemi onları rədd edir və `isLocalOnlyBypassableByManageScope` onları işləmə zamanı rədd edir (dərin müdafiə), bu da idarəetmə panelinin "keçid edilə bilməz" deməkdir. `/api/providers/` altında dinamik seqment və statik yol işə salma qabiliyyətli yollar (məsələn, `/login`, `/refresh-cursor`) `src/shared/constants/spawnCapablePrefixes.ts` faylında regex əsaslı `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` yoldaşı tərəfindən əhatə olunur, düz `SPAWN_CAPABLE_PREFIXES` massivi tərəfindən deyil — düz massiv onları tutmaq üçün bütün `/api/providers/` prefiksini əhatə etməli olardı ki, bu da uzaq idarəetmə panellərinin provayder CRUD üçün qanuni olaraq istifadə etdiyi bir yol ağacını həddən artıq genişləndirərdi.
 
+  İcra vaxtı ani görüntü yükləyicisi belə qeydləri saxlanmış parametrlər sətrindən də çıxarır, köhnə JSON idxalı (`/api/settings/import-json`) isə yan keçmə açarlarını heç vaxt yazmır. Hər `LOCAL_ONLY_API_PREFIXES` qeydi ya qadağa siyahısında olmalı, ya da yoxlanılaraq yan keçməyə uyğun sayılmalıdır. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Girişin auditi** — heç bir şeyin bu yollara hostdan kənar çatmadığını yoxlamaq üçün:
 
 - `/dashboard/settings/security` ünvanında **İcazə İnventarını** açın: o, canlı `LOCAL_ONLY` prefiks siyahısını, hansı prefikslərin bypass edilə bilən olduğunu və tərtib zamanı spawn-qabiliyyətli ("bypass edilə bilməyən") dəsti göstərir.
@@ -113,6 +115,23 @@ Bu marşrutlar dağıdıcı və ya geri dönməzdir. Onları "şifrəsiz" quraş
 **Pozuntu zamanı cavab:** `401 Authentication required`
 
 `/api/settings/obsidian` öz `/webdav` uşağını əhatə edir: `POST` WebDAV fayl xidmətini — bu boru kəmərindən kənarda, Next.js-dən əvvəl xüsusi Node qatında xidmət göstərilir — zəng edən tərəfindən seçilmiş kökə yönəldir və yeni yaradılmış Basic etimadnamələrini əks etdirir, `DELETE` onları dəyişdirir və valideyn `POST` Obsidian REST API tokenini saxlayır. GHSA-62vw yalnız `GET` şifrəsinin aşkar edilməsini maskaladı; buraxılış hələ də uğursuz-açıq səviyyədə idi (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` əlavə olaraq, verilənlər qovluğunda olan, onun içində yerləşən və ya onu ehtiva edən bir vault-u rədd edir.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Yeni quraşdırma bootstrap yalnız loopback-dir — real peer tərəfindən, `Host` tərəfindən deyil
 

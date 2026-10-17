@@ -615,7 +615,7 @@ export const v1SearchSchema = z.preprocess(
       // SEARCH_PROVIDER_ALIASES).
       provider: z.string().min(1).optional(),
       max_results: z.coerce.number().int().min(1).max(100).default(5),
-      search_type: z.enum(["web", "news", "x"]).default("web"),
+      search_type: z.enum(["web", "news", "x", "finance"]).default("web"),
       offset: z.coerce.number().int().min(0).default(0),
 
       // Locale

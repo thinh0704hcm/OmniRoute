@@ -108,6 +108,8 @@ Wenn Sie OmniRoute hinter einem Reverse-Proxy oder Tunnel (nginx, Caddy, Cloudfl
 - **Beheben Sie einen 403-Fehler nicht, indem Sie die Client-IP als Loopback fälschen.** Das Setzen von `X-Forwarded-For: 127.0.0.1` oder ein Proxy, der die Quelladresse auf Loopback umschreibt, öffnet genau die RCE-Klasse wieder, die diese Ebene schließt. Stellen Sie das Dashboard/die API über den Proxy bereit — niemals die spawn-fähigen Routen.
 - **Halten Sie den Manage-Scope-Bypass minimal.** Nur `/api/mcp/` ist umgehbar, und nur mit einem API-Schlüssel mit `manage`-Scope. Die `SPAWN_CAPABLE_PREFIXES` können niemals zur Bypass-Liste hinzugefügt werden — das Zod-Schema lehnt sie ab und `isLocalOnlyBypassableByManageScope` verweigert sie zur Laufzeit (Defence-in-Depth), was das Dashboard mit "cannot be made bypassable" meint. Dynamische Segment- und statische Pfad-Spawn-fähige Routen unter `/api/providers/` (z.B. `/login`, `/refresh-cursor`) werden durch die Regex-basierten `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` in `src/shared/constants/spawnCapablePrefixes.ts` abgedeckt, nicht durch das flache `SPAWN_CAPABLE_PREFIXES`-Array — das flache Array müsste das gesamte `/api/providers/`-Präfix abdecken, um sie zu erfassen, was einen Routenbaum, den Remote-Dashboards legitim für Provider-CRUD verwenden, zu stark erweitern würde.
 
+  Der Laufzeit-Snapshot-Loader verwirft solche Einträge auch aus einer gespeicherten Einstellungszeile, und der ältere JSON-Import (`/api/settings/import-json`) schreibt niemals die Bypass-Schlüssel. Jeder Eintrag in `LOCAL_ONLY_API_PREFIXES` muss auf der Sperrliste stehen oder nach Prüfung für einen Bypass zugelassen sein. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Zugriff auditieren** — um zu überprüfen, dass nichts von außerhalb des Hosts diese Routen erreicht:
 
 - Öffnen Sie das **Autorisierungsinventar** unter `/dashboard/settings/security`: Es zeigt die
@@ -146,6 +148,23 @@ und gibt frisch erstellte Basic-Anmeldeinformationen zurück, `DELETE` rotiert d
 das Obsidian REST API-Token. GHSA-62vw maskierte nur die `GET`-Passwortenthüllung; die Ausgabe erfolgte
 immer noch auf der Fail-Open-Stufe (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` lehnt zusätzlich
 einen Vault ab, der sich im Datenverzeichnis befindet, darin liegt oder es enthält.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Bootstrap bei Neuinstallation ist nur Loopback – durch echten Peer, nicht `Host`
 

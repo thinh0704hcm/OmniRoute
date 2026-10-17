@@ -46,6 +46,12 @@ import { sanitizeErrorMessage } from "../utils/error.ts";
 import { isValidContext7LibraryId } from "../executors/context7-fetch.ts";
 import { resolveSearchProxy, executeProviderFetch } from "./search/searchProxy.ts";
 import { formatSearchProviderFailure } from "./search/providerFailure.ts";
+import {
+  compactProviderRaw,
+  resolveExaPassthrough,
+  resolveTavilyPassthrough,
+  tavilyTopic,
+} from "./search/providerOptionsPassthrough.ts";
 
 export interface SearchResult {
   title: string;
@@ -134,7 +140,11 @@ const DEFAULT_GLOBAL_TIMEOUT_MS = 15_000;
 const MIN_SEARCH_TIMEOUT_MS = 1_000;
 const MAX_SEARCH_TIMEOUT_MS = 120_000;
 
-function clampSearchTimeoutMs(override: number | undefined, fallback: number, floor: number): number {
+function clampSearchTimeoutMs(
+  override: number | undefined,
+  fallback: number,
+  floor: number
+): number {
   if (typeof override !== "number" || !Number.isFinite(override)) return fallback;
   return Math.min(MAX_SEARCH_TIMEOUT_MS, Math.max(floor, Math.floor(override)));
 }
@@ -178,6 +188,7 @@ function makeResult(
     image_url?: string;
     full_text?: string;
     text_format?: string;
+    provider_raw?: Record<string, unknown> | null;
   },
   idx: number,
   now: string
@@ -202,7 +213,7 @@ function makeResult(
       image_url: item.image_url || null,
     },
     citation: { provider: providerId, retrieved_at: now, rank: idx + 1 },
-    provider_raw: null,
+    provider_raw: item.provider_raw ?? null,
   };
 }
 
@@ -432,13 +443,17 @@ function buildExaRequest(
   params: SearchRequestParams
 ): { url: string; init: RequestInit } {
   const { includes, excludes } = parseDomainFilter(params.domainFilter);
+  // provider_options.exa: allow-listed + Zod-validated (see providerOptionsPassthrough.ts).
+  const exa = resolveExaPassthrough(params.providerOptions, params.timeRange);
   const body: Record<string, unknown> = {
+    type: "auto",
+    ...exa.fields,
     query: params.query,
     numResults: params.maxResults,
-    type: "auto",
     contents: {
       text: true,
       highlights: true,
+      ...exa.contents,
     },
   };
   if (includes.length) body.includeDomains = includes;
@@ -463,9 +478,11 @@ function buildTavilyRequest(
 ): { url: string; init: RequestInit } {
   const { includes, excludes } = parseDomainFilter(params.domainFilter);
   const body: Record<string, unknown> = {
+    // provider_options.tavily: allow-listed + Zod-validated; generic fields below win.
+    ...resolveTavilyPassthrough(params.providerOptions, params.timeRange),
     query: params.query,
     max_results: params.maxResults,
-    topic: params.searchType === "news" ? "news" : "general",
+    topic: tavilyTopic(params.searchType),
   };
   if (includes.length) body.include_domains = includes;
   if (excludes.length) body.exclude_domains = excludes;
@@ -831,6 +848,14 @@ function normalizeExaResponse(
         image_url: item.image,
         full_text: item.text,
         text_format: "text",
+        provider_raw: compactProviderRaw({
+          id: item.id,
+          highlight_scores: item.highlightScores,
+          summary: item.summary,
+          subpages: item.subpages,
+          entities: item.entities,
+          extras: item.extras,
+        }),
       },
       idx,
       now
@@ -859,6 +884,7 @@ function normalizeTavilyResponse(
         published_at: item.published_date,
         full_text: item.raw_content,
         text_format: "text",
+        provider_raw: compactProviderRaw({ images: item.images, favicon: item.favicon }),
       },
       idx,
       now
@@ -1741,7 +1767,14 @@ async function tryProvider(
   const { query, searchType, maxResults } = params;
 
   if (config.id === "duckduckgo-free") {
-    return tryDuckDuckGoFreeProvider(config, params, startTime, globalStartTime, globalTimeoutMs, log);
+    return tryDuckDuckGoFreeProvider(
+      config,
+      params,
+      startTime,
+      globalStartTime,
+      globalTimeoutMs,
+      log
+    );
   }
 
   if (config.id === "zai-search" && token) {

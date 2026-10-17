@@ -105,6 +105,8 @@ Ako pokrećete OmniRoute iza obrnutog proxyja ili tunela (nginx, Caddy, Cloudfla
 - **Nemojte "popravljati" 403 krivotvorenjem klijentske IP adrese kao povratne petlje.** Postavljanje `X-Forwarded-For: 127.0.0.1`, ili proxy koji prepisuje izvornu adresu na povratnu petlju, ponovno otvara točno onu klasu RCE-a koju ova razina zatvara. Izložite nadzornu ploču/API putem proxyja — nikada rute koje mogu pokrenuti procese.
 - **Održavajte zaobilaženje opsega upravljanja minimalnim.** Samo `/api/mcp/` se može zaobići, i to samo s API ključem s opsegom `manage`. `SPAWN_CAPABLE_PREFIXES` se nikada ne mogu dodati na popis za zaobilaženje — `zod` shema ih odbija, a `isLocalOnlyBypassableByManageScope` ih odbija tijekom izvođenja (dubinska obrana), što nadzorna ploča podrazumijeva pod "ne može se učiniti zaobilaznim". Rute koje mogu pokrenuti procese s dinamičkim segmentima i statičkim putanjama pod `/api/providers/` (npr. `/login`, `/refresh-cursor`) pokrivene su pratećim `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` temeljenim na regularnim izrazima u `src/shared/constants/spawnCapablePrefixes.ts`, a ne ravnim `SPAWN_CAPABLE_PREFIXES` nizom — ravni niz bi morao pokriti cijeli `/api/providers/` prefiks da bi ih uhvatio, preširoko proširujući stablo ruta koje udaljene nadzorne ploče legitimno koriste za CRUD pružatelja.
 
+  Učitavač snimki izvođenja također odbacuje takve unose iz spremljenog retka postavki, a naslijeđeni JSON uvoz (`/api/settings/import-json`) nikada ne zapisuje ključeve za zaobilaženje. Svaki unos `LOCAL_ONLY_API_PREFIXES` mora biti na popisu zabrana ili nakon provjere odobren za zaobilaženje. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Revizija pristupa — za provjeru da ništa izvan hosta ne doseže ove rute:**
 
 - Otvorite **Authorization Inventory** na `/dashboard/settings/security`: prikazuje popis prefiksa LOCAL_ONLY uživo, koji se prefiksi mogu zaobići, te skup "spawn-capable" (koji se ne može zaobići) u vrijeme kompilacije.
@@ -131,6 +133,23 @@ Ove su rute destruktivne ili nepovratne. Dopuštanje istih u instalaciji "bez lo
 **Odgovor na kršenje:** `401 Authentication required`
 
 `/api/settings/obsidian` pokriva svoj podređeni `/webdav`: `POST` usmjerava WebDAV uslugu datoteka — koju poslužuje prilagođeni Node sloj prije Next.js-a, izvan ovog cjevovoda — na korijen koji odabere pozivatelj i vraća svježe generirane Basic vjerodajnice, `DELETE` ih rotira, a nadređeni `POST` pohranjuje Obsidian REST API token. GHSA-62vw je samo maskirao otkrivanje lozinke putem `GET` metode; izdavanje je i dalje bilo na razini "fail-open" (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` dodatno odbija trezor koji se nalazi, unutar je, ili sadrži direktorij podataka.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Pokretanje svježe instalacije je samo za loopback — putem stvarnog peer-a, a ne `Host`-a
 

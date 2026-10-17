@@ -125,6 +125,8 @@ loopback சரிபார்ப்பு தொடர்ந்து பாத
   சமதள array முழு `/api/providers/` prefix-ஐ உள்ளடக்க வேண்டியிருக்கும்; இது provider CRUD-க்காக
   தொலைநிலை டாஷ்போர்டுகள் சட்டபூர்வமாகப் பயன்படுத்தும் route tree-ஐ அளவுக்கு மீறி விரிவாகக் கட்டுப்படுத்திவிடும்.
 
+  இயக்கநேர ஸ்னாப்ஷாட் ஏற்றி சேமிக்கப்பட்ட அமைப்புகள் வரியிலிருந்தும் இத்தகைய உள்ளீடுகளை அகற்றுகிறது; பழைய JSON இறக்குமதி (`/api/settings/import-json`) பாதுகாப்பைத் தவிர்க்கும் விசைகளை ஒருபோதும் எழுதாது. `LOCAL_ONLY_API_PREFIXES`-இன் ஒவ்வொரு உள்ளீடும் மறுப்புப் பட்டியலில் இருக்க வேண்டும் அல்லது மதிப்பாய்வுக்குப் பிறகு பாதுகாப்பைத் தவிர்க்கத் தகுதியானதாக அங்கீகரிக்கப்பட்டிருக்க வேண்டும். (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **அணுகலைத் தணிக்கை செய்தல்** — host-க்கு வெளியிலிருந்து எதுவும் இந்தப் பாதைகளை அடையவில்லை என்பதைச் சரிபார்க்க:
 
 - `/dashboard/settings/security` இல் உள்ள **அங்கீகார இன்வென்டரியை** திறக்கவும்: இது நேரடி
@@ -165,6 +167,23 @@ Next.js-க்கு முன்பாகத் தனிப்பயன் Nod
 GHSA-62vw ஆனது `GET` கடவுச்சொல் வெளிப்பாட்டை மட்டுமே மறைத்தது; சான்றுகளை வழங்குதல் இன்னும் fail-open
 அடுக்கிலேயே இருந்தது (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` கூடுதலாக, data directory ஆகவோ,
 அதன் உள்ளேயோ, அல்லது அதை உள்ளடக்கியதாகவோ இருக்கும் vault-ஐ மறுக்கிறது.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### புதிய நிறுவலின் bootstrap உண்மையான peer அடிப்படையில் loopback-க்கு மட்டுமே — `Host` அடிப்படையில் அல்ல
 

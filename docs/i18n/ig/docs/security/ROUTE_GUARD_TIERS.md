@@ -144,6 +144,8 @@ ka dịịrị onye na-ahụ maka sistemụ:
   prefix `/api/providers/` niile iji jide ha, nke ga-eme ka osisi ụzọ
   ndị dashboard dị anya ji eme CRUD provider gbasaa karịa oke kwesịrị ekwesị.
 
+  Loader nke snapshot oge ọrụ na-ewepụkwa ụdị ntinye ndị a n'ahịrị ntọala echekwara, mbubata JSON ochie (`/api/settings/import-json`) anaghịkwa ede igodo ịgafe nchebe. Ntinye ọ bụla na `LOCAL_ONLY_API_PREFIXES` ga-adị na ndepụta mmachibido iwu ma ọ bụ bụrụ nke a nyochara ma kwado maka ịgafe nchebe. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Nnyocha ndekọ ohere** — iji nyochaa na ọ dịghị ihe si n'èzí host na-eru ụzọ ndị a:
 
 - Mepee **Ndepụta Ikike** dị na `/dashboard/settings/security`: ọ na-egosi ndepụta prefix LOCAL_ONLY dị ugbu a,
@@ -182,6 +184,23 @@ ma na-eweghachi nzere Basic ọhụrụ e mepụtara, `DELETE` na-agbanwe ha, eb
 token Obsidian REST API ahụ. GHSA-62vw zochiri naanị ngosi okwuntughe nke `GET`; inye nzere ahụ
 ka nọkwa n'ọkwa fail-open (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` na-ajụkwa
 vault nke bụ data directory, nke dị n'ime ya, ma ọ bụ nke nwere ya.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Bootstrap nke nrụnye ọhụrụ bụ naanị loopback — dabere na ezigbo peer, ọ bụghị `Host`
 

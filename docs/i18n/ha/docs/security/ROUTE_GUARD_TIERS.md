@@ -104,6 +104,8 @@ Idan ka gudanar da OmniRoute a bayan wani reverse proxy ko rami (nginx, Caddy, C
 - **Kada ka "gyara" 403 ta hanyar ƙirƙirar IP na abokin ciniki a matsayin loopback.** Saita `X-Forwarded-For: 127.0.0.1`, ko wani proxy da ke sake rubuta adireshin tushe zuwa loopback, yana sake buɗe ainihin nau'in RCE da wannan matakin ke rufewa. Nuna dashboard/API ta hanyar proxy — kada ka taɓa hanyoyin da ke iya haifarwa.
 - **Kiyaye ƙarancin wucewar iyakokin sarrafawa.** Kawai `/api/mcp/` ne za a iya wucewa, kuma kawai tare da maɓallin API mai iyakokin `manage`. `SPAWN_CAPABLE_PREFIXES` ba za a taɓa ƙara su a cikin jerin wucewa ba — zod schema yana ƙi su kuma `isLocalOnlyBypassableByManageScope` yana hana su a lokacin gudu (tsaro mai zurfi), wanda shine abin da dashboard ke nufi da "ba za a iya sanya shi mai wucewa ba". Dynamic-segment da static-path spawn-capable routes a ƙarƙashin `/api/providers/` (misali `/login`, `/refresh-cursor`) an rufe su ta hanyar regex-based `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` companion a `src/shared/constants/spawnCapablePrefixes.ts`, ba ta hanyar jerin `SPAWN_CAPABLE_PREFIXES` ba — jerin da ba su da faɗi za su buƙaci rufe dukkan prefix na `/api/providers/` don kama su, wanda zai faɗaɗa bishiyar hanya da dashboards na nesa ke amfani da su don provider CRUD.
 
+  Mai loda hoton yanayin aiki yana cire irin waɗannan bayanai daga layin saitunan da aka adana, kuma tsohuwar shigar da JSON (`/api/settings/import-json`) ba ta taɓa rubuta maɓallan kauce wa kariya ba. Kowane abu a `LOCAL_ONLY_API_PREFIXES` dole ne ya kasance a jerin hana ko an duba shi an amince cewa ya cancanci kauce wa kariya. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Binciken damar shiga** — don tabbatar da cewa babu wani abu daga waje da ke kaiwa ga waɗannan hanyoyin:
 
 - Buɗe **Authorization Inventory** a kan `/dashboard/settings/security`: yana nuna
@@ -142,6 +144,23 @@ kuma yana maimaita sabbin Basic credentials da aka ƙirƙira, `DELETE` yana juya
 token na Obsidian REST API. GHSA-62vw kawai ya ɓoye bayyanar kalmar sirri ta `GET`; fitarwa har yanzu
 yana kan matakin buɗe-kuskure (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` ƙari
 yana ƙin vault wanda yake, yana zaune a ciki, ko ya ƙunshi kundin adireshi na bayanai.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Sabon shigarwa bootstrap loopback-only ne — ta ainihin abokin ciniki, ba `Host` ba
 

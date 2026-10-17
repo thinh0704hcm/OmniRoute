@@ -125,6 +125,8 @@ a bhfuil a sheoladh cliant neamh-lúbchúil le
   `SPAWN_CAPABLE_PREFIXES` — bheadh ar an eagar cothrom an réimír `/api/providers/` iomlán a chlúdach chun iad a ghabháil, ag leathnú ró-leathan crann bealaí
   a úsáideann painéil iargúlta go dlisteanach le haghaidh CRUD soláthraí.
 
+  Baineann lódálaí na ngrianghraf ama rite na hiontrálacha sin as ró socruithe stóráilte freisin, agus ní scríobhann an sean-iompórtáil JSON (`/api/settings/import-json`) na heochracha seachanta riamh. Caithfidh gach iontráil `LOCAL_ONLY_API_PREFIXES` a bheith ar an liosta diúltaithe nó a bheith athbhreithnithe agus ceadaithe le haghaidh seachanta. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Iniúchadh rochtana** — chun a fhíorú nach bhfuil aon rud lasmuigh den óstach ag teacht ar na bealaí seo:
 
 - Oscail an **Fardal Údaraithe** ar `/dashboard/settings/security`: taispeánann sé an liosta réimíreanna LOCAL_ONLY beo, cé na réimíreanna is féidir a sheachaint, agus an tacar atá in ann a ghiniúint le linn tiomsaithe ("ní féidir é a dhéanamh in-sheachanta").
@@ -151,6 +153,23 @@ Tá na bealaí seo millteach nó dochúlaithe. Dá gceadófaí iad i suiteáil "
 **Freagra ar shárú:** `401 Authentication required`
 
 Clúdaíonn `/api/settings/obsidian` a leanbh `/webdav`: `POST` dírithe ar an tseirbhís comhad WebDAV — a fhreastalaíonn an ciseal saincheaptha Node roimh Next.js, lasmuigh den phíblíne seo — ag fréamh roghnaithe ag an nglaoiteoir agus a fhilleann dintiúir Bhunúsacha nua-chruthaithe, déanann `DELETE` iad a rothlú, agus stórálann an tuismitheoir `POST` an comhartha API REST Obsidian. Níor cheilt GHSA-62vw ach an nochtadh pasfhocail `GET`; bhí an eisiúint fós ar an gciseal teip-oscailte (GHSA-7pq4-8pvv-rx7r). Diúltaíonn `enableObsidianVaultSync()` freisin do chruinneachán atá, a shuíonn laistigh de, nó a bhfuil an eolaire sonraí ann.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Níl an tosaithe suiteála úire ach loopback — ag fíor-chomhghleacaí, ní `Host`
 

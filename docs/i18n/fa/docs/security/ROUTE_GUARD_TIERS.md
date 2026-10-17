@@ -103,6 +103,8 @@
 - **یک 403 را با جعل IP کلاینت به عنوان لوپبک "اصلاح" نکنید.** تنظیم `X-Forwarded-For: 127.0.0.1`، یا یک پروکسی که آدرس مبدأ را به لوپبک بازنویسی میکند، دقیقاً همان کلاس RCE را که این لایه مسدود میکند، دوباره باز میکند. داشبورد/API را از طریق پروکسی در معرض دید قرار دهید — هرگز مسیرهای قابل ایجاد را نه.
 - **دور زدن محدوده مدیریت را حداقل نگه دارید.** فقط `/api/mcp/` قابل دور زدن است، و فقط با یک کلید API با محدوده `manage`. `SPAWN_CAPABLE_PREFIXES` هرگز نمیتوانند به لیست دور زدن اضافه شوند — طرحواره zod آنها را رد میکند و `isLocalOnlyBypassableByManageScope` آنها را در زمان اجرا رد میکند (دفاع عمیق)، که منظور داشبورد از "نمیتوان آن را قابل دور زدن کرد" همین است. مسیرهای قابل ایجاد با بخش پویا و مسیر ثابت تحت `/api/providers/` (مانند `/login`, `/refresh-cursor`) توسط `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` مبتنی بر regex در `src/shared/constants/spawnCapablePrefixes.ts` پوشش داده میشوند، نه توسط آرایه مسطح `SPAWN_CAPABLE_PREFIXES` — آرایه مسطح باید کل پیشوند `/api/providers/` را پوشش دهد تا آنها را بگیرد، که باعث گسترش بیش از حد یک درخت مسیر میشود که داشبوردهای راه دور به طور قانونی برای CRUD ارائهدهنده از آن استفاده میکنند.
 
+  بارگذار تصویر وضعیت زمان اجرا این ورودی‌ها را از ردیف تنظیمات ذخیره‌شده نیز حذف می‌کند و واردسازی قدیمی JSON (`/api/settings/import-json`) هرگز کلیدهای دورزدن را نمی‌نویسد. هر ورودی `LOCAL_ONLY_API_PREFIXES` باید در فهرست منع باشد یا پس از بررسی برای دورزدن مجاز شناخته شده باشد. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **ممیزی دسترسی** — برای تأیید اینکه هیچ چیز خارج از هاست به این مسیرها دسترسی ندارد:
 
 - **فهرست موجودی مجوزها** را در `/dashboard/settings/security` باز کنید: این بخش لیست پیشوندهای فعال LOCAL_ONLY، پیشوندهایی که قابل دور زدن هستند، و مجموعه قابل تولید در زمان کامپایل ("نمیتوان آنها را قابل دور زدن کرد") را نمایش میدهد.
@@ -129,6 +131,23 @@
 **پاسخ در صورت نقض:** `401 Authentication required`
 
 `/api/settings/obsidian` فرزند خود `/webdav` را پوشش میدهد: `POST` سرویس فایل WebDAV — که توسط لایه سفارشی Node قبل از Next.js، خارج از این پایپلاین ارائه میشود — را به یک ریشه انتخابی توسط فراخواننده هدایت میکند و اعتبارنامههای Basic تازه ایجاد شده را بازتاب میدهد، `DELETE` آنها را میچرخاند، و `POST` والد توکن REST API Obsidian را ذخیره میکند. GHSA-62vw فقط افشای رمز عبور `GET` را پنهان میکرد؛ صدور همچنان در رده fail-open بود (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` علاوه بر این، vaultی را که در دایرکتوری داده قرار دارد، یا شامل آن است، رد میکند.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### بوتاسترپ نصب تازه فقط لوپبک است — توسط همتای واقعی، نه `Host`
 

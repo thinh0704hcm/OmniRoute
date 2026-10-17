@@ -147,6 +147,8 @@ operátori felelősség marad:
   túlságosan kiszélesítve egy útvonalfát, amelyet a távoli műszerfalak
   jogszerűen használnak a szolgáltató CRUD-hoz.
 
+  A futásidejű pillanatkép betöltője a mentett beállítássorból is elveti ezeket a bejegyzéseket, és a régi JSON-import (`/api/settings/import-json`) soha nem írja a megkerülési kulcsokat. A `LOCAL_ONLY_API_PREFIXES` minden bejegyzésének a tiltólistán kell szerepelnie, vagy ellenőrzés után megkerülésre jóváhagyottnak kell lennie. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Hozzáférés auditálása** — annak ellenőrzésére, hogy semmi sem éri el ezeket az útvonalakat a gazdagépen kívülről:
 
 - Nyissa meg az **Engedélyezési leltárt** a `/dashboard/settings/security` címen: ez megjeleníti az élő LOCAL_ONLY előtaglistát, mely előtagok megkerülhetők, valamint a fordítási idejű, indítható ("nem tehető megkerülhetővé") halmazt.
@@ -173,6 +175,23 @@ Ezek az útvonalak destruktívak vagy visszafordíthatatlanok. Ha engedélyezzü
 **Válasz megsértés esetén:** `401 Authentication required`
 
 A `/api/settings/obsidian` lefedi a `/webdav` gyermekét: a `POST` a WebDAV fájlszolgáltatást — amelyet a Next.js előtt egy egyedi Node réteg szolgál ki, ezen a pipeline-on kívül — egy hívó által választott gyökérre irányítja, és frissen generált Basic hitelesítő adatokat ad vissza, a `DELETE` rotálja azokat, a szülő `POST` pedig tárolja az Obsidian REST API tokent. A GHSA-62vw csak a `GET` jelszó felfedését maszkolta; a kibocsátás továbbra is a fail-open szinten volt (GHSA-7pq4-8pvv-rx7r). Az `enableObsidianVaultSync()` emellett elutasít egy olyan tárolót, amely a adatkönyvtárban van, azon belül helyezkedik el, vagy azt tartalmazza.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Friss telepítésű bootstrap csak loopback-en keresztül — valós peer által, nem `Host`
 

@@ -132,6 +132,8 @@ Tunnel, Tailscale, Ngrok) പിന്നിൽ പ്രവർത്തിപ�
   ഡാഷ്ബോർഡുകൾ നിയമാനുസൃതമായി ഉപയോഗിക്കുന്ന ഒരു റൂട്ട് ട്രീ അനാവശ്യമായി
   അതിവിപുലീകരിക്കപ്പെടും.
 
+  റൺടൈം സ്നാപ്ഷോട്ട് ലോഡർ സൂക്ഷിച്ച ക്രമീകരണ വരിയിൽനിന്നും ഇത്തരം എൻട്രികൾ നീക്കുന്നു; പഴയ JSON ഇംപോർട്ട് (`/api/settings/import-json`) ബൈപാസ് കീകൾ ഒരിക്കലും എഴുതുന്നില്ല. `LOCAL_ONLY_API_PREFIXES`-ലെ ഓരോ എൻട്രിയും നിരോധനപ്പട്ടികയിൽ ഉണ്ടായിരിക്കണം അല്ലെങ്കിൽ പരിശോധനയ്ക്കുശേഷം ബൈപാസിന് യോഗ്യമെന്ന് അംഗീകരിച്ചിരിക്കണം. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **ആക്സസ് ഓഡിറ്റ് ചെയ്യൽ** — ഹോസ്റ്റിന് പുറത്തുനിന്ന് ഒന്നും ഈ റൂട്ടുകളിൽ എത്തുന്നില്ലെന്ന് സ്ഥിരീകരിക്കാൻ:
 
 - `/dashboard/settings/security` എന്നതിലെ **Authorization Inventory** തുറക്കുക: ഇത് തത്സമയ LOCAL_ONLY പ്രിഫിക്സ് പട്ടികയും, ബൈപാസ് ചെയ്യാവുന്ന പ്രിഫിക്സുകളും, കംപൈൽ സമയത്തെ spawn-സാധ്യതയുള്ള ("ബൈപാസ് ചെയ്യാവുന്നതാക്കാൻ കഴിയാത്ത") ഗണവും പ്രദർശിപ്പിക്കുന്നു.
@@ -160,6 +162,23 @@ Tunnel, Tailscale, Ngrok) പിന്നിൽ പ്രവർത്തിപ�
 **ലംഘനത്തിനുള്ള പ്രതികരണം:** `401 Authentication required`
 
 `/api/settings/obsidian` അതിന്റെ `/webdav` ചൈൽഡിനെയും ഉൾക്കൊള്ളുന്നു: `POST`, ഈ pipeline-ന് പുറത്തായി Next.js-ന് മുമ്പ് കസ്റ്റം Node layer നൽകുന്ന WebDAV ഫയൽ സർവീസിനെ, കോളർ തിരഞ്ഞെടുക്കുന്ന root-ലേക്ക് ചൂണ്ടുകയും പുതുതായി സൃഷ്ടിച്ച Basic credentials തിരികെ നൽകുകയും ചെയ്യുന്നു; `DELETE` അവ rotate ചെയ്യുന്നു; parent `POST` Obsidian REST API token സംഭരിക്കുന്നു. GHSA-62vw, `GET` വഴിയുള്ള പാസ്വേഡ് വെളിപ്പെടുത്തൽ മാത്രമാണ് മറച്ചത്; credentials നൽകുന്ന സംവിധാനം അപ്പോഴും fail-open ടയറിലായിരുന്നു (GHSA-7pq4-8pvv-rx7r). കൂടാതെ `enableObsidianVaultSync()`, data directory തന്നെയായതോ അതിനുള്ളിലുള്ളതോ അതിനെ ഉൾക്കൊള്ളുന്നതോ ആയ vault നിരസിക്കുന്നു.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### പുതിയ ഇൻസ്റ്റാളേഷന്റെ bootstrap loopback-ൽ മാത്രം — `Host` അടിസ്ഥാനമാക്കിയല്ല, യഥാർഥ peer അടിസ്ഥാനമാക്കി
 

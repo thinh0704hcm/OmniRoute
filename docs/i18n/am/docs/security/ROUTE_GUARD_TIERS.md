@@ -87,6 +87,8 @@ OmniRouteን ከኋላ ተገላቢጦሽ ፕሮክሲ ወይም ዋሻ (nginx, 
 - **403ን የደንበኛውን IP እንደ loopback በማስመሰል "አያስተካክሉ"።** `X-Forwarded-For: 127.0.0.1`ን ማዘጋጀት፣ ወይም የመነሻ አድራሻውን ወደ loopback የሚጽፍ ፕሮክሲ፣ ይህ ደረጃ የሚዘጋውን የRCE ክፍል በትክክል እንደገና ይከፍታል። ዳሽቦርዱን/APIውን በፕሮክሲ በኩል ያጋልጡ — የመፍጠር አቅም ያላቸውን መንገዶች በጭራሽ አያጋልጡ።
 - **የአስተዳደር-ስፋት ማለፊያን አነስተኛ ያድርጉ።** `/api/mcp/` ብቻ ነው ማለፍ የሚቻለው፣ እና በ`manage`-ስፋት ባለው API ቁልፍ ብቻ። `SPAWN_CAPABLE_PREFIXES` በጭራሽ ወደ ማለፊያ ዝርዝር ውስጥ ሊጨመሩ አይችሉም — የzod schema ውድቅ ያደርጋቸዋል እና `isLocalOnlyBypassableByManageScope` በሩጫ ጊዜ ይከለክላቸዋል (ጥልቅ መከላከያ)፣ ይህም ዳሽቦርዱ "ማለፍ የማይቻል" ሲል የሚያመለክተው ነው። በ`/api/providers/` ስር ያሉ ተለዋዋጭ-ክፍል እና የማይንቀሳቀስ-መንገድ የመፍጠር አቅም ያላቸው መንገዶች (ለምሳሌ `/login`, `/refresh-cursor`) በ`src/shared/constants/spawnCapablePrefixes.ts` ውስጥ ባለው በregex ላይ የተመሰረተ `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` ተጓዳኝ የተሸፈኑ ናቸው፣ እንጂ በጠፍጣፋው `SPAWN_CAPABLE_PREFIXES` ድርድር አይደለም — ጠፍጣፋው ድርድር እነሱን ለመያዝ ሙሉውን `/api/providers/` ቅድመ ቅጥያ መሸፈን ይኖርበታል፣ ይህም የርቀት ዳሽቦርዶች ለአቅራቢ CRUD በህጋዊ መንገድ የሚጠቀሙበትን የመንገድ ዛፍ ከመጠን በላይ ያሰፋል።
 
+  የሩጫ ጊዜ ሁኔታ ምስል ጫኚው እነዚህን ግቤቶች ከተቀመጠ የቅንብር ረድፍም ያስወግዳል፤ የቆየው JSON ማስመጫ (`/api/settings/import-json`) የማለፊያ ቁልፎችን ፈጽሞ አይጽፍም። እያንዳንዱ የ `LOCAL_ONLY_API_PREFIXES` ግቤት በክልከላ ዝርዝር ውስጥ መሆን ወይም ተመርምሮ ለማለፍ ብቁ መባል አለበት። (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **መዳረሻን ማረጋገጥ** — ከሆስት ውጪ ምንም ነገር እነዚህን መንገዶች እንደማይደርስ ለማረጋገጥ:
 
 - በ`/dashboard/settings/security` ላይ ያለውን **የፍቃድ ክምችት** ይክፈቱ: የቀጥታውን `LOCAL_ONLY` ቅድመ-ቅጥያ ዝርዝር፣ የትኞቹ ቅድመ-ቅጥያዎች ሊታለፉ እንደሚችሉ፣ እና በኮምፓይል ጊዜ ሊፈጠሩ የሚችሉትን ("ሊታለፉ የማይችሉ") ስብስብ ያሳያል።
@@ -113,6 +115,23 @@ OmniRouteን ከኋላ ተገላቢጦሽ ፕሮክሲ ወይም ዋሻ (nginx, 
 **ጥሰት ሲከሰት የሚሰጥ ምላሽ:** `401 Authentication required`
 
 `/api/settings/obsidian` የ`/webdav` ንዑስ ክፍሉን ይሸፍናል: `POST` የWebDAV ፋይል አገልግሎትን — ከNext.js በፊት ባለው ብጁ Node ንብርብር የሚቀርበው፣ ከዚህ ፓይፕላይን ውጪ — ደዋይ በመረጠው ስር ላይ ይጠቁማል እና አዲስ የተፈጠሩ Basic ምስክርነቶችን ያሳያል፣ `DELETE` ያሽከረክራቸዋል፣ እና የወላጅ `POST` የObsidian REST API ቶከንን ያከማቻል። GHSA-62vw የ`GET` የይለፍ ቃል መገለጥን ብቻ ደብቆ ነበር፤ አሰጣጡ አሁንም በፌይል-ኦፕን ደረጃ ላይ ነበር (GHSA-7pq4-8pvv-rx7r)። `enableObsidianVaultSync()` በተጨማሪም የዳታ ማውጫው የሆነ፣ በውስጡ ያለ፣ ወይም የያዘ ቮልትን አይቀበልም።
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### አዲስ ጭነት ቡትስትራፕ ሉፕባክ-ብቻ ነው — በእውነተኛ ፒር እንጂ በ`Host` አይደለም
 

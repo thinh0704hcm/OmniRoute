@@ -87,6 +87,8 @@ Kui käitate OmniRoute'i pöördproksi või tunneli taga (nginx, Caddy, Cloudfla
 - **Ärge "parandage" 403 viga, võltsides kliendi IP-d tagasisideahelaks.** `X-Forwarded-For: 127.0.0.1` seadistamine või proksi, mis kirjutab lähteaadressi tagasisideahelaks, avab uuesti täpselt selle RCE klassi, mille see tase sulgeb. Eksponeerige armatuurlaud/API proksi kaudu — mitte kunagi käivitamisvõimelisi teid.
 - **Hoidke halduse ulatuse möödapääs minimaalsena.** Ainult `/api/mcp/` on möödapääsetav ja ainult `manage`-ulatusega API võtmega. `SPAWN_CAPABLE_PREFIXES` ei saa kunagi lisada möödapääsude loendisse — zod skeem lükkab need tagasi ja `isLocalOnlyBypassableByManageScope` keelab need käitusajal (sügavuskaitse), mis on see, mida armatuurlaud mõtleb "ei saa möödapääsetavaks teha". Dünaamilise segmendi ja staatilise teega käivitamisvõimelised teed `/api/providers/` all (nt `/login`, `/refresh-cursor`) on kaetud regex-põhise `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` kaaslasega failis `src/shared/constants/spawnCapablePrefixes.ts`, mitte lameda `SPAWN_CAPABLE_PREFIXES` massiiviga — lame massiiv peaks neid hõlmama kogu `/api/providers/` prefiksi ulatuses, laiendades liigselt teepuud, mida kaugarvutite armatuurlauad seaduslikult pakkuja CRUD-i jaoks kasutavad.
 
+  Käitusaegse hetktõmmise laadija eemaldab sellised kirjed ka salvestatud seadistusrealt ning pärand-JSON-import (`/api/settings/import-json`) ei kirjuta kunagi möödapääsuvõtmeid. Iga `LOCAL_ONLY_API_PREFIXES` kirje peab olema keeluloendis või ülevaatuse järel möödapääsuks heaks kiidetud. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Juurdepääsu auditeerimine** — veendumaks, et ükski väljaspool hosti asuv süsteem nendele teedele ei pääse:
 
 - Avage **Autoriseerimise inventuur** aadressil `/dashboard/settings/security`: see kuvab
@@ -125,6 +127,23 @@ ja kordab värskelt vermitud Basic mandaate, `DELETE` pöörab neid ja vanem `PO
 Obsidiani REST API tokeni. GHSA-62vw maskeeris ainult `GET` parooli avaldamise; väljastamine oli
 endiselt fail-open tasemel (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` lisaks
 keeldub hoidlast, mis on, asub sees või sisaldab andmekataloogi.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Värske installi alglaadimine on ainult loopback-põhine — tegeliku kaaslase, mitte `Host` kaudu
 

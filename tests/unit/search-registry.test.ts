@@ -115,7 +115,7 @@ test("tavily config is correct", () => {
   assert.equal(t.baseUrl, "https://api.tavily.com/search");
   assert.equal(t.costPerQuery, 0.008);
   assert.equal(t.freeMonthlyQuota, 1000);
-  assert.deepEqual(t.searchTypes, ["web", "news"]);
+  assert.deepEqual(t.searchTypes, ["web", "news", "finance"]);
 });
 
 test("google-pse-search config is correct", () => {

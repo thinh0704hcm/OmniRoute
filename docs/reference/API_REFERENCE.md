@@ -76,6 +76,7 @@ Content-Type: application/json
 | `X-OmniRoute-Session-Id` | Request   | Caller-supplied session/conversation tag (also feeds memory). When present, persisted verbatim to `call_logs.session_tag` for per-session cost attribution (#8249) — never synthesized when absent |
 | `Idempotency-Key`        | Request   | Dedup key (5s window)                                                                                                                                                                              |
 | `X-Request-Id`           | Request   | Alternative dedup key                                                                                                                                                                              |
+| `x-omniroute-connection` | Request   | Pin a single-model request to one provider connection (account) by its id — see [Account pinning per request](#account-pinning-per-request)                                                        |
 | `X-OmniRoute-Cache`      | Response  | `HIT` or `MISS` (non-streaming)                                                                                                                                                                    |
 | `X-OmniRoute-Idempotent` | Response  | `true` if deduplicated                                                                                                                                                                             |
 | `X-OmniRoute-Progress`   | Response  | `enabled` if progress tracking on                                                                                                                                                                  |
@@ -86,6 +87,53 @@ Content-Type: application/json
 | `X-OmniRoute-Decision`   | Response  | Routing trace: `strategy=<name>; provider=<alias>; latency_ms=<n>` (`<name>` is the combo strategy, or `single` for a non-combo request) — always present on completion responses                  |
 
 > Nginx note: if you rely on underscore headers (for example `x_session_id`), enable `underscores_in_headers on;`.
+
+#### Account pinning per request
+
+When a provider has several connections (accounts or keys), OmniRoute normally picks one
+through its account-selection strategy. A request can instead pin one specific connection
+with the `x-omniroute-connection` header:
+
+```bash
+curl http://localhost:20128/v1/chat/completions \
+  -H "Authorization: Bearer <your OmniRoute API key>" \
+  -H "Content-Type: application/json" \
+  -H "x-omniroute-connection: <connection id>" \
+  -d '{"model": "codex/gpt-5.5", "messages": [{"role": "user", "content": "hi"}]}'
+```
+
+- **Where to find the id.** Open the provider page in the dashboard
+  (**Dashboard → Providers → <provider>**) and click the `xxxxxxxx…` id chip on a connection
+  row — it copies the full connection id.
+- **Which requests honor it.** Single-model requests (`provider/model`) on
+  `/v1/chat/completions`, `/v1/messages` and `/v1/responses`. Combos ignore the header: pin
+  an account per combo step through the step's own connection instead.
+- **The pin is strict, not a preference.** The pinned connection is used exclusively. A
+  failure inside the request records the account's cooldown but does **not** rotate to a
+  sibling account of the same provider.
+- **Cooldown and quota release the pin.** While the pinned connection is cooling down,
+  quota-exhausted or blocked by a quota policy, later requests fall back to the provider's
+  other connections, exactly like unpinned traffic.
+- **Unknown or disabled ids fail.** An id that is not in the provider's active pool (deleted,
+  deactivated, or belonging to another provider) leaves no eligible account, so the request
+  fails instead of silently routing elsewhere.
+
+Claude Code sends custom headers through `ANTHROPIC_CUSTOM_HEADERS`. Put it in the `env` block
+of `~/.claude/settings.json`, or in a project-level `.claude/settings.json` to pin a different
+account per project:
+
+```jsonc
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://<your OmniRoute>:20128",
+    "ANTHROPIC_AUTH_TOKEN": "<your OmniRoute API key>",
+    "ANTHROPIC_CUSTOM_HEADERS": "x-omniroute-connection: <connection id>",
+  },
+}
+```
+
+Source: `src/sse/handlers/chat.ts` (header read), `src/sse/services/auth.ts` and
+`src/sse/services/sessionAffinityPin.ts` (pin release and the missing-from-pool check).
 
 > **Cost telemetry headers:** non-streaming success responses also carry the `X-OmniRoute-*` cost-telemetry set — `X-OmniRoute-Response-Cost` (USD, fixed 10 decimals; `0.0000000000` for free/unpriced), `X-OmniRoute-Tokens-In` / `X-OmniRoute-Tokens-Out`, `X-OmniRoute-Model`, `X-OmniRoute-Provider`, `X-OmniRoute-Latency-Ms`, `X-OmniRoute-Cache-Hit`, and `X-OmniRoute-Fallback-Attempts` (only when > 0), plus `X-OmniRoute-Request-Id` and `X-OmniRoute-Version`. These are emitted by chat completions, `/v1/responses`, `/v1/messages`, **and the media endpoints** — `/v1/embeddings`, `/v1/images/generations`, `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/rerank`, `/v1/videos/generations`, `/v1/music/generations`, and `/v1/moderations` (always cost `0`). Media cost is computed per modality (per-image, per-second, per-character, per search-unit) when pricing is available, otherwise `0` (fail-open).
 
@@ -325,6 +373,14 @@ Content-Type: application/json
 ```
 
 Available providers include OpenAI (GPT Image 2), xAI (Grok Image), Together AI (FLUX), Fireworks AI, Nebius (FLUX), Hyperbolic, NanoBanana, **OpenRouter**, **ZenMux**, SD WebUI (local), ComfyUI (local).
+
+`n` returns `n` images in `data[]`. Providers whose upstream API returns one image per call
+(Black Forest Labs, Stability AI, Leonardo, Ideogram, Haiper, Hyperbolic, Magnific/Freepik,
+NVIDIA NIM, Cloudflare Workers AI) get `n` separate upstream calls, at most 4 in flight. A
+fixed `seed` is offset by call index (`seed`, `seed + 1`, …), so the images differ but stay
+reproducible. `n` is capped at 10. The request fails as a whole if any call fails. The list
+of fan-out formats is `SINGLE_IMAGE_FANOUT_FORMATS` in
+`open-sse/handlers/imageGeneration/fanOut.ts`.
 
 ZenMux reuses the existing API-key connection and accepts `zenmux/` or `zm/` prefixes:
 
@@ -643,6 +699,36 @@ Web/search provider abstraction (Tavily, Brave, Exa, Serper, etc.).
 
 **Auth:** Bearer API key (`extractApiKey` + `isValidApiKey`). Search policy enforced via `enforceApiKeyPolicy`.
 
+### Exa and Tavily `provider_options`
+
+Exa and Tavily read provider-specific fields from a namespaced bag:
+`provider_options.exa` (or `provider_options["exa-search"]`) and `provider_options.tavily`
+(or `provider_options["tavily-search"]`). Only the keys below are forwarded. Each one is
+checked against its own Zod schema in `open-sse/handlers/search/providerOptionsPassthrough.ts`,
+and a key with the wrong type is dropped. Any other key is ignored, including auth, base URL,
+`stream` and `outputSchema`. The flat keys used by other providers (`cx`, `depth`, ...) work
+as before.
+
+| Provider | Top-level fields                                                                                                                                                                                                                                                                                                                                                          | Nested                                                                                                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exa      | `type`, `category`, `userLocation`, `moderation`, `additionalQueries`, `objective`, `systemPrompt`, `compliance` (flat primitives), `startPublishedDate`, `endPublishedDate`                                                                                                                                                                                              | `contents.{text, highlights, summary, extras, subpages, subpageTarget, livecrawlTimeout, maxAgeHours}` merged over the default `{ text: true, highlights: true }` |
+| Tavily   | `search_depth`, `chunks_per_source`, `time_range`, `start_date`, `end_date`, `include_published_date`, `filter_by_published_date`, `include_answer`, `include_raw_content`, `include_images`, `include_image_descriptions`, `include_favicon`, `include_domains_mode`, `language`, `filter_by_language`, `auto_parameters`, `exact_match`, `include_usage`, `safe_search` | —                                                                                                                                                                 |
+
+The generic fields always win: `query`, `max_results`, `filters` (domains), `country` and the
+topic derived from `search_type`. On Exa, `search_type: "news"` keeps `category: "news"`.
+Tavily also accepts `search_type: "finance"` (`topic: "finance"`).
+
+The generic `time_range` now reaches both providers: Exa gets `startPublishedDate` (ISO
+timestamp) and Tavily gets `start_date` (`YYYY-MM-DD`). An explicit date in `provider_options`
+overrides the mapped one.
+
+Exa results keep `id`, `highlight_scores`, `summary`, `subpages`, `entities` and `extras` in
+`provider_raw`. Tavily results keep `images` and `favicon`.
+
+Cost accounting is still the flat registry `costPerQuery`. Tavily bills
+`search_depth: "advanced"` at more credits per call, and that difference is not reflected in
+`usage.search_cost_usd`.
+
 ---
 
 ## Web Fetch API
@@ -933,11 +1019,11 @@ ordinary inference API keys. Credential families, scopes, and curl examples:
 
 ### Authentication
 
-| Endpoint                      | Method  | Description           |
-| ----------------------------- | ------- | --------------------- |
-| `/api/auth/login`             | POST    | Login                 |
-| `/api/auth/logout`            | POST    | Logout                |
-| `/api/settings/require-login` | GET/PUT | Toggle login required |
+| Endpoint                      | Method   | Description                                                                                                                                                                                                                                                            |
+| ----------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/auth/login`             | POST     | Login                                                                                                                                                                                                                                                                  |
+| `/api/auth/logout`            | POST     | Logout                                                                                                                                                                                                                                                                 |
+| `/api/settings/require-login` | GET/POST | Login status (GET, public). POST sets the password / toggles login: operator-only once a password exists (dashboard session, local CLI, or login disabled — API keys and `oma_` tokens get `403`); a dashboard session sends `currentPassword` to replace the password |
 
 ### Provider Management
 
@@ -1040,6 +1126,7 @@ verdicts; the second stage can still produce its requested visible reasoning as 
 | `allowedConnections`                        | array of UUIDs, up to 100                                            |                                                                                                                        |
 | `allowAutoCombos`                           | boolean                                                              | `false` rejects requests for `auto/*` models with this key; keys that never set it are allowed                         |
 | `catalogScope`                              | `all` \| `combos` \| `models`                                        | What `GET /v1/models` lists for this key (combos only, models only, or both); it does not change what the key may call |
+| `forcedModel`                               | string up to 300 chars, or `null`                                    | Routes chat requests to this model/combo, over `X-Route-Model` and `body.model`; the key's limits still apply          |
 | `noLog`, `autoResolve`                      | boolean                                                              |                                                                                                                        |
 | `throttleDelayMs`                           | integer, 0-300000                                                    |                                                                                                                        |
 | `maxSessions`                               | integer, 0-10000                                                     |                                                                                                                        |
@@ -1066,16 +1153,16 @@ curl -X PATCH "$OMNIROUTE_URL/api/keys/$KEY_ID" \
 
 ### Settings
 
-| Endpoint                              | Method        | Description                                                                                                                                                                     |
-| ------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/settings`                       | GET/PUT/PATCH | General settings                                                                                                                                                                |
-| `/api/settings/proxy`                 | GET/PUT       | Network proxy config                                                                                                                                                            |
-| `/api/settings/proxy/test`            | POST          | Test proxy connection                                                                                                                                                           |
-| `/api/settings/ip-filter`             | GET/PUT       | IP allowlist/blocklist                                                                                                                                                          |
-| `/api/settings/thinking-budget`       | GET/PUT       | Thinking/reasoning **request** rewrite mode (passthrough / auto-strip / custom / adaptive). Independent of compression. See [THINKING_BUDGET.md](../guides/THINKING_BUDGET.md). |
-| `/api/settings/system-prompt`         | GET/PUT       | Global system prompt                                                                                                                                                            |
-| `/api/settings/compression`           | GET/PUT       | Global compression config                                                                                                                                                       |
-| `/api/settings/purge-request-history` | POST          | Clear request log rows and local call-log artifacts                                                                                                                             |
+| Endpoint                              | Method        | Description                                                                                                                                                                                                                                                          |
+| ------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/settings`                       | GET/PUT/PATCH | General settings. Security-policy keys (`requireLogin`, `newPassword`, `oidc*`, `corsOrigins`, `bruteForceProtection`) need `currentPassword` and an operator credential — API keys and `oma_` tokens get `403`; every mutation needs the `admin` access-token scope |
+| `/api/settings/proxy`                 | GET/PUT       | Network proxy config                                                                                                                                                                                                                                                 |
+| `/api/settings/proxy/test`            | POST          | Test proxy connection                                                                                                                                                                                                                                                |
+| `/api/settings/ip-filter`             | GET/PUT       | IP allowlist/blocklist                                                                                                                                                                                                                                               |
+| `/api/settings/thinking-budget`       | GET/PUT       | Thinking/reasoning **request** rewrite mode (passthrough / auto-strip / custom / adaptive). Independent of compression. See [THINKING_BUDGET.md](../guides/THINKING_BUDGET.md).                                                                                      |
+| `/api/settings/system-prompt`         | GET/PUT       | Global system prompt                                                                                                                                                                                                                                                 |
+| `/api/settings/compression`           | GET/PUT       | Global compression config                                                                                                                                                                                                                                            |
+| `/api/settings/purge-request-history` | POST          | Clear request log rows and local call-log artifacts                                                                                                                                                                                                                  |
 
 ### Context & Compression
 
@@ -1108,14 +1195,26 @@ curl -X PATCH "$OMNIROUTE_URL/api/keys/$KEY_ID" \
 
 ### Backup & Export/Import
 
-| Endpoint                    | Method | Description                             |
-| --------------------------- | ------ | --------------------------------------- |
-| `/api/db-backups`           | GET    | List available backups                  |
-| `/api/db-backups`           | PUT    | Create a manual backup                  |
-| `/api/db-backups`           | POST   | Restore from a specific backup          |
-| `/api/db-backups/export`    | GET    | Download database as .sqlite file       |
-| `/api/db-backups/import`    | POST   | Upload .sqlite file to replace database |
-| `/api/db-backups/exportAll` | GET    | Download full backup as .tar.gz archive |
+| Endpoint                    | Method | Description                                                             |
+| --------------------------- | ------ | ----------------------------------------------------------------------- |
+| `/api/db-backups`           | GET    | List available backups                                                  |
+| `/api/db-backups`           | PUT    | Create a manual backup                                                  |
+| `/api/db-backups`           | POST   | Restore from a specific backup                                          |
+| `/api/db-backups`           | PATCH  | Save backup retention settings (operator-only)                          |
+| `/api/db-backups`           | DELETE | Prune stored backups to the retention settings (operator-only)          |
+| `/api/db-backups/export`    | GET    | Download database as .sqlite file                                       |
+| `/api/db-backups/import`    | POST   | Upload .sqlite file to replace database (`?dryRun=true` validates only) |
+| `/api/db-backups/exportAll` | GET    | Download full backup as .tar.gz archive                                 |
+
+`/api/db-backups/export`, `/api/db-backups/exportAll` and `/api/settings/export-json` hand out
+every stored credential, so they require the dashboard session or the local CLI (or login
+disabled). API keys of any scope and `oma_` access tokens get `403`. The restores hold the same
+boundary: `POST /api/db-backups/import` (`dryRun=true` included), `POST /api/db-backups` (restore
+by id) and `POST /api/settings/import-json` replace the live database or settings, so a machine
+credential gets `403` there too; `omniroute sync import` sends the local CLI credential. So do
+`DELETE /api/db-backups` (prune stored backups) and `PATCH /api/db-backups` (retention settings:
+the persisted values drive the automatic pruning after every backup). Listing (`GET`) and creating
+a manual backup (`PUT`) keep ordinary management auth.
 
 ### Cloud Sync
 
@@ -1492,7 +1591,7 @@ Used by the auto-key management subsystem to issue and rotate API keys against a
 | DELETE | `/api/v1/registered-keys/[id]`        | Revoke a registered key                                                                                                                                                                     |
 | POST   | `/api/v1/registered-keys/[id]/revoke` | Explicit revoke endpoint (same effect as DELETE)                                                                                                                                            |
 
-**Auth:** Bearer API key (`isAuthenticated`). See also `/v1/quotas/check` and `/v1/issues/report`.
+**Auth:** management session/API key (`requireManagementAuth`) — the same guard as `/api/keys`: a dashboard session, the local CLI token, or an API key with `manage`/`admin` scope; inference-only API keys get `403`. See also `/v1/quotas/check` and `/v1/issues/report`.
 
 ---
 

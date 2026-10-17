@@ -97,6 +97,8 @@ API ключ с обхват `manage` (вижте [Изключение за о�
 - **Не "поправяйте" 403 чрез фалшифициране на клиентския IP като loopback.** Задаването на `X-Forwarded-For: 127.0.0.1` или прокси, което презаписва изходния адрес на loopback, отново отваря точно класа RCE, който това ниво затваря. Изложете таблото за управление/API чрез проксито — никога маршрутите, способни да стартират процеси.
 - **Поддържайте заобикалянето на обхвата за управление минимално.** Само `/api/mcp/` може да бъде заобиколен и то само с API ключ с обхват `manage`. `SPAWN_CAPABLE_PREFIXES` никога не могат да бъдат добавени към списъка за заобикаляне — схемата zod ги отхвърля и `isLocalOnlyBypassableByManageScope` ги отказва по време на изпълнение (защита в дълбочина), което е това, което таблото за управление има предвид под "не може да бъде направено заобиколимо". Маршрутите, способни да стартират процеси с динамични сегменти и статични пътища под `/api/providers/` (напр. `/login`, `/refresh-cursor`), са обхванати от базирания на регулярен израз `SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` в `src/shared/constants/spawnCapablePrefixes.ts`, а не от плоския масив `SPAWN_CAPABLE_PREFIXES` — плоският масив би трябвало да покрие целия префикс `/api/providers/`, за да ги улови, прекомерно разширявайки дърво от маршрути, които отдалечените табла за управление легитимно използват за CRUD на доставчици.
 
+  Зареждащият модул за моментни снимки по време на изпълнение отхвърля такива записи и от съхранен ред с настройки, а наследеният JSON импорт (`/api/settings/import-json`) никога не записва ключовете за заобикаляне. Всеки запис в `LOCAL_ONLY_API_PREFIXES` трябва да е в списъка със забрани или след преглед да е одобрен за заобикаляне. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Одит на достъпа** — за да се провери, че нищо извън хоста не достига до тези маршрути:
 
 - Отворете **Инвентара за оторизация** на `/dashboard/settings/security`: той показва списъка с префикси на живо `LOCAL_ONLY`, кои префикси могат да бъдат заобиколени, и компилирания набор от spawn-capable ("не може да бъде направен заобиколим").
@@ -123,6 +125,23 @@ API ключ с обхват `manage` (вижте [Изключение за о�
 **Отговор при нарушение:** `401 Authentication required`
 
 `/api/settings/obsidian` обхваща своя дъщерен `/webdav`: `POST` насочва услугата за WebDAV файлове — обслужвана от персонализирания Node слой преди Next.js, извън този пайплайн — към избран от повикващия корен и връща новосъздадени Basic данни за достъп, `DELETE` ги ротира, а родителският `POST` съхранява Obsidian REST API токена. GHSA-62vw само маскира разкриването на паролата чрез `GET`; издаването все още беше на ниво fail-open (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` допълнително отказва хранилище, което е, намира се в, или съдържа директорията с данни.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Bootstrap при нова инсталация е само loopback — от реален партньор, а не `Host`
 

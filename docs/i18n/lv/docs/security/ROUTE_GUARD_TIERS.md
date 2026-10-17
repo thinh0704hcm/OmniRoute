@@ -140,6 +140,8 @@ joprojām ir divi pienākumi:
   `/api/providers/` prefikss, lai tos konstatētu, tādējādi pārmērīgi paplašinot maršrutu koku,
   ko attālie informācijas paneļi pamatoti izmanto pakalpojumu sniedzēju CRUD darbībām.
 
+  Izpildlaika momentuzņēmuma ielādētājs arī izmet šādus ierakstus no saglabātas iestatījumu rindas, un mantotais JSON imports (`/api/settings/import-json`) nekad neraksta apiešanas atslēgas. Katram `LOCAL_ONLY_API_PREFIXES` ierakstam jābūt aizliegumu sarakstā vai pēc pārskatīšanas jābūt atzītam par piemērotu apiešanai. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Piekļuves audits** — lai pārbaudītu, ka šiem maršrutiem nepiekļūst nekas ārpus resursdatora:
 
 - Atveriet **Autorizācijas inventāru** lapā `/dashboard/settings/security`: tajā tiek attēlots
@@ -180,6 +182,23 @@ saglabā Obsidian REST API marķieri. GHSA-62vw tikai maskēja paroles atklāša
 datu izsniegšana joprojām atradās nedrošajā, kļūmes gadījumā atvērtajā līmenī
 (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` papildus noraida glabātuvi, kas ir datu direktorijs,
 atrodas tajā vai satur to.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Jaunas instalācijas sākotnējā iestatīšana ir pieejama tikai no atgriezeniskās cilpas — pēc faktiskā vienranga mezgla, nevis `Host`
 

@@ -123,6 +123,8 @@ Tunnel、Tailscale、Ngrok）後方執行 OmniRoute，回送位址檢查仍會�
   整個 `/api/providers/` 前綴才能捕捉這些路由，這會過度擴大限制範圍，
   影響遠端儀表板合理用於提供者 CRUD 的路由樹。
 
+  執行階段快照載入器也會從已儲存的設定列中移除這些項目，而舊版 JSON 匯入（`/api/settings/import-json`）絕不會寫入繞過防護的鍵。`LOCAL_ONLY_API_PREFIXES` 的每個項目都必須位於拒絕清單中，或經過審查確認可以繞過防護。 (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **存取稽核** — 若要驗證沒有任何來自主機外部的存取正觸及這些路由：
 
 - 開啟 `/dashboard/settings/security` 上的 **授權清單**：它會顯示即時的 LOCAL_ONLY 前綴清單、哪些前綴可被略過，以及編譯時期所定義、具程序啟動能力（「不可設為可略過」）的集合。
@@ -149,6 +151,23 @@ Tunnel、Tailscale、Ngrok）後方執行 OmniRoute，回送位址檢查仍會�
 **違規時的回應：** `401 Authentication required`
 
 `/api/settings/obsidian` 涵蓋其 `/webdav` 子路徑：`POST` 會將 WebDAV 檔案服務——由自訂 Node 層在 Next.js 之前提供，因此位於此管線之外——指向呼叫者選擇的根目錄，並回傳新簽發的 Basic 憑證；`DELETE` 會輪替這些憑證，而父層的 `POST` 則會儲存 Obsidian REST API 權杖。GHSA-62vw 僅遮蔽了 `GET` 所揭露的密碼；憑證簽發功能仍位於失效時開放的層級（GHSA-7pq4-8pvv-rx7r）。`enableObsidianVaultSync()` 還會拒絕本身即為資料目錄、位於資料目錄內，或包含資料目錄的儲存庫。
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### 全新安裝的啟動設定僅限回送連線——依據真實對等端，而非 `Host`
 

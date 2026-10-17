@@ -139,6 +139,8 @@ méjì ṣì wà fún olùṣàkóso:
   prefix `/api/providers/` láti lè mú wọn, èyí tí yóò mú igi ọ̀nà tí àwọn
   dashboard ọ̀nà jíjìn ń lò lọ́nà tó bófin mu fún CRUD provider gbòòrò ju.
 
+  Olùgbé àwòrán ipò àkókò ìṣiṣẹ́ wọlé tún ń yọ irú àwọn àkọsílẹ̀ wọ̀nyí kúrò nínú ìlà ètò tí a fipamọ́, ìmúwọlé JSON àtijọ́ (`/api/settings/import-json`) kò sì kọ àwọn kọ́kọ́rọ́ ìforígbárí ààbò rárá. Gbogbo àkọsílẹ̀ `LOCAL_ONLY_API_PREFIXES` gbọ́dọ̀ wà nínú àtòjọ ìdènà tàbí kí a ti ṣàyẹ̀wò rẹ̀, kí a sì fọwọ́ sí i fún fífo ààbò kọjá. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Ṣíṣàyẹ̀wò ìwọlé** — láti jẹ́rìí pé kò sí ohunkóhun láti òde host tó ń dé àwọn ọ̀nà wọ̀nyí:
 
 - Ṣí **Àkójọ Àṣẹ** lórí `/dashboard/settings/security`: ó ń ṣàfihàn àkójọ prefix LOCAL_ONLY tó ń ṣiṣẹ́ lọ́wọ́lọ́wọ́, àwọn prefix wo ni a lè forí kọjá, àti àkójọpọ̀ àwọn tó lè dá process tuntun sílẹ̀ ní àkókò ìkójọpọ̀ ("a kò lè mú kí a forí kọjá wọn").
@@ -174,6 +176,23 @@ process server dúró.
 token REST API Obsidian. GHSA-62vw bo ìṣípayá password `GET` nìkan; ṣíṣẹ̀dá náà
 ṣì wà lórí ìpele fail-open (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` tún
 kọ vault tí ó jẹ́ data directory, tó wà nínú rẹ̀, tàbí tó ní data directory nínú rẹ̀.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Bootstrap ìṣàgbékalẹ̀ tuntun jẹ́ ti loopback nìkan — nípasẹ̀ peer gidi, kì í ṣe `Host`
 

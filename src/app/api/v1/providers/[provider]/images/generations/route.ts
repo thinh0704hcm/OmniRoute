@@ -5,14 +5,14 @@ import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
 } from "@/sse/services/auth";
-import { getImageProvider } from "@omniroute/open-sse/config/imageRegistry.ts";
+import { getImageProvider, parseImageModel } from "@omniroute/open-sse/config/imageRegistry.ts";
 import * as log from "@/sse/utils/logger";
 import { toJsonErrorPayload } from "@/shared/utils/upstreamError";
 import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
 import { v1ImageGenerationSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
-import { runWithCallLogApiKeyContext } from "@/lib/usage/callLogApiKeyContext";
+import { runImageRequestWithAccounting } from "@/lib/usage/imageRequestAccounting";
 import { executeImageWithCredentialFallback } from "@/sse/services/imageCredentialRetry";
 import { rejectRetiredCommonChatGptWebProvider } from "@/lib/providers/chatgptWebRetirementResponse";
 
@@ -53,6 +53,7 @@ export async function POST(request, { params }) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, validation.error.message);
   }
   const body = validation.data;
+  const startTime = Date.now();
 
   // Ensure model has provider prefix
   if (!body.model.includes("/")) {
@@ -75,6 +76,16 @@ export async function POST(request, { params }) {
     );
   }
 
+  // Use the handler's registry resolution for accounting, without rewriting the
+  // request or changing credential selection/retry. Never dispatch an alias that
+  // resolves outside the provider whose credentials this scoped route selects.
+  const parsedModel = parseImageModel(body.model);
+  if (parsedModel.provider !== imageProvider.id) {
+    return errorResponse(
+      HTTP_STATUS.BAD_REQUEST,
+      `Model "${body.model}" does not belong to image provider "${rawProvider}"`
+    );
+  }
   const requestedModel = body.model.slice(rawProvider.length + 1);
   let credentials = await getProviderCredentialsWithQuotaPreflight(
     rawProvider,
@@ -102,10 +113,14 @@ export async function POST(request, { params }) {
     requestedModel,
     credentials,
     execute: (attemptCredentials) =>
-      runWithCallLogApiKeyContext(
+      runImageRequestWithAccounting(
         {
-          apiKeyId: policy.apiKeyInfo?.id ?? null,
-          apiKeyName: policy.apiKeyInfo?.name ?? null,
+          endpoint: "/v1/images/generations",
+          provider: parsedModel.provider,
+          model: parsedModel.model,
+          apiKeyInfo: policy.apiKeyInfo,
+          credentials: attemptCredentials,
+          startTime,
         },
         () => handleImageGeneration({ body, credentials: attemptCredentials, log })
       ),

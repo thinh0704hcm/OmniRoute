@@ -89,6 +89,8 @@
 - **אל "תתקן" שגיאת 403 על ידי זיוף כתובת ה-IP של הלקוח כ-loopback.** הגדרת `X-Forwarded-For: 127.0.0.1`, או פרוקסי שמשכתב את כתובת המקור ל-loopback, פותחת מחדש בדיוק את סוג ה-RCE ששכבה זו סוגרת. חשוף את לוח המחוונים/API דרך הפרוקסי — לעולם לא את הנתיבים בעלי יכולת ההפעלה.
 - **שמור על עקיפת היקף הניהול מינימלית.** רק `/api/mcp/` ניתן לעקיפה, ורק עם מפתח API בהיקף `manage`. לא ניתן להוסיף את `SPAWN_CAPABLE_PREFIXES` לרשימת העקיפה — סכמת ה-zod דוחה אותם ו-`isLocalOnlyBypassableByManageScope` מונעת אותם בזמן ריצה (הגנה לעומק), וזה מה שלוח המחוונים מתכוון כשהוא אומר "לא ניתן לעקוף". נתיבים בעלי יכולת הפעלה עם מקטעים דינמיים ונתיבים סטטיים תחת `/api/providers/` (לדוגמה, `/login`, `/refresh-cursor`) מכוסים על ידי ה-`SPAWN_CAPABLE_PATTERNS` / `SPAWN_CAPABLE_PATTERN_ANCESTORS` המבוססים על ביטויים רגולריים ב-`src/shared/constants/spawnCapablePrefixes.ts`, ולא על ידי מערך ה-`SPAWN_CAPABLE_PREFIXES` השטוח — המערך השטוח יצטרך לכסות את כל קידומת `/api/providers/` כדי לתפוס אותם, מה שיגרום להרחבת יתר של עץ נתיבים שלוחות מחוונים מרוחקים משתמשים בהם באופן לגיטימי עבור CRUD של ספקים.
 
+  טוען תמונת המצב בזמן ריצה מסיר רשומות כאלה גם משורת הגדרות שמורה, וייבוא ה-JSON הישן (`/api/settings/import-json`) לעולם אינו כותב את מפתחות העקיפה. כל רשומה ב-`LOCAL_ONLY_API_PREFIXES` חייבת להופיע ברשימת החסימה או להיבדק ולהיות מאושרת לעקיפה. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **ביקורת גישה** — כדי לוודא ששום דבר מחוץ למארח אינו מגיע לנתיבים אלה:
 
 - פתח את **מלאי ההרשאות** ב-`/dashboard/settings/security`: הוא מציג את רשימת הקידומות LOCAL_ONLY החיות, אילו קידומות ניתנות לעקיפה, ואת קבוצת ה-spawn-capable ("לא ניתן לעקיפה") בזמן קומפילציה.
@@ -115,6 +117,23 @@
 **תגובה על הפרה:** `401 Authentication required`
 
 `/api/settings/obsidian` מכסה את נתיב הצאצא שלו `/webdav`: `POST` מפנה את שירות קבצי ה-WebDAV – המוגש על ידי שכבת ה-Node המותאמת אישית לפני Next.js, מחוץ לצינור עיבוד זה – לשורש שנבחר על ידי הקורא ומחזיר אישורי Basic חדשים שנוצרו, `DELETE` מסובב אותם, וה-`POST` ההורה שומר את אסימון ה-Obsidian REST API. GHSA-62vw רק מיסך את חשיפת הסיסמה ב-`GET`; ההנפקה עדיין הייתה בשכבת ה-fail-open (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` בנוסף מסרב לכספת שהיא, נמצאת בתוך, או מכילה את ספריית הנתונים.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### אתחול התקנה חדשה הוא loopback-only — על ידי עמית אמיתי, לא `Host`
 

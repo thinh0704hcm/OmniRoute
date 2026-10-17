@@ -140,6 +140,8 @@ spawn सम्म पुग्न सक्दैन। Operator का दु�
   जसले remote dashboard हरूले provider CRUD का लागि वैध रूपमा प्रयोग गर्ने route tree लाई
   अत्यधिक फराकिलो रूपमा प्रतिबन्धित गर्थ्यो।
 
+  रनटाइम स्न्यापसट लोडरले भण्डारित सेटिङ पङ्क्तिबाट पनि त्यस्ता प्रविष्टिहरू हटाउँछ, र पुरानो JSON आयात (`/api/settings/import-json`) ले बाइपास कुञ्जीहरू कहिल्यै लेख्दैन। `LOCAL_ONLY_API_PREFIXES` को हरेक प्रविष्टि या त निषेध सूचीमा हुनुपर्छ वा समीक्षापछि बाइपासका लागि योग्य ठहरिएको हुनुपर्छ। (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **पहुँच auditing** — off-host बाट कुनै पनि अनुरोध यी route हरूमा पुगिरहेको छैन भनी पुष्टि गर्न:
 
 - `/dashboard/settings/security` मा **प्राधिकरण सूची** खोल्नुहोस्: यसले
@@ -179,6 +181,23 @@ spawn सम्म पुग्न सक्दैन। Operator का दु�
 पासवर्ड देखिने कुरा मात्र लुकाएको थियो; प्रमाण जारी गर्ने कार्य अझै पनि fail-open तहमा थियो
 (GHSA-7pq4-8pvv-rx7r)। `enableObsidianVaultSync()` ले data directory नै भएको, त्यसभित्र रहेको,
 वा त्यसलाई समेट्ने vault लाई थप रूपमा अस्वीकार गर्छ।
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### नयाँ स्थापनाको bootstrap वास्तविक peer का आधारमा loopback-मात्र हो — `Host` का आधारमा होइन
 

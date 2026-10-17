@@ -125,6 +125,8 @@ Tunnel, Tailscale, Ngrok) 뒤에서 실행하더라도 루프백 검사는 위�
   포함해야 하며, 그러면 원격 대시보드가 공급자 CRUD에 합법적으로 사용하는
   라우트 트리까지 지나치게 광범위하게 제한하게 됩니다.
 
+  런타임 스냅샷 로더도 저장된 설정 행에서 이러한 항목을 제거하며, 기존 JSON 가져오기(`/api/settings/import-json`)는 우회 키를 절대 기록하지 않습니다. `LOCAL_ONLY_API_PREFIXES`의 각 항목은 거부 목록에 있거나 검토를 통해 우회 가능한 것으로 승인되어야 합니다. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **액세스 감사** — 호스트 외부에서 이러한 경로에 접근하지 못하는지 확인하려면:
 
 - `/dashboard/settings/security`에서 **Authorization Inventory**를 여세요. 여기에는
@@ -165,6 +167,23 @@ Tunnel, Tailscale, Ngrok) 뒤에서 실행하더라도 루프백 검사는 위�
 실패 시 개방되는 티어에 있었습니다(GHSA-7pq4-8pvv-rx7r). 또한
 `enableObsidianVaultSync()`는 데이터 디렉터리 자체이거나, 그 내부에 있거나, 이를
 포함하는 볼트를 거부합니다.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### 신규 설치 부트스트랩은 `Host`가 아닌 실제 피어를 기준으로 루프백에서만 허용됨
 

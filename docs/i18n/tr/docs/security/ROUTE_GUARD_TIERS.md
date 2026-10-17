@@ -131,6 +131,8 @@ Operatörlerin iki sorumluluğu devam eder:
   kapsaması gerekirdi; bu da uzak panoların sağlayıcı CRUD işlemleri için
   meşru şekilde kullandığı rota ağacını gereğinden fazla genişletirdi.
 
+  Çalışma zamanı anlık görüntü yükleyicisi bu girdileri kayıtlı ayar satırından da çıkarır; eski JSON içe aktarma yolu (`/api/settings/import-json`) ise atlama anahtarlarını hiçbir zaman yazmaz. Her `LOCAL_ONLY_API_PREFIXES` girdisi ya engelleme listesinde olmalı ya da incelenerek atlamaya uygun bulunmalıdır. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Erişim denetimi** — ana makine dışından hiçbir isteğin bu rotalara ulaşmadığını doğrulamak için:
 
 - `/dashboard/settings/security` sayfasındaki **Yetkilendirme Envanteri**'ni açın: canlı
@@ -170,6 +172,23 @@ Obsidian REST API belirtecini saklar. GHSA-62vw yalnızca `GET` parola ifşasın
 oluşturulması hâlâ hata durumunda erişime izin veren katmandaydı (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()`
 ayrıca veri dizininin kendisi olan, veri dizininin içinde bulunan veya veri dizinini içeren bir kasayı
 reddeder.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Yeni kurulum önyüklemesi yalnızca geri döngüye açıktır — `Host`'a göre değil, gerçek eşe göre
 

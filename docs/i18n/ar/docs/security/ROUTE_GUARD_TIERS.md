@@ -124,6 +124,8 @@
   بادئة `/api/providers/` بأكملها لالتقاطها، مما يوسع بشكل مفرط شجرة المسارات
   التي تستخدمها لوحات التحكم عن بعد بشكل مشروع لعمليات CRUD للموفرين.
 
+  يتجاهل محمّل لقطات حالة التشغيل هذه الإدخالات أيضاً من صف إعدادات مخزّن، ولا تكتب آلية استيراد JSON القديمة (`/api/settings/import-json`) مفاتيح التجاوز أبداً. يجب أن يكون كل إدخال في `LOCAL_ONLY_API_PREFIXES` ضمن قائمة المنع أو قد خضع للمراجعة وأُجيز تجاوزه. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **تدقيق الوصول** — للتحقق من عدم وصول أي شيء من خارج المضيف إلى هذه المسارات:
 
 - افتح **جرد التخويل (Authorization Inventory)** على `/dashboard/settings/security`: يعرض قائمة البادئات `LOCAL_ONLY` المباشرة، والبادئات التي يمكن تجاوزها، ومجموعة العناصر القابلة للتوليد في وقت التجميع ("لا يمكن جعلها قابلة للتجاوز").
@@ -150,6 +152,23 @@
 **الاستجابة عند الانتهاك:** `401 Authentication required`
 
 يغطي `/api/settings/obsidian` ابنه `/webdav`: تشير `POST` إلى خدمة ملفات WebDAV — التي يقدمها طبقة Node المخصصة قبل Next.js، خارج هذا المسار — إلى جذر يختاره المتصل وتكرر بيانات اعتماد Basic التي تم إصدارها حديثًا، وتقوم `DELETE` بتدويرها، وتخزن `POST` الأصلية رمز Obsidian REST API. قامت GHSA-62vw فقط بإخفاء كشف كلمة مرور `GET`؛ كان الإصدار لا يزال على مستوى الفشل المفتوح (GHSA-7pq4-8pvv-rx7r). ترفض `enableObsidianVaultSync()` بالإضافة إلى ذلك قبوًا يكون، أو يقع داخل، أو يحتوي على دليل البيانات.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### التمهيد للتثبيت الجديد هو loopback-only — بواسطة نظير حقيقي، وليس `Host`
 

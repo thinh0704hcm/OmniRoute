@@ -146,6 +146,8 @@ dve odgovornosti upravljavca:
   celotno predpono `/api/providers/`, kar bi prekomerno razširilo omejitev na drevo poti,
   ki ga oddaljene nadzorne plošče upravičeno uporabljajo za operacije CRUD ponudnikov.
 
+  Nalagalnik posnetkov izvajanja takšne vnose odstrani tudi iz shranjene vrstice nastavitev, starejši uvoz JSON (`/api/settings/import-json`) pa nikoli ne zapisuje ključev za obhod. Vsak vnos `LOCAL_ONLY_API_PREFIXES` mora biti na seznamu prepovedi ali po pregledu odobren za obhod. (`tests/unit/authz/local-only-bypass-spawn-denylist.test.ts`)
+
 **Revidiranje dostopa** — da preverite, ali karkoli zunaj gostitelja dostopa do teh poti:
 
 - Odprite **Authorization Inventory** na `/dashboard/settings/security`: prikazuje
@@ -184,6 +186,23 @@ in vrne na novo ustvarjene poverilnice Basic, `DELETE` jih zamenja, nadrejeni `P
 žeton REST API za Obsidian. GHSA-62vw je prikril samo razkritje gesla prek `GET`; izdajanje
 je bilo še vedno na ravni, ki se ob napaki odpre (GHSA-7pq4-8pvv-rx7r). `enableObsidianVaultSync()` poleg tega
 zavrne trezor, ki je podatkovni imenik, je znotraj njega ali ga vsebuje.
+
+#### Credential exports and restores are operator-only
+
+The tier above only decides whether _some_ credential is required. The routes that download
+stored credentials add a second check in the handler: `GET /api/settings/export-json` (decrypted
+provider connections and raw API keys), `GET /api/db-backups/export` (the SQLite file) and
+`GET /api/db-backups/exportAll` (the full archive) call `requireOperatorCredential()`
+(`src/lib/api/operatorCredential.ts`). It accepts a dashboard session, the local CLI subject, or
+an instance with login disabled, and answers `403` to API keys of any scope (including `manage`
+and `admin`) and to `oma_` access tokens. The destructive counterparts hold the same boundary:
+`POST /api/db-backups/import` (uploaded `.sqlite`, `dryRun=true` included), `POST /api/db-backups`
+(restore a stored backup by id) and `POST /api/settings/import-json` (legacy JSON restore)
+replace the live database or the whole settings/connections/API-key set, so a machine credential
+cannot trigger them either. Listing, creating, retention and cleanup of backups
+(`GET`/`PUT`/`PATCH`/`DELETE /api/db-backups`) keep ordinary management auth. Sync token
+issuance (`POST /api/sync/tokens`) uses the same helper, plus the trusted loopback
+internal-service token.
 
 ### Začetna nastavitev sveže namestitve je omejena na povratno zanko — glede na dejanskega vrstnika, ne `Host`
 
