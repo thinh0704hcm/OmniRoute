@@ -1,5 +1,6 @@
 import type {
   ExecutionContext,
+  ExecutedToolResult,
   NonStreamingProviderLegResult,
   ProviderLegUsage,
   ServerOwnedToolLoopResult,
@@ -134,15 +135,19 @@ export async function applyServerOwnedToolLoopIfNeeded(input: {
   expectedConnectionId?: string;
   followUpLeg: (nextSourceBody: Record<string, unknown>) => Promise<NonStreamingProviderLegResult>;
   logReceipt: (receipt: ServerOwnedToolLoopResult["receipts"][number]) => void;
+  advisorModel?: string | null;
+  runAdvisorModel?: (model: string, body: Record<string, unknown>) => Promise<Response>;
+  log?: { warn?: (tag: string, message: string) => void };
   executeServerOwned?: (
     calls: ToolCall[],
     context: ExecutionContext
-  ) => Promise<import("@/lib/skills/toolLoopTypes.ts").ExecutedToolResult[]>;
+  ) => Promise<ExecutedToolResult[]>;
 }): Promise<ToolLoopApplyResult> {
+  const advisorEnabled = Boolean(input.advisorModel && input.runAdvisorModel);
   if (
     input.initialLeg.kind !== "ok" ||
     !shouldRunServerOwnedToolLoop({
-      enabled: input.enabled,
+      enabled: input.enabled || advisorEnabled,
       stream: input.stream,
       isResponsesEndpoint: input.isResponsesEndpoint,
       sourceFormat: input.sourceFormat,
@@ -150,17 +155,92 @@ export async function applyServerOwnedToolLoopIfNeeded(input: {
   ) {
     return { kind: "skip" };
   }
+
+  const runOwned = input.executeServerOwned ?? executeServerOwned;
+  const executionContext = advisorEnabled
+    ? {
+        ...input.executionContext,
+        builtinToolNames: [
+          ...new Set([...(input.executionContext.builtinToolNames ?? []), "advisor"]),
+        ],
+      }
+    : input.executionContext;
+  const execute = async (calls: ToolCall[], context: ExecutionContext) => {
+    if (!advisorEnabled) return runOwned(calls, context);
+
+    const advisorCalls = calls.filter((call) => call.name === "advisor");
+    const otherCalls = calls.filter((call) => call.name !== "advisor");
+    const byId = new Map<string, ExecutedToolResult>();
+    if (otherCalls.length > 0) {
+      for (const result of await runOwned(otherCalls, context)) byId.set(result.id, result);
+    }
+
+    const { tools: _tools, tool_choice: _toolChoice, ...advisorBody } = input.sourceBody;
+    const routedBody = { ...advisorBody, model: input.advisorModel!, stream: false };
+    const advisorResults = await Promise.all(
+      advisorCalls.map(async (call): Promise<ExecutedToolResult> => {
+        let result = "Advisor unavailable.";
+        try {
+          const response = await input.runAdvisorModel!(input.advisorModel!, routedBody);
+          if (!response.ok) {
+            input.log?.warn?.(
+              "ADVISOR",
+              `Advisor model ${input.advisorModel} unavailable (${response.status}); tool result is unavailable`
+            );
+          } else {
+            const payload = (await response.json()) as Record<string, unknown>;
+            const content = payload.content;
+            const answer =
+              typeof content === "string"
+                ? content.trim()
+                : Array.isArray(content)
+                  ? content
+                      .map((block) => {
+                        if (!block || typeof block !== "object") return "";
+                        const record = block as Record<string, unknown>;
+                        return record.type === "text" && typeof record.text === "string"
+                          ? record.text
+                          : "";
+                      })
+                      .filter(Boolean)
+                      .join("\n")
+                      .trim()
+                  : "";
+            if (answer) {
+              result = answer;
+            } else {
+              input.log?.warn?.(
+                "ADVISOR",
+                `Advisor model ${input.advisorModel} returned no text; tool result is unavailable`
+              );
+            }
+          }
+        } catch {
+          input.log?.warn?.(
+            "ADVISOR",
+            `Advisor model ${input.advisorModel} failed; tool result is unavailable`
+          );
+        }
+        return { id: call.id, name: call.name, result, replayed: false };
+      })
+    );
+    for (const result of advisorResults) byId.set(result.id, result);
+    return calls
+      .map((call) => byId.get(call.id))
+      .filter((result): result is ExecutedToolResult => result !== undefined);
+  };
+
   const loop = await continueServerOwnedToolLoop({
     initialLeg: input.initialLeg,
     sourceBody: input.sourceBody,
     sourceFormat: input.sourceFormat === FORMATS.CLAUDE ? "claude" : "openai",
     skillsModelId: input.skillsModelId,
-    executionContext: input.executionContext,
+    executionContext,
     abortSignal: input.abortSignal,
     deadlineAtMs: Date.now() + LOOP_BUDGET_MS,
     expectedConnectionId: input.expectedConnectionId,
     followUpLeg: input.followUpLeg,
-    executeServerOwned: input.executeServerOwned,
+    executeServerOwned: execute,
   });
   for (const receipt of loop.receipts) input.logReceipt(receipt);
   if (loop.kind === "error") return { kind: "error", loop };

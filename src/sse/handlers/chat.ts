@@ -2174,6 +2174,26 @@ async function handleSingleModelChat(
             managedLease: runtimeOptions.managedLease ?? null,
             videoBridgeLog: runtimeOptions.videoBridgeLog,
             previousResponseResumed: runtimeOptions.previousResponseResumed,
+            runAdvisorModel: (advisorModel: string, advisorBody: Record<string, unknown>) =>
+              handleSingleModelChat(
+                advisorBody,
+                advisorModel,
+                clientRawRequest ? { ...clientRawRequest, body: advisorBody } : null,
+                request,
+                null,
+                apiKeyInfo,
+                null,
+                {
+                  sessionId: runtimeOptions.sessionId ?? null,
+                  sessionAffinityKey: runtimeOptions.sessionAffinityKey ?? null,
+                  allowedConnectionIds: runtimeOptions.allowedConnectionIds ?? null,
+                  correlationId: runtimeOptions.correlationId ?? null,
+                  conversationId: runtimeOptions.conversationId ?? null,
+                  reasoningTransportFallback: runtimeOptions.reasoningTransportFallback ?? "drop",
+                },
+                null,
+                false
+              ),
             fallbackAttempts: runtimeOptions.fallbackAttempts,
             beforeUpstreamAttempt:
               museOwner && muse.museBeforeUpstreamAttempt(museOwner, credentials),

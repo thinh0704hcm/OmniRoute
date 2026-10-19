@@ -307,18 +307,27 @@ export function claudeToOpenAIRequest(model, body, stream, credentials: unknown 
 
         if (!tool || typeof tool !== "object" || Array.isArray(tool)) return null;
         const record = tool as JsonRecord;
-        const name = typeof record.name === "string" ? record.name.trim() : "";
+        const advisor = typeof record.type === "string" && record.type.startsWith("advisor_");
+        if (advisor && (typeof record.model !== "string" || !record.model.trim())) return null;
+        const name = advisor
+          ? "advisor"
+          : typeof record.name === "string"
+            ? record.name.trim()
+            : "";
         if (!name) return null; // skip tools with empty/invalid name
 
         return {
           type: "function",
           function: {
-            name,
-            description: typeof record.description === "string" ? record.description : "", // fix: never null (#276)
-            parameters: normalizeToolSchema(record.input_schema),
+            name: advisor ? "advisor" : name,
+            description:
+              advisor || typeof record.description !== "string" ? "" : record.description, // fix: never null (#276)
+            parameters: advisor
+              ? { type: "object", properties: {} }
+              : normalizeToolSchema(record.input_schema),
             // Preserve tool-level strict schema enforcement (9router#4172). Only booleans
             // carry over; omitted stays omitted (non-strict on Chat).
-            ...chatStrictFrom(record),
+            ...(!advisor ? chatStrictFrom(record) : {}),
           },
         };
       })
