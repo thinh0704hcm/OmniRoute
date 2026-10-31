@@ -12,6 +12,7 @@ import { modelSupportsContext1mBeta } from "../config/context1m.ts";
 import { usesCcWireImage } from "../services/ccWireImageBuiltins.ts";
 
 export const ANTHROPIC_VERSION_HEADER = "2023-06-01";
+export const ADVISOR_TOOL_BETA = "advisor-tool-2026-03-01";
 
 const ANTHROPIC_BETA_BASE = Object.freeze([
   "claude-code-20250219",
@@ -25,7 +26,7 @@ const ANTHROPIC_BETA_BASE = Object.freeze([
   "fast-mode-2026-02-01",
   "redact-thinking-2026-02-12",
   "token-efficient-tools-2026-03-28",
-  "advisor-tool-2026-03-01",
+  ADVISOR_TOOL_BETA,
   "extended-cache-ttl-2025-04-11",
   "cache-diagnosis-2026-04-07",
   "code-execution-2025-08-25",
@@ -143,6 +144,27 @@ export function hasCodeExecutionTool(body: unknown): boolean {
       return true;
     }
     return false;
+  });
+}
+
+/** Anthropic's Advisor beta only applies while its native server tool is present. */
+export function hasAdvisorTool(body: unknown): boolean {
+  if (!body) return false;
+  let parsed: unknown = body;
+  if (typeof body === "string") {
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return false;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return false;
+  const tools = (parsed as { tools?: unknown }).tools;
+  if (!Array.isArray(tools)) return false;
+  return tools.some((tool) => {
+    if (!tool || typeof tool !== "object") return false;
+    const type = (tool as { type?: unknown }).type;
+    return typeof type === "string" && type.startsWith("advisor_");
   });
 }
 
@@ -295,7 +317,7 @@ export const FORWARDABLE_CLIENT_BETAS = Object.freeze([
   "skills-2025-10-02",
   // Claude Code sends this with advisor_20260301 tools; dropping it makes
   // Anthropic reject the tool type as an unknown input tag.
-  "advisor-tool-2026-03-01",
+  ADVISOR_TOOL_BETA,
   // effort-2025-11-24 is a client-negotiated beta (Claude Code sends it on every
   // request). selectBetaFlags no longer force-adds it as a side-effect of the ATU
   // gate (#9505), so a client that sent it must keep it through the merge —
@@ -340,11 +362,10 @@ export const FORWARDABLE_CLIENT_BETAS = Object.freeze([
  * (#10119). When no model is supplied (legacy callers without model resolution),
  * the prior forwarding behavior is preserved.
  *
- * `body` (optional) gate: when supplied, `skills-2025-10-02` is forwarded only
- * if the request body contains a `code_execution` tool (#14200). Sending the
- * skills beta on tool-less requests causes upstream Anthropic to reject with
- * HTTP 400 "Skills beta requires the code_execution tool". When omitted or null,
- * backward-compatible allowlist forwarding is preserved.
+ * `body` (optional) gate: when supplied, the Skills beta requires a
+ * `code_execution` tool (#14200) and the Advisor beta requires its native
+ * `advisor_*` tool. When omitted or null, backward-compatible allowlist
+ * forwarding is preserved.
  */
 export function mergeClientAnthropicBeta(
   base: string,
@@ -369,6 +390,10 @@ export function mergeClientAnthropicBeta(
       if (lower === "skills-2025-10-02") {
         if (body === undefined || body === null) return true;
         return hasCodeExecutionTool(body);
+      }
+      if (lower === ADVISOR_TOOL_BETA) {
+        if (body === undefined || body === null) return true;
+        return hasAdvisorTool(body);
       }
       return true;
     });

@@ -9,6 +9,7 @@ import {
 } from "../config/providers/alternateFormats.ts";
 import {
   applyStainlessHeaders,
+  ADVISOR_TOOL_BETA,
   getClaudeCliBillingVersion,
   mergeCcHeaders,
   mergeClientAnthropicBeta,
@@ -1281,6 +1282,14 @@ export class BaseExecutor {
             // of force-injecting thinking/effort betas it never requested (#3415).
             const clientAnthropicBeta =
               clientHeaders?.["anthropic-beta"] ?? clientHeaders?.["Anthropic-Beta"] ?? null;
+            const selectedBetaFlags = selectBetaFlags(tb, null, clientAnthropicBeta);
+            const routedBetaFlags =
+              this.provider === "claude" || this.provider === "anthropic"
+                ? selectedBetaFlags
+                : selectedBetaFlags
+                    .split(",")
+                    .filter((beta) => beta !== ADVISOR_TOOL_BETA)
+                    .join(",");
             const ccHeaders: Record<string, string> = {
               Accept: "application/json",
               "anthropic-version": "2023-06-01",
@@ -1288,7 +1297,7 @@ export class BaseExecutor {
               // on top of the shape-derived set so deferred-tool requests are not
               // rejected; selectBetaFlags still gates thinking/effort per #3415.
               "anthropic-beta": mergeClientAnthropicBeta(
-                selectBetaFlags(tb, null, clientAnthropicBeta),
+                routedBetaFlags,
                 clientAnthropicBeta,
                 undefined,
                 // Gate the client-negotiated context-1m beta on the RESOLVED target:

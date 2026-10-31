@@ -424,7 +424,16 @@ export function claudeToGeminiRequest(model, body, stream, credentials = null) {
   const geminiToolsInput = Array.isArray(body.tools)
     ? isSoleClaudeServerWebSearchTool(body.tools)
       ? [{ type: "web_search" }]
-      : body.tools.filter((tool) => !isClaudeServerWebSearchTool(tool))
+      : body.tools
+          .filter((tool) => !isClaudeServerWebSearchTool(tool))
+          .map((tool) => {
+            if (!tool || typeof tool !== "object" || Array.isArray(tool)) return tool;
+            if (typeof tool.type !== "string" || !tool.type.startsWith("advisor_")) return tool;
+            return typeof tool.model === "string" && tool.model.trim()
+              ? { name: "advisor", input_schema: { type: "object", properties: {} } }
+              : null;
+          })
+          .filter(Boolean)
     : body.tools;
   const geminiTools = buildGeminiTools(geminiToolsInput, {
     toolNameMap,

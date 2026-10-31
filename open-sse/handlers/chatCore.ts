@@ -778,7 +778,8 @@ async function handleChatCoreInner({
   let advisorModel: string | null = null;
   if (
     sourceFormat === FORMATS.CLAUDE &&
-    (targetFormat === FORMATS.OPENAI || targetFormat === FORMATS.OPENAI_RESPONSES) &&
+    provider !== "anthropic" &&
+    provider !== "claude" &&
     Array.isArray(body?.tools)
   ) {
     const tools = body.tools as unknown[];
@@ -799,8 +800,19 @@ async function handleChatCoreInner({
         advisorModel = (configured.model as string).trim();
         const kept = new Set([configured]);
         const remaining = tools.filter((tool) => !isAdvisorTool(tool) || kept.has(tool));
+        body = {
+          ...body,
+          tools: remaining.map((tool) =>
+            kept.has(tool)
+              ? {
+                  name: "advisor",
+                  description: "",
+                  input_schema: { type: "object", properties: {} },
+                }
+              : tool
+          ),
+        };
         if (remaining.length !== tools.length) {
-          body = { ...body, tools: remaining };
           log?.warn?.("ADVISOR", "Dropped duplicate or unconfigured advisor tool declaration");
         }
       }
