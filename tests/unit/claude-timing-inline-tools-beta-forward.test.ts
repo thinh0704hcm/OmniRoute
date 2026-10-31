@@ -16,6 +16,7 @@ const { FORWARDABLE_CLIENT_BETAS, mergeClientAnthropicBeta } =
 const PER_TURN_BETA = "per-turn-control-2026-07-01";
 const TIMING_BETA = "timing-2026-09-09";
 const INLINE_TOOLS_BETA = "inline-tools-2026-09-15";
+const ADVISOR_BETA = "advisor-tool-2026-03-01";
 const CLAUDE_CODE_BETA_HEADER = [
   "claude-code-20250219",
   "interleaved-thinking-2025-05-14",
@@ -63,6 +64,15 @@ for (const beta of [TIMING_BETA, INLINE_TOOLS_BETA]) {
     assert.ok(merged.split(",").includes(beta), `${beta} must reach the upstream`);
   });
 }
+
+test("mergeClientAnthropicBeta forwards the advisor beta for advisor tools", () => {
+  assert.ok(FORWARDABLE_CLIENT_BETAS.includes(ADVISOR_BETA));
+  const merged = mergeClientAnthropicBeta(
+    "claude-code-20250219",
+    `${CLAUDE_CODE_BETA_HEADER},${ADVISOR_BETA}`
+  );
+  assert.ok(merged.split(",").includes(ADVISOR_BETA));
+});
 
 test("mergeClientAnthropicBeta does not invent timing or inline-tools betas", () => {
   const merged = mergeClientAnthropicBeta("claude-code-20250219", "effort-2025-11-24");
