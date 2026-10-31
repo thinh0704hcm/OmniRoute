@@ -22,7 +22,15 @@ import {
 } from "./oracleDeploy.ts";
 
 const REMOTE_HELPER = "/home/ubuntu/OmniRoute-src/scripts/ops/oracle-deploy-remote.sh";
-const DEFAULT_MODELS = ["pool-haiku", "pool-sonnet", "pool-opus", "pool-fable"];
+const DEFAULT_MODELS = [
+  "fleet-flash-high",
+  "fleet-flash-lite",
+  "fleet-flash-lite-text",
+  "fleet-luna-medium",
+  "fleet-luna-xhigh",
+  "fleet-sol-medium",
+  "fleet-sol-xhigh",
+];
 const MODEL_CATALOG_TIMEOUT_MS = 60_000;
 const PUBLIC_COMPLETION_ATTEMPTS = 2;
 const PUBLIC_ORIGIN = "https://squrvq.tail0bec0f.ts.net";

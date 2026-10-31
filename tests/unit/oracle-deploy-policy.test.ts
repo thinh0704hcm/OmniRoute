@@ -72,10 +72,21 @@ test("readiness probes use the dashboard port rather than the API-only port", ()
   assert.doesNotMatch(deployCli, /probeMixedCaseTool/);
   assert.doesNotMatch(deployCli, /DEFAULT_MODELS[^\n]*gpt-5\.4-mini/);
   assert.doesNotMatch(deployCli, /DEFAULT_MODELS[^\n]*gpt-5\.6-/);
-  assert.match(
-    deployCli,
-    /DEFAULT_MODELS = \["pool-haiku", "pool-sonnet", "pool-opus", "pool-fable"\]/
-  );
+  const defaultModels = deployCli
+    .match(/const DEFAULT_MODELS = \[([\s\S]*?)\];/)?.[1]
+    ?.match(/"[^"]+"/g)
+    ?.map((model) => model.slice(1, -1));
+  assert.deepEqual(defaultModels, [
+    "fleet-flash-high",
+    "fleet-flash-lite",
+    "fleet-flash-lite-text",
+    "fleet-luna-medium",
+    "fleet-luna-xhigh",
+    "fleet-sol-medium",
+    "fleet-sol-xhigh",
+  ]);
+  assert.match(deployCli, /for \(const model of models\)[\s\S]*?probeCompletion\(baseUrl, model\)/);
+  assert.doesNotMatch(defaultModels?.join("\n") ?? "", /pool-/);
   assert.match(deployCli, /MODEL_CATALOG_TIMEOUT_MS = 60_000/);
   assert.match(deployCli, /PUBLIC_COMPLETION_ATTEMPTS = 2/);
   assert.match(deployCli, /attempt <= PUBLIC_COMPLETION_ATTEMPTS/);
