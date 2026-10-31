@@ -84,6 +84,8 @@ services:
       # (upstream #12628; observed 500 on fresh promote probes). Same 60s
       # value as the canary overlay — inside the 60s probe budget.
       CATALOG_BUILD_TIMEOUT_MS: "60000"
+      # Run the integrity check in its isolated child process after startup.
+      DB_HEALTHCHECK_STARTUP_DEFERRED_ENABLED: "true"
       OMNIROUTE_BASE_URL: http://omniroute-parallel:20130
       NEXT_PUBLIC_BASE_URL: https://squrvq.tail0bec0f.ts.net
       OMNIROUTE_PUBLIC_BASE_URL: https://squrvq.tail0bec0f.ts.net

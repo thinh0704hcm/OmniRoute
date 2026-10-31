@@ -35,6 +35,8 @@ services:
       # server-side wait to the 60s schema ceiling — inside the 60s probe
       # budget pinned in scripts/ops/oracle-deploy.mjs.
       CATALOG_BUILD_TIMEOUT_MS: "60000"
+      # Run the integrity check in its isolated child process after startup.
+      DB_HEALTHCHECK_STARTUP_DEFERRED_ENABLED: "true"
       OMNIROUTE_BUILD_SHA: ${OMNIROUTE_BUILD_SHA:?required}
     ports: !override
       - "127.0.0.1:30130:20130"
