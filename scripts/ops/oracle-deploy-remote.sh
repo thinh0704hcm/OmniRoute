@@ -922,7 +922,7 @@ print(hashlib.sha256(serialized).hexdigest())
       OMNIROUTE_CANARY_DATA_DIR="$canary_dir" \
       OMNIROUTE_RUNTIME_UID="$(id -u)" \
       OMNIROUTE_RUNTIME_GID="$(id -g)" \
-      compose_canary up -d --wait --wait-timeout 180 --pull never
+      compose_canary up -d --wait --wait-timeout 330 --pull never
     ;;
 
   stop-canary)
@@ -1032,7 +1032,7 @@ PY
         docker container rm --force "$PROD_CONTAINER" >/dev/null
       fi
     fi
-    compose_prod up -d --wait --wait-timeout 180 --no-deps --pull never omniroute
+    compose_prod up -d --wait --wait-timeout 450 --no-deps --pull never omniroute
     ;;
 
   verify-image)
