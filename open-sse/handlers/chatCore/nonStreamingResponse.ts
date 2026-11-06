@@ -123,6 +123,8 @@ export async function runNonStreamingResponse(deps: NonStreamingDeps) {
     getModelPreserveOpenAIDeveloperRole,
     getSafeErrorMetadata,
     getSkillsModelIdForFormat,
+    advisorModel,
+    runAdvisorModel,
     guardrailRegistry,
     handleCredentialsRefreshed,
     handleToolCallExecution,
@@ -486,7 +488,8 @@ export async function runNonStreamingResponse(deps: NonStreamingDeps) {
     // non-streaming request even with SERVER_OWNED_TOOL_LOOP_ENABLED off (the default).
     // Derive it only when the loop can run, and fail closed rather than crash: no
     // identity means no fence, and without a fence the loop must not run.
-    let toolLoopEnabled = isServerOwnedToolLoopEnabled();
+    let toolLoopEnabled =
+      isServerOwnedToolLoopEnabled() || Boolean(advisorModel && runAdvisorModel);
     let postInjectionRequestIdentity = "";
     if (toolLoopEnabled) {
       try {
@@ -603,6 +606,9 @@ export async function runNonStreamingResponse(deps: NonStreamingDeps) {
         );
       },
       logReceipt: (receipt) => reqLogger.logToolLoopReceipt(receipt),
+      advisorModel,
+      runAdvisorModel,
+      log,
     });
     if (loopApply.kind === "error") {
       return {

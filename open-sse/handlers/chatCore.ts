@@ -402,6 +402,7 @@ async function handleChatCoreInner({
   // the model-bound `body` itself is never touched.
   videoBridgeLog = undefined,
   fallbackAttempts = undefined,
+  runAdvisorModel = null,
   forcedConnectionId = null, // #14116: caller's pinned/requested connection, vs credentials.connectionId below
   allowedConnections = null, // routing allowlist; in-request account rotation must stay inside it
   previousResponseResumed = undefined, // rehydrated-continuation flag from chat.ts; noted below, no semantics.
@@ -792,6 +793,50 @@ async function handleChatCoreInner({
   // provider/model pair; undefined falls through to the existing bypass logic.
   const interceptSearchOverride = resolveInterceptSearch(provider, effectiveModel);
 
+  let advisorModel: string | null = null;
+  if (
+    sourceFormat === FORMATS.CLAUDE &&
+    provider !== "anthropic" &&
+    provider !== "claude" &&
+    Array.isArray(body?.tools)
+  ) {
+    const tools = body.tools as unknown[];
+    const isAdvisorTool = (tool: unknown): tool is Record<string, unknown> => {
+      if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false;
+      const type = (tool as Record<string, unknown>).type;
+      return typeof type === "string" && type.startsWith("advisor_");
+    };
+    const advisors = tools.filter(isAdvisorTool);
+    if (advisors.length > 0) {
+      const configured = advisors.find(
+        (tool) => typeof tool.model === "string" && tool.model.trim().length > 0
+      );
+      if (!configured) {
+        body = { ...body, tools: tools.filter((tool) => !isAdvisorTool(tool)) };
+        log?.warn?.("ADVISOR", "Advisor tool dropped: configured advisor model is unavailable");
+      } else {
+        advisorModel = (configured.model as string).trim();
+        const kept = new Set([configured]);
+        const remaining = tools.filter((tool) => !isAdvisorTool(tool) || kept.has(tool));
+        body = {
+          ...body,
+          tools: remaining.map((tool) =>
+            kept.has(tool)
+              ? {
+                  name: "advisor",
+                  description: "",
+                  input_schema: { type: "object", properties: {} },
+                }
+              : tool
+          ),
+        };
+        if (remaining.length !== tools.length) {
+          log?.warn?.("ADVISOR", "Dropped duplicate or unconfigured advisor tool declaration");
+        }
+      }
+    }
+  }
+
   // Capture client tool names BEFORE fallback injection so the owner-provenance
   // merge can distinguish tools the client already declared from synthetic tools
   // added by the fallback preparer. Without this, a client function named
@@ -1058,13 +1103,19 @@ async function handleChatCoreInner({
   // flag into resolveStreamFlag would force `stream=true` and skip that
   // conversion, yielding STREAM_EARLY_EOF for JSON callers. (#2081, #6126)
   const providerRequiresStreaming = REGISTRY[provider]?.forceStream === true;
-  const stream =
+  let stream =
     nativeCodexPassthrough && isCompactResponsesEndpoint(endpointPath)
       ? false
       : resolveStreamFlag(body?.stream, acceptHeader, sourceFormat, {
           userAgent: streamUserAgent,
           streamDefaultMode: apiKeyInfo?.streamDefaultMode,
         });
+  if (advisorModel && stream) {
+    clientRequestedResponsesStream = true;
+    stream = false;
+    if (body && typeof body === "object") (body as Record<string, unknown>).stream = false;
+    log?.info?.("ADVISOR", "Advisor tool forced a buffered response for server-side execution");
+  }
 
   // `settings` is already consolidated once near the top of handleChatCore
   // (the "fetch once, reuse" const). A second `const settings` here was a
@@ -3317,6 +3368,8 @@ async function handleChatCoreInner({
       getModelPreserveOpenAIDeveloperRole,
       getSafeErrorMetadata,
       getSkillsModelIdForFormat,
+      advisorModel,
+      runAdvisorModel,
       guardrailRegistry,
       handleCredentialsRefreshed,
       handleToolCallExecution,
