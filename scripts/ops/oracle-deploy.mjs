@@ -403,8 +403,7 @@ async function runTrafficProbes(baseUrl, models) {
     completionResults.push(ok);
   }
   const streamingOk = await probeStreaming(baseUrl, models[0]);
-  const comboModel = models.includes("pool-sonnet") ? "pool-sonnet" : models[0];
-  const comboRequestOk = await probeCompletion(baseUrl, comboModel);
+  const comboRequestOk = await probeCompletion(baseUrl, models[0]);
   return {
     modelsOk: modelProbe.ok,
     modelIds: modelProbe.modelIds,
@@ -490,7 +489,7 @@ async function qualify(host, input, models) {
       );
     }
     canaryDir = runRemote(host, "prepare-canary", [input.buildSha], {
-      timeoutMs: 600_000,
+      timeoutMs: 3_600_000,
     });
     const databasePath = `${canaryDir}/storage.sqlite`;
     const before = runRemote(host, "call-log-max", [databasePath]);
@@ -577,7 +576,7 @@ async function promote(host, candidate, models) {
         composeHash,
       };
     },
-    backupDatabase: async () => runRemote(host, "backup", [], { timeoutMs: 600_000 }),
+    backupDatabase: async () => runRemote(host, "backup", [], { timeoutMs: 3_600_000 }),
     tagRollback: async (_rollbackRef, imageId) => runRemote(host, "tag-rollback", [imageId]),
     tagGatewayRollback: async (rollbackRef) =>
       runRemote(host, "tag-gateway-rollback", [rollbackRef]),

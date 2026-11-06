@@ -85,6 +85,12 @@ test("readiness probes use the dashboard port rather than the API-only port", ()
     "fleet-sol-medium",
     "fleet-sol-xhigh",
   ]);
+  assert.doesNotMatch(deployCli, /pool-/);
+  assert.match(deployCli, /runRemote\(host, "prepare-canary"[\s\S]*?timeoutMs: 3_600_000/);
+  assert.match(
+    deployCli,
+    /backupDatabase: async \(\) => runRemote\(host, "backup", \[\], \{ timeoutMs: 3_600_000 \}\)/
+  );
   assert.match(deployCli, /for \(const model of models\)[\s\S]*?probeCompletion\(baseUrl, model\)/);
   assert.doesNotMatch(defaultModels?.join("\n") ?? "", /pool-/);
   assert.match(deployCli, /MODEL_CATALOG_TIMEOUT_MS = 60_000/);
