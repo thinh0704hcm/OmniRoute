@@ -19,6 +19,7 @@ import {
   evaluateLocalRuntimeGate,
   isImmutableOmniRouteImage,
   promoteWithRollback,
+  waitForHealthyRuntime,
 } from "./oracleDeploy.ts";
 
 const REMOTE_HELPER = "/home/ubuntu/OmniRoute-src/scripts/ops/oracle-deploy-remote.sh";
@@ -502,7 +503,10 @@ async function qualify(host, input, models) {
       );
       const after = runRemote(host, "call-log-max", [databasePath]);
       const comboEvidence = await waitForComboLogEvidence(host, databasePath, before);
-      const runtime = readRemoteJson(host, "inspect-canary");
+      const runtime = await waitForHealthyRuntime(
+        () => readRemoteJson(host, "inspect-canary"),
+        () => sleep(5_000)
+      );
       const gate = {
         containerName: String(runtime.containerName || "").replace(/^\//, "") || null,
         containerStatus: runtime.status ?? null,
@@ -596,7 +600,10 @@ async function promote(host, candidate, models) {
       );
       const after = runRemote(host, "call-log-max");
       const comboEvidence = await waitForComboLogEvidence(host, "", logBefore);
-      const runtime = readRemoteJson(host, "inspect-prod");
+      const runtime = await waitForHealthyRuntime(
+        () => readRemoteJson(host, "inspect-prod"),
+        () => sleep(5_000)
+      );
       const image = readRemoteJson(host, "inspect-image", [candidate.imageRef]);
       return {
         containerName: String(runtime.containerName || "").replace(/^\//, "") || null,

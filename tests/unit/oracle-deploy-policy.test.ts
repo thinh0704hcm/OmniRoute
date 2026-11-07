@@ -9,6 +9,7 @@ import {
   evaluatePublicGate,
   isImmutableOmniRouteImage,
   promoteWithRollback,
+  waitForHealthyRuntime,
   type DeploymentManifest,
   type LocalRuntimeGate,
   type OracleDeployAdapter,
@@ -165,6 +166,45 @@ function makeAdapter(
   };
   return { ...adapter, ...overrides };
 }
+
+test("runtime health waits for Docker recovery and still rejects persistent unhealthy state", async () => {
+  const ready = { health: "healthy" };
+  assert.equal(
+    await waitForHealthyRuntime(
+      () => ready,
+      async () => assert.fail("already healthy")
+    ),
+    ready
+  );
+  let inspections = 0;
+  let pauses = 0;
+  const recovered = await waitForHealthyRuntime(
+    () => ({ health: ++inspections < 3 ? "unhealthy" : "healthy" }),
+    async () => {
+      pauses++;
+    }
+  );
+  assert.equal(recovered.health, "healthy");
+  assert.equal(inspections, 3);
+  assert.equal(pauses, 2);
+  inspections = 0;
+  pauses = 0;
+  const failed = await waitForHealthyRuntime(
+    () => {
+      inspections++;
+      return { health: "unhealthy" };
+    },
+    async () => {
+      pauses++;
+    }
+  );
+  assert.equal(inspections, 25);
+  assert.equal(pauses, 24);
+  assert.equal(
+    evaluateLocalRuntimeGate({ ...PASSING_LOCAL, healthStatus: failed.health }).ok,
+    false
+  );
+});
 
 test("startup waits include cold database migration and health-check grace", () => {
   const waitSeconds = [...remoteHelper.matchAll(/--wait-timeout (\d+)/g)].map((m) => Number(m[1]));

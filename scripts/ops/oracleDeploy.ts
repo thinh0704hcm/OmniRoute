@@ -158,6 +158,19 @@ function strictNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+// Docker health observations lag successful traffic probes by the check interval.
+export async function waitForHealthyRuntime(
+  inspect: () => Record<string, unknown>,
+  pause: () => Promise<void>
+): Promise<Record<string, unknown>> {
+  let runtime = inspect();
+  for (let attempt = 0; runtime.health !== "healthy" && attempt < 24; attempt++) {
+    await pause();
+    runtime = inspect();
+  }
+  return runtime;
+}
+
 /** Strict local contract. Missing, null, malformed, and false values fail closed. */
 export function evaluateLocalRuntimeGate(input: unknown): RuntimeGateVerdict {
   const gate = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
