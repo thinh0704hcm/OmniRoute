@@ -166,6 +166,14 @@ function makeAdapter(
   return { ...adapter, ...overrides };
 }
 
+test("startup waits include cold database migration and health-check grace", () => {
+  const waitSeconds = [...remoteHelper.matchAll(/--wait-timeout (\d+)/g)].map((m) => Number(m[1]));
+  assert.equal(waitSeconds.length, 2);
+  for (const seconds of waitSeconds) assert.ok(seconds > 1800 + 5 * (30 + 8));
+  assert.match(deployCli, /"start-canary"[\s\S]*?timeoutMs: 2_400_000/);
+  assert.doesNotMatch(deployCli, /"recreate-prod", \[\], \{ timeoutMs: 600_000 \}/);
+});
+
 test("Oracle deploy accepts immutable digests and unique SHA tags only", () => {
   assert.equal(isImmutableOmniRouteImage("omniroute:canary-abc1234-20260822"), true);
   assert.equal(

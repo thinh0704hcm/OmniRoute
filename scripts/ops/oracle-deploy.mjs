@@ -495,7 +495,7 @@ async function qualify(host, input, models) {
     const before = runRemote(host, "call-log-max", [databasePath]);
     try {
       runRemote(host, "start-canary", [input.imageRef, input.buildSha, canaryDir], {
-        timeoutMs: 600_000,
+        timeoutMs: 2_400_000,
       });
       const probes = await withDualTunnels(host, true, ({ dashboard, api }) =>
         runTrafficProbesWithGates(dashboard, api, models)
@@ -589,7 +589,7 @@ async function promote(host, candidate, models) {
     reconcileEnvironment: async () => runRemote(host, "reconcile-squrvq-env"),
     writeCandidateImage: async (imageRef) =>
       runRemote(host, "set-image", [imageRef, candidate.buildSha]),
-    recreateProduction: async () => runRemote(host, "recreate-prod", [], { timeoutMs: 600_000 }),
+    recreateProduction: async () => runRemote(host, "recreate-prod", [], { timeoutMs: 2_400_000 }),
     probeLocalGates: async () => {
       const probes = await withDualTunnels(host, false, ({ dashboard, api }) =>
         runTrafficProbesWithGates(dashboard, api, models)
@@ -728,7 +728,7 @@ async function rollback(host, models) {
       timeoutMs: 60_000,
     });
     runRemote(host, "set-image", [rollbackTarget.imageRef, rollbackTarget.buildSha]);
-    runRemote(host, "recreate-prod", [], { timeoutMs: 600_000 });
+    runRemote(host, "recreate-prod", [], { timeoutMs: 2_400_000 });
     runRemote(host, "verify-image", [rollbackTarget.imageId]);
     const smokeOk = await withDualTunnels(host, false, async ({ dashboard, api }) => {
       await waitForHealth(dashboard);
@@ -769,7 +769,7 @@ async function rollback(host, models) {
           throw new Error("current target is incomplete");
         }
         runRemote(host, "set-image", [currentTarget.imageRef, currentTarget.buildSha]);
-        runRemote(host, "recreate-prod", [], { timeoutMs: 600_000 });
+        runRemote(host, "recreate-prod", [], { timeoutMs: 2_400_000 });
         runRemote(host, "verify-image", [currentTarget.imageId]);
       } catch (restoreError) {
         failures.push(`image restoration failed: ${sanitizeFailure(restoreError)}`);

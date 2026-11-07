@@ -108,7 +108,7 @@ services:
       timeout: 8s
       retries: 5
       # Cold migrations on the production database block /healthz.
-      start_period: 180s
+      start_period: 1800s
 
 volumes:
   redis-data:

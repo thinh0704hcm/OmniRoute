@@ -16,6 +16,9 @@ services:
       API_HOST: 0.0.0.0
       LIVE_WS_PORT: "20133"
       LIVE_WS_HOST: 127.0.0.1
+      LIVE_WS_ALLOWED_ORIGINS: https://squrvq.tail0bec0f.ts.net
+      LIVE_WS_PUBLIC_URL: wss://squrvq.tail0bec0f.ts.net/live-ws
+      NEXT_PUBLIC_LIVE_WS_PUBLIC_URL: wss://squrvq.tail0bec0f.ts.net/live-ws
       ADAPTIVE_ADMISSION_MODE: shadow
       ADAPTIVE_ADMISSION_INITIAL_LIMIT: "768"
       ADAPTIVE_ADMISSION_MAX_QUEUE_COUNT: "512"
@@ -52,4 +55,4 @@ services:
       timeout: 8s
       retries: 5
       # Cold migrations on the copied production database block /healthz.
-      start_period: 180s
+      start_period: 1800s

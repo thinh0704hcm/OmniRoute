@@ -21,6 +21,7 @@ type ComposeService = {
   mem_limit?: string;
   memswap_limit?: string;
   cpus?: string;
+  healthcheck?: { start_period?: string };
 };
 
 type ComposeDocument = {
@@ -124,6 +125,7 @@ test("Oracle overlay exposes only dashboard/API on loopback, squrvq origins, and
   assert.equal(service?.mem_limit, "12g");
   assert.equal(service?.memswap_limit, "12g");
   assert.equal(service?.cpus, "4.0");
+  assert.equal(service?.healthcheck?.start_period, "1800s");
   assert.doesNotMatch(raw, /OMNIROUTE_WS_BIND_HOST/);
   assert.doesNotMatch(raw, /:20133/);
 });
@@ -135,6 +137,7 @@ test("Oracle canary mirrors enforcement and exposes only dashboard/API locally",
 
   assert.equal(parsed.services?.redis?.image, "docker.io/library/redis:7.4.10-alpine");
   assert.equal(service?.container_name, "omniroute-canary");
+  assert.equal(service?.environment?.LIVE_WS_ALLOWED_ORIGINS, "https://squrvq.tail0bec0f.ts.net");
   assert.deepEqual(service?.ports, ["127.0.0.1:30130:20130", "127.0.0.1:30131:20131"]);
   assert.equal(service?.environment?.LIVE_WS_HOST, "127.0.0.1");
   assert.equal(service?.environment?.ADAPTIVE_ADMISSION_MODE, "shadow");
@@ -149,6 +152,7 @@ test("Oracle canary mirrors enforcement and exposes only dashboard/API locally",
   assert.equal(service?.environment?.OMNIROUTE_CHAT_VIRTUAL_LANES, "4");
   assert.equal(service?.environment?.CATALOG_BUILD_TIMEOUT_MS, "60000");
   assert.equal(service?.cpus, "4.0");
+  assert.equal(service?.healthcheck?.start_period, "1800s");
   assert.deepEqual(service?.volumes, ["${OMNIROUTE_CANARY_DATA_DIR:?required}:/app/data"]);
   assert.match(raw, /ports: !override/);
   assert.match(raw, /volumes: !override/);
